@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "MemoryACL": {
+      "additionalProperties": false,
+      "properties": {
+        "readers": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "reviewers": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "writers": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": ["readers", "writers", "reviewers"],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_MEMORY_V1", "type": "string"},
+    "memory_id": {
+      "maxLength": 127,
+      "minLength": 8,
+      "pattern": "^memory-[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+      "type": "string"
+    },
+    "scope": {"enum": ["agent_private", "run_shared", "project_shared", "user"], "type": "string"},
+    "owner_id": {
+      "maxLength": 255,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+      "type": "string"
+    },
+    "namespace": {
+      "maxLength": 255,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+      "type": "string"
+    },
+    "content_ref": {"maxLength": 68, "minLength": 68, "pattern": "^cas:[0-9a-f]{64}$", "type": "string"},
+    "content_hash": {"maxLength": 64, "minLength": 64, "pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "source_event_ids": {
+      "items": {"maxLength": 255, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$", "type": "string"},
+      "maxItems": 256,
+      "type": "array"
+    },
+    "source_run_ids": {
+      "items": {"maxLength": 255, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$", "type": "string"},
+      "maxItems": 64,
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {"maxLength": 68, "minLength": 68, "pattern": "^cas:[0-9a-f]{64}$", "type": "string"},
+      "maxItems": 128,
+      "type": "array"
+    },
+    "confidence": {"maximum": 1.0, "minimum": 0.0, "type": "number"},
+    "sensitivity": {"enum": ["low", "moderate", "high", "restricted"], "type": "string"},
+    "status": {"enum": ["candidate", "accepted", "rejected", "superseded", "revoked", "expired"], "type": "string"},
+    "valid_from": {"format": "date-time", "type": "string"},
+    "expires_at": {"anyOf": [{"format": "date-time", "type": "string"}, {"type": "null"}]},
+    "retention_policy": {"enum": ["until-superseded", "until-expired", "explicit-revocation", "legal-retention"], "type": "string"},
+    "supersedes": {
+      "items": {"maxLength": 127, "minLength": 8, "pattern": "^memory-[A-Za-z0-9][A-Za-z0-9._-]{0,119}$", "type": "string"},
+      "maxItems": 64,
+      "type": "array"
+    },
+    "superseded_by": {
+      "anyOf": [
+        {"maxLength": 127, "minLength": 8, "pattern": "^memory-[A-Za-z0-9][A-Za-z0-9._-]{0,119}$", "type": "string"},
+        {"type": "null"}
+      ]
+    },
+    "acl": {"$ref": "#/$defs/MemoryACL"}
+  },
+  "required": [
+    "memory_id", "scope", "owner_id", "namespace", "content_ref", "content_hash",
+    "confidence", "sensitivity", "valid_from", "retention_policy", "acl"
+  ],
+  "title": "SITINA_MEMORY_V1",
+  "type": "object"
+}

@@ -1,0 +1,117 @@
+{
+  "schema": "SITINA_OPTIMIZATION_PHASE10_GATE_EVIDENCE_V1",
+  "checkpoint": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+  "business_requirement_status_changes": 22,
+  "requirement_results": {
+    "P-01": "PASS_NEW",
+    "P-02": "PASS_NEW",
+    "P-03": "PASS_NEW",
+    "P-04": "PASS_NEW",
+    "P-05": "PASS_NEW",
+    "P-06": "PASS_NEW",
+    "P-07": "PASS_NEW",
+    "P-08": "PASS_NEW",
+    "P-09": "PASS_NEW",
+    "P-10": "PASS_NEW",
+    "P-11": "PASS_NEW",
+    "P-12": "PASS_NEW",
+    "P-13": "PASS_NEW",
+    "P-14": "PASS_NEW",
+    "P-15": "PASS_NEW",
+    "P-16": "PASS_NEW",
+    "P-17": "PASS_NEW",
+    "P-18": "PASS_NEW",
+    "P-19": "PASS_NEW",
+    "P-20": "PASS_NEW",
+    "P-21": "PASS_NEW",
+    "P-22": "PASS_NEW"
+  },
+  "prompt_contract_boundaries": {
+    "all_registered_roles_render_machine_contract": true,
+    "contract_hash_verified": true,
+    "missing_prompt_blocks_mock_and_live": true,
+    "output_schema_fields_validated": true,
+    "pr05_rubric_exact_match": true,
+    "responsibility_owners_unique": true,
+    "schema_repairs_maximum": 1,
+    "untrusted_sources": ["user", "tool", "web", "memory", "handoff"]
+  },
+  "full_gate": {
+    "status": "PASS",
+    "source_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+    "live_provider_enabled": false,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "name": "config_validate",
+        "exit_code": 0,
+        "duration_seconds": 1.550913,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508"
+      },
+      {
+        "name": "cumulative_tests",
+        "exit_code": 0,
+        "duration_seconds": 116.140049,
+        "test_count": 1066,
+        "skipped_count": 21,
+        "timed_out": false,
+        "stdout_sha256": "de01cdb0b0d033c02492a3fb22c4d74a4b1007554433d7b3a71c97734c5fe127"
+      }
+    ]
+  },
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-10/phase-10-ledger-source-r3.json",
+      "test_count": 31,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "d2f4cb24d86e13df46ceb4e6004884dc7d04d38f4052c378140d1904daa7d07f"
+    },
+    "agent_prompt_contracts": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-10/phase-10-targeted-r2.json",
+      "test_count": 22,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "0ead6bb80001d53a12bdcd73b1525242928498a8daabc616cbae58c0cbe8915f"
+    },
+    "affected_integration_and_reliability": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-10/phase-10-integration-r1.json",
+      "test_count": 170,
+      "skipped_count": 1,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "945336a63a7faefb8774d7d261e83ffe310fa98b002675307d6098e48141f473"
+    }
+  },
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-10/phase-10-preflight.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-targeted-r1.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-integration-r1.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-full-precommit.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-full-gate.json",
+    "external:output/optimization-bootstrap/phase-10/phase-10-ledger-source-r3.json"
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "The first attempted direct suite-runner command was not executable and the manifest-bound runner also rejected an already-changed external production sentinel before test execution.",
+      "resolution": "Used the phase optimization gate, which creates a fresh isolated Home and applies network and production mutation guards for every targeted and cumulative test.",
+      "verification": "external:output/optimization-bootstrap/phase-10/phase-10-targeted-r1.json"
+    }
+  ],
+  "notes": [
+    "P-01 through P-22 each have a dedicated final-prompt golden or parsed-contract test rather than word-only file checks.",
+    "The runtime combines role text with one hash-bound machine contract, validates config/schema/rubric consistency, and refuses to start a role when its prompt contract is absent or divergent.",
+    "Representative Planner, Reviewer, Tester, Arbiter, Security, Researcher, Memory and Summary outputs are schema and prompt-contract validated.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remained disabled."
+  ]
+}

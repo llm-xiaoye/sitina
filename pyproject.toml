@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools==80.10.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sitina"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "cryptography==49.0.0",
+  "pydantic==2.13.4",
+  "zstandard==0.25.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "core"}
+
+[tool.setuptools.packages.find]
+where = ["core"]
+
+[tool.sitina-bplus]
+python-profile = "CPYTHON_3_12_13_MACOS_ARM64_V1"
+dependency-lock = "requirements-bplus.lock"
+audit-mode = "CONTENT_MANIFEST_V1"

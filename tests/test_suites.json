@@ -1,0 +1,476 @@
+{
+  "schema": "BPLUS_TEST_SUITES_V1",
+  "approved_python": "/Users/moss/Desktop/sitina/bplus-test-runtime/cpython-3.12.13-lock-dbc3f95b77ed/bin/python",
+  "dependency_lock_sha256": "dbc3f95b77ed7034b5a48954abf579f2af77d3d410061482a7062e08d7e8c4bc",
+  "production_home": "/Users/moss/SitinaHub",
+  "test_home_root": "/Users/moss/Desktop/sitina/bplus-test-homes",
+  "selector_reuse_allowlist": {
+    "tests/foundation/test_home_isolation.py": [
+      "unit_fast",
+      "crash_fault"
+    ],
+    "tests/foundation/test_test_runner.py": [
+      "unit_fast",
+      "crash_fault"
+    ],
+    "tests/foundation/test_step7_readiness_gate.py": [
+      "unit_fast",
+      "execution_activation_gate",
+      "step7_readiness_gate"
+    ],
+    "tests/test_execution_bridge.py": [
+      "unit_fast",
+      "execution_activation_gate"
+    ],
+    "tests/test_execution_bridge_integration.py": [
+      "integration_isolated",
+      "execution_activation_gate"
+    ],
+    "tests/test_execution_sandbox.py": [
+      "integration_isolated",
+      "execution_activation_gate"
+    ],
+    "tests/test_execution_verifier_frozen.py": [
+      "integration_isolated",
+      "execution_activation_gate"
+    ],
+    "tests/test_frozen_fence_contract.py": [
+      "integration_isolated",
+      "execution_activation_gate"
+    ],
+    "tests/test_frozen_home_fixture.py": [
+      "integration_isolated",
+      "execution_activation_gate"
+    ]
+  },
+  "historical_skip_allowlist": [
+    {
+      "test_id": "tests.foundation.test_phase_minus1_acceptance.PhaseMinus1AcceptanceTests.test_default_suites_pass_with_zero_external_or_production_access",
+      "reason": "historical Phase -1 acceptance is evaluated only by its manifest-bound suite"
+    },
+    {
+      "test_id": "tests.foundation.test_phase_minus1_acceptance.PhaseMinus1AcceptanceTests.test_legacy_baseline_reproducible_with_semantics_preserved",
+      "reason": "historical Phase -1 acceptance is evaluated only by its manifest-bound suite"
+    },
+    {
+      "test_id": "tests.foundation.test_phase_minus1_acceptance.PhaseMinus1AcceptanceTests.test_manifest_promotion_and_pinned_profile",
+      "reason": "historical Phase -1 acceptance is evaluated only by its manifest-bound suite"
+    },
+    {
+      "test_id": "tests.foundation.test_phase_minus1_acceptance.PhaseMinus1AcceptanceTests.test_plan_inventory_and_incident_recovery_gates",
+      "reason": "historical Phase -1 acceptance is evaluated only by its manifest-bound suite"
+    },
+    {
+      "test_id": "tests.foundation.test_phase_minus1_acceptance.PhaseMinus1AcceptanceTests.test_source_only_manifest_is_current_and_excludes_runtime",
+      "reason": "historical Phase -1 acceptance is evaluated only by its manifest-bound suite"
+    }
+  ],
+  "suites": {
+    "unit_fast": {
+      "selectors": [
+        "tests/foundation/test_execution_contract.py",
+        "tests/foundation/test_change_audit.py",
+        "tests/foundation/test_dependency_lock_gate.py",
+        "tests/foundation/test_registration_gate_runner.py",
+        "tests/foundation/test_runtime_profile.py",
+        "tests/foundation/test_home_isolation.py",
+        "tests/foundation/test_test_runner.py",
+        "tests/foundation/test_sentinel_content_addressed.py",
+        "tests/foundation/test_step7_readiness_gate.py",
+        "tests/foundation/test_plan_suite_integrity.py",
+        "tests/optimization/test_ledger_coverage.py",
+        "tests/optimization/test_blackboard_state_management.py",
+        "tests/optimization/test_context_handoff_management.py",
+        "tests/optimization/test_memory_management.py",
+        "tests/optimization/test_orchestration_management.py",
+        "tests/optimization/test_observability_management.py",
+        "tests/optimization/test_performance_cost_management.py",
+        "tests/optimization/test_agent_prompt_contracts.py",
+        "tests/optimization/test_proposal_review_management.py",
+        "tests/optimization/test_reliability_management.py",
+        "tests/optimization/test_requirement_test_map.py",
+        "tests/optimization/test_routing_management.py",
+        "tests/optimization/test_security_management.py",
+        "tests/optimization/test_shared_contracts.py",
+        "tests/optimization/test_source_manifest_coverage.py",
+        "tests/optimization/test_system_evaluation.py",
+        "tests/optimization/test_suggestion_management.py",
+        "tests/test_execution_bridge.py",
+        "tests/test_capability_config.py"
+      ],
+      "timeout_seconds": 900,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
+    },
+    "integration_isolated": {
+      "selectors": [
+        "tests/test_evidence_hardening.py",
+        "tests/test_agent_scheduling.py",
+        "tests/test_blackboard_projection.py",
+        "tests/test_checkpoint_resume_v1.py",
+        "tests/test_clean_acceptance_fence_routing.py",
+        "tests/test_handoff_contracts.py",
+        "tests/test_handoff_projection.py",
+        "tests/test_legacy_retirement_disabled.py",
+        "tests/test_negotiation_projection.py",
+        "tests/test_postcutover_network_egress.py",
+        "tests/test_postcutover_protocol_read_routing.py",
+        "tests/test_provider_recovery_projection.py",
+        "tests/test_task_lease_projection.py",
+        "tests/test_true_multi_agent_cli_routing.py",
+        "tests/test_production_cli_retirement.py",
+        "tests/test_conversation_router.py",
+        "tests/test_chat_cli.py",
+        "tests/test_fast_conversation_runtime.py",
+        "tests/test_extensions.py",
+        "tests/test_provider_tool_protocols.py",
+        "tests/test_execution_bridge_integration.py",
+        "tests/test_execution_sandbox.py",
+        "tests/test_frozen_home_fixture.py",
+        "tests/test_frozen_fence_contract.py",
+        "tests/test_execution_verifier_frozen.py",
+        "tests/test_execution_target_v2.py",
+        "tests/test_git_worktree_cleanup.py",
+        "tests/test_managed_processes.py",
+        "tests/test_shell_mutation_guard.py",
+        "tests/test_true_multi_agent_provider_transport.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
+    },
+    "execution_activation_gate": {
+      "selectors": [
+        "tests/test_execution_bridge.py",
+        "tests/test_execution_bridge_integration.py",
+        "tests/test_execution_sandbox.py",
+        "tests/test_frozen_home_fixture.py",
+        "tests/test_frozen_fence_contract.py",
+        "tests/test_execution_verifier_frozen.py",
+        "tests/foundation/test_step7_readiness_gate.py"
+      ],
+      "timeout_seconds": 600,
+      "expected_duration": "activation-gate",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
+    },
+    "step7_readiness_gate": {
+      "selectors": [
+        "tests/foundation/test_step7_readiness_gate.py"
+      ],
+      "timeout_seconds": 600,
+      "expected_duration": "readiness-gate",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
+    },
+    "all_registered_unique": {
+      "selectors": [],
+      "selector_source": "ALL_REGISTERED_UNIQUE_INCLUDING_LIVE_PROVIDER_OFFLINE_CONTRACT_V2",
+      "timeout_seconds": 900,
+      "expected_duration": "complete-registration-gate",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "EXACT_HISTORICAL_SKIP_ALLOWLIST_V1"
+    },
+    "crash_fault": {
+      "selectors": [
+        "tests/foundation/test_home_isolation.py",
+        "tests/foundation/test_test_runner.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL"
+    },
+    "legacy_readonly_observation": {
+      "selectors": [
+        "tests/foundation/test_phase_minus1_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "READ_ONLY_ADAPTER_ONLY"
+    },
+    "phase0_fixture": {
+      "selectors": [
+        "tests/test_legacy_compatibility.py",
+        "tests/test_legacy_inventory.py",
+        "tests/test_legacy_classification.py"
+      ],
+      "timeout_seconds": 600,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
+    },
+    "phase0_acceptance": {
+      "selectors": [
+        "tests/test_phase0_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
+    },
+    "phase1_kernel": {
+      "selectors": [
+        "tests/test_bplus_profiles.py",
+        "tests/test_journal_model.py",
+        "tests/test_journal_codec.py",
+        "tests/test_journal_lock.py",
+        "tests/test_local_journal.py",
+        "tests/test_journal_crash_matrix.py",
+        "tests/test_key_profiles.py",
+        "tests/test_cas_crypto.py",
+        "tests/test_local_cas.py",
+        "tests/test_cas_gc_fence.py",
+        "tests/test_projection_kernel.py",
+        "tests/test_operational_authority.py",
+        "tests/test_projection_consistency.py",
+        "tests/test_command_outcomes.py",
+        "tests/test_capacity_gates.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
+    },
+    "phase1_acceptance": {
+      "selectors": [
+        "tests/test_phase1_kernel_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
+    },
+    "phase2_runtime": {
+      "selectors": [
+        "tests/test_protocol_runtime.py",
+        "tests/test_run_admission.py",
+        "tests/test_permit_entity_creation.py",
+        "tests/test_task_graph_protocol.py",
+        "tests/test_task_claims.py",
+        "tests/test_resource_leases.py",
+        "tests/test_process_managers.py",
+        "tests/test_scheduler_decisions.py",
+        "tests/test_dispatch_outbox.py",
+        "tests/test_durable_timers.py",
+        "tests/test_terminal_eligibility.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
+    },
+    "phase2_acceptance": {
+      "selectors": [
+        "tests/test_phase2_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
+    },
+    "phase3_runtime": {
+      "selectors": [
+        "tests/test_obligations.py",
+        "tests/test_proposal_protocol.py",
+        "tests/test_debate_protocol.py",
+        "tests/test_review_protocol.py",
+        "tests/test_handoff_protocol.py",
+        "tests/test_merge_protocol.py",
+        "tests/test_arbitration_protocol.py",
+        "tests/test_rework_protocol.py",
+        "tests/test_blackboard_mvcc.py",
+        "tests/test_protocol_coordination.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
+    },
+    "phase3_acceptance": {
+      "selectors": [
+        "tests/test_phase3_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
+    },
+    "phase4_runtime": {
+      "selectors": [
+        "tests/test_effect_state_matrix.py",
+        "tests/test_effect_creation_saga.py",
+        "tests/test_adapter_manifests.py",
+        "tests/test_effect_attempts.py",
+        "tests/test_effect_observations.py",
+        "tests/test_effect_reconciliation.py",
+        "tests/test_manual_effect_resolution.py",
+        "tests/test_compensation_effects.py",
+        "tests/test_effect_approval_credentials.py",
+        "tests/test_effect_ingress_durability.py",
+        "tests/test_tool_result_quarantine.py",
+        "tests/test_effect_budget_breaker.py",
+        "tests/test_effect_closing_monitoring.py",
+        "tests/test_read_effect_sessions.py",
+        "tests/test_effect_adapter_shadow.py",
+        "tests/test_side_effect_audit.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
+    },
+    "phase4_acceptance": {
+      "selectors": [
+        "tests/test_phase4_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
+    },
+    "phase5_runtime": {
+      "selectors": [
+        "tests/test_evidence_policy_profile.py",
+        "tests/test_opt_v1.py",
+        "tests/test_terminal_coordinator.py",
+        "tests/test_evidence_package.py",
+        "tests/test_evidence_completeness.py",
+        "tests/test_evidence_assessment.py",
+        "tests/test_evidence_seal.py",
+        "tests/test_bundle_artifacts.py",
+        "tests/test_offline_replay.py",
+        "tests/test_evidence_supplements.py",
+        "tests/test_archive_copies.py",
+        "tests/test_replica_eviction.py",
+        "tests/test_canonical_backup.py",
+        "tests/test_restore_drill.py",
+        "tests/test_retention_gc.py",
+        "tests/test_legacy_evidence_label.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
+    },
+    "phase5_acceptance": {
+      "selectors": [
+        "tests/test_phase5_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
+    },
+    "phase6a_runtime": {
+      "selectors": [
+        "tests/test_cutover_contracts.py",
+        "tests/test_authority_resolver.py",
+        "tests/test_legacy_writer_fence_coverage.py",
+        "tests/test_production_journal_genesis.py",
+        "tests/test_legacy_import.py",
+        "tests/test_reader_generation.py",
+        "tests/test_cutover_dry_run.py",
+        "tests/test_effect_capability_activation.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "FIXTURE_ONLY_WITH_CONTROL_SENTINEL",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
+    },
+    "phase6a_acceptance": {
+      "selectors": [
+        "tests/test_phase6a_acceptance.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "fast",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROL_REPORTS_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
+    },
+    "phase6a_production_tooling": {
+      "selectors": [
+        "tests/test_phase6a_production_tooling.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "CONTROLLED_PRODUCTION_SIMULATION_IN_DISPOSABLE_HOME_ONLY",
+      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-remediation-execution-manifest-v1.json"
+    },
+    "storage_v2_isolated": {
+      "selectors": [
+        "tests/test_conversation_storage_integration.py",
+        "tests/test_agent_context_v2.py",
+        "tests/test_atomic_storage_protocols.py",
+        "tests/test_blackboard_native.py",
+        "tests/test_cas_compression_dedup.py",
+        "tests/test_cas_lifecycle_semantic_gc.py",
+        "tests/test_cas_metadata_packs.py",
+        "tests/test_feature_rollout.py",
+        "tests/test_journal_fast_start_integration.py",
+        "tests/test_journal_fast_start_v2.py",
+        "tests/test_legacy_archive_plan.py",
+        "tests/test_list_projection_fast_start.py",
+        "tests/test_memory_native_v1.py",
+        "tests/test_projection_stable_v2.py",
+        "tests/test_provider_health_journal_native.py",
+        "tests/test_provider_secret_references.py",
+        "tests/test_read_only_diagnostics_cli.py",
+        "tests/test_run_checkpoint_evidence_v2.py",
+        "tests/test_session_context_v1.py",
+        "tests/test_session_state_summary_v1.py",
+        "tests/test_storage_compatibility.py",
+        "tests/test_storage_metrics.py",
+        "tests/test_storage_closure_sentinel.py",
+        "tests/test_production_backup.py",
+        "tests/test_tool_output_lifecycle.py",
+        "tests/test_trash_lease_restore.py",
+        "tests/test_worktree_state_v1.py"
+      ],
+      "timeout_seconds": 1800,
+      "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY"
+    },
+    "optimization_performance": {
+      "selectors": [
+        "tests/benchmarks/test_system_performance_benchmarks.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "benchmark",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY"
+    },
+    "live_provider_opt_in": {
+      "selectors": [
+        "tests/test_live_audit_acceptance_contract.py"
+      ],
+      "timeout_seconds": 3600,
+      "expected_duration": "live",
+      "external_io_policy": "EXPLICIT_CURRENT_MANIFEST_ONLY",
+      "production_policy": "DISPOSABLE_HOME_ONLY"
+    }
+  }
+}

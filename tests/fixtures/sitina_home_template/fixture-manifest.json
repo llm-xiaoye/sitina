@@ -1,0 +1,31 @@
+{
+  "schema": "SITINA_DISPOSABLE_HOME_TEMPLATE_V1",
+  "copy_roots": [
+    "agents",
+    "bin",
+    "config",
+    "core",
+    "docs",
+    "mcp_servers",
+    "prompts",
+    "schemas"
+  ],
+  "safe_config_env_files": [
+    "permissions.env",
+    "roles.env",
+    "sitina.env"
+  ],
+  "excluded": [
+    "**/.DS_Store",
+    "**/__pycache__/**",
+    "profiles/*.env",
+    "data/**",
+    "logs/**",
+    "state/**",
+    "artifacts/**",
+    "outputs/**",
+    "memory/**",
+    "backups/**",
+    "temp/**"
+  ]
+}

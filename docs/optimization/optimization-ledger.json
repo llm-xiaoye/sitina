@@ -1,0 +1,3463 @@
+{
+  "audit_summary": {
+    "MISSING": 43,
+    "PARTIAL": 98,
+    "PASS_EXISTING": 8
+  },
+  "checkpoints": [
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/gate-summary.json"
+      ],
+      "name": "phase-00-baseline-r1",
+      "phase": "00"
+    },
+    {
+      "commit": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-01/gate-summary.json"
+      ],
+      "name": "phase-01-contracts",
+      "phase": "01"
+    },
+    {
+      "commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "name": "phase-02-blackboard",
+      "phase": "02"
+    },
+    {
+      "commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "name": "phase-03-memory",
+      "phase": "03"
+    },
+    {
+      "commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "name": "phase-04-context-handoff",
+      "phase": "04"
+    },
+    {
+      "commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "name": "phase-05-reliability",
+      "phase": "05"
+    },
+    {
+      "commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "name": "phase-06-security",
+      "phase": "06"
+    },
+    {
+      "commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "name": "phase-07-routing",
+      "phase": "07"
+    },
+    {
+      "commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "name": "phase-08-orchestration",
+      "phase": "08"
+    },
+    {
+      "commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "name": "phase-09-proposal-review",
+      "phase": "09"
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-10/gate-summary.json"
+      ],
+      "name": "phase-10-agent-prompts",
+      "phase": "10"
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "name": "phase-11-observability",
+      "phase": "11"
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "name": "phase-12-performance-cost",
+      "phase": "12"
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "name": "phase-13-evaluation",
+      "phase": "13"
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-14/gate-summary.json"
+      ],
+      "name": "phase-14-suggest-docs",
+      "phase": "14"
+    }
+  ],
+  "contract_dependency_by_domain": {
+    "Agent Prompts": [
+      "task-graph/task/dependency",
+      "failure",
+      "token-budget",
+      "handoff",
+      "evaluation-result"
+    ],
+    "Blackboard": [
+      "blackboard-document",
+      "trace/span"
+    ],
+    "Context/Handoff": [
+      "token-budget",
+      "token-usage",
+      "handoff",
+      "blackboard-document",
+      "memory-record"
+    ],
+    "Evaluation": [
+      "evaluation-result",
+      "trace/span"
+    ],
+    "Memory": [
+      "memory-record",
+      "blackboard-document",
+      "evaluation-result"
+    ],
+    "Orchestration": [
+      "task-graph/task/dependency",
+      "failure",
+      "trace/span",
+      "token-budget",
+      "token-usage",
+      "handoff",
+      "blackboard-document"
+    ],
+    "Performance/Cost": [
+      "token-budget",
+      "token-usage",
+      "trace/span"
+    ],
+    "Proposal/Review/Arbitration": [
+      "task-graph/task/dependency",
+      "handoff",
+      "evaluation-result",
+      "failure",
+      "trace/span"
+    ],
+    "Reliability": [
+      "failure",
+      "trace/span",
+      "token-usage"
+    ],
+    "Routing": [
+      "task-graph/task/dependency",
+      "token-budget",
+      "trace/span",
+      "evaluation-result"
+    ],
+    "Security": [
+      "failure",
+      "trace/span",
+      "handoff",
+      "security-redaction-boundary"
+    ],
+    "Supplemental": [
+      "task-graph/task/dependency",
+      "failure",
+      "token-budget",
+      "evaluation-result"
+    ],
+    "Trace/Replay": [
+      "trace/span",
+      "failure",
+      "token-usage"
+    ]
+  },
+  "current_phase": "15",
+  "current_status_summary": {
+    "FAIL": 0,
+    "PASS_EXISTING": 8,
+    "PASS_NEW": 141
+  },
+  "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+  "phases": [
+    {
+      "checkpoint": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-00/gate-summary.json"
+      ],
+      "id": "00",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-01/gate-summary.json"
+      ],
+      "id": "01",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "02",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "03",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "04",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "05",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "06",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "07",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "08",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "09",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-10/gate-summary.json"
+      ],
+      "id": "10",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "11",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "12",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "13",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-14/gate-summary.json"
+      ],
+      "id": "14",
+      "status": "COMPLETED"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "15",
+      "status": "IN_PROGRESS"
+    }
+  ],
+  "plan_name": "Sitina 149-item optimization",
+  "requirement_count": 149,
+  "shared_contract_registry": {
+    "implementation_refs": [
+      "core/sitina/contracts/models.py",
+      "core/sitina/contracts/adapters.py",
+      "core/sitina/contracts/compatibility.py",
+      "core/sitina/contracts/ownership.py",
+      "core/sitina/contracts/transitions.py",
+      "core/sitina/security/redaction.py",
+      "schemas/contracts/shared-contracts-v1.schema.json"
+    ],
+    "phase": "01",
+    "role": "validation-and-interchange-only",
+    "status": "READY_FOR_CONSUMERS",
+    "last_verified_commit": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+    "evidence_refs": [
+      "docs/optimization/evidence/phase-01/gate-summary.json"
+    ],
+    "test_ids": [
+      "tests.optimization.test_shared_contracts"
+    ],
+    "write_feature_flag": "shared_contracts_v1_write",
+    "write_feature_flag_default": false
+  },
+  "requirements": [
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-01",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "PASS_EXISTING retained; phase 02 adds an atomic aggregate lock and a barrier-based two-writer acceptance proving one commit, one retryable conflict, no lost state, and successful retry."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "状态一致性",
+      "test_ids": [
+        "tests.test_blackboard_mvcc.BlackboardMVCCTests.test_stale_base_returns_conflict_without_document_mutation",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-02",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Read-only tenant/run/position/version snapshots are deep-frozen and hash-bound; damaged or cross-boundary restore fails closed and resumed versions remain monotonic."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态快照",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b02_position_version_snapshot_restore_damage_and_monotonic_recovery"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-03",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Committed facts bind actor, causation, before/after hashes and field commitments; sensitive fields use REDACTED commitments and the replay verifier checks the version/hash chain."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态 Diff",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b03_diff_records_actor_hashes_causation_and_redacts_sensitive_values"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-04",
+      "implementation_refs": [
+        "config/blackboard_limits.json",
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Strict configured total/document/field byte limits and warning threshold are validated; over-limit rejection emits a no-mutation audit fact."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态大小",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b04_capacity_warning_and_rejection_leave_original_state_unchanged"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-05",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Namespace policy explicitly distinguishes RUN_LOCAL and PROJECT_SHARED; snapshot restart, permitted project reuse, run-local anti-promotion and tenant/run isolation are tested."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态持久化",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b05_restart_recovery_project_reuse_and_tenant_run_isolation"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-06",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "SITINA_BLACKBOARD_BODY_V1 provides strict notes/data/tags structure; deterministic text-to-notes V0 upcast is audited and invalid/unknown schemas fail closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态 Schema",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b06_structured_schema_notes_invalid_unknown_and_deterministic_upcast"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-07",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "A snapshot-derived index supports namespace/nested-key/tag/run/version filtering; cursor position freezes pagination and unauthorized Documents remain invisible."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态查询",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b07_query_filters_stable_pagination_and_hidden_unauthorized_documents"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-08",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Frozen namespace reader/writer capabilities and writable paths are enforced; recursively normalized safety aliases cannot be written and every denial is audited without values."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态权限",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b08_capabilities_nested_aliases_paths_and_access_audits"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-09",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Journal-position subscriptions rebuild from facts, deliver deterministic notification IDs, deduplicate repeated events, retain slow-consumer lag and share deduplicated polling fallback."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态通知",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b09_recoverable_deduplicated_subscription_polling_and_slow_consumer"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "id": "B-10",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
+      ],
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Deterministic barriers, seeded interleavings, conflict retries, snapshot crash recovery and 16-writer stress prove repeatable outcomes without sleep-based timing."
+      ],
+      "status": "PASS_NEW",
+      "summary": "状态测试",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-01",
+      "implementation_refs": [
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Every candidate starts working; reviewer-audited sequential promotion is required for episodic and long_term, tier-filtered reads are ACL-bound, and Journal reconstruction proves short-term records never auto-promote."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆分层",
+      "test_ids": [
+        "tests.test_memory_native_v1",
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m01_working_episodic_long_term_promote_read_isolate_and_restart"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-02",
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Deterministic duplicate, near-duplicate, and complementary consolidation preserves every source creation event plus inherited run/agent/evidence provenance under an intersected ACL."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆整合",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m02_normalized_duplicate_near_and_complementary_consolidation_keep_provenance"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-03",
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "ACL filtering precedes pluggable semantic ranking; absent, failed, or malformed backends use deterministic Unicode-normalized lexical ranking and every returned body remains explicitly untrusted data."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆检索",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m03_pluggable_semantic_retrieval_has_acl_and_deterministic_fallback"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-04",
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Frozen-time TTL boundaries exclude expired records while legal-retention remains current; rational freshness decay affects ranking without appending or rewriting Journal history."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆衰减",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m04_ttl_decay_permanent_retention_and_reads_do_not_rewrite_history"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-05",
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Differing values for a conflict key coexist until an authorized reviewer selects one; OPEN/RESOLVED conflict facts reconstruct from Journal and losing accepted records are explicitly revoked rather than silently overwritten."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆冲突",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m05_conflicts_coexist_until_journal_reconstructed_human_arbitration"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-06",
+      "implementation_refs": [
+        "config/memory_capacity.json",
+        "core/sitina/config.py",
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Strict namespace-over-tenant-over-default record/byte limits use preflighted, explained lowest-confidence/oldest eviction; explicit references and legal retention are protected and impossible pressure fails before mutation."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆容量",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m06_namespace_capacity_explains_eviction_and_protects_references"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-07",
+      "implementation_refs": [
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "The verifier recomputes content hash, resolves CAS evidence, checks source event/run existence, and returns run/agent/trust/observed timestamp metadata; any orphan fails closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆溯源",
+      "test_ids": [
+        "tests.test_memory_native_v1",
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m07_run_agent_evidence_trust_timestamp_and_hash_provenance_has_no_orphans"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "id": "M-08",
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Wrong, malicious/instruction-like, and unauthorized memories are ACL-filtered or quarantined with reduced confidence; current retrieval and consolidation exclude quarantine, reviewer revocation is audited, and all visible text remains untrusted."
+      ],
+      "status": "PASS_NEW",
+      "summary": "记忆污染",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m08_wrong_malicious_and_unauthorized_memory_is_quarantined_and_never_propagates"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-01",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/conversation/context.py",
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Provider/model tokenizer admission accounts for system, tool schema, history and output reserve against both model capacity and the shared TokenBudget; the conservative fallback is labelled estimate-only and never becomes usage."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文限制",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h01_provider_tokenizer_accounts_system_tools_history_output_and_fallback"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-02",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py",
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "A deterministic fixed priority makes safety, user constraints and unfinished work mandatory; evidence/history/memory/tool data are admitted in stable order and required overflow fails closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文选择",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h02_deterministic_priority_never_evicts_safety_constraints_or_unfinished_work"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-03",
+      "implementation_refs": [
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Structured summaries retain decisions, constraints, unfinished tasks, open questions, evidence and source refs; only expendable detail hashes are dropped and essential overflow is rejected."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文压缩",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h03_structured_compression_preserves_required_fact_set_and_source_evidence"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/true_multi_agent.py",
+        "core/sitina/protocols/handoff_contracts.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "The frozen manifest binds objective, scope, inputs, capabilities, Blackboard documents, output schema, criteria, policy, budget and deadline; a machine acknowledgement accepts only exact complete bindings and lists every missing field."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 完整性",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h04_manifest_acknowledgement_accepts_complete_and_lists_every_missing_binding"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-05",
+      "implementation_refs": [
+        "core/sitina/protocols/handoffs.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Repairable rejection enters bounded rework, permission/safety rejection is terminal fail-closed, cancellation records cleanup references, and the existing generation ceiling prevents infinite loops."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 拒绝",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h05_repairable_rework_is_finite_permission_safety_fail_closed_and_cancel_cleans_up"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/checkpoint_resume.py",
+        "core/sitina/protocols/handoff_contracts.py",
+        "core/sitina/protocols/handoffs.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Dedicated coverage combines success, missing bindings, tamper, expiry, duplicate transition, unknown version, rejection recovery and fact-based restart; existing protocol/checkpoint suites remain cumulative evidence."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 测试",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.test_checkpoint_resume_v1",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h06_success_missing_tamper_expiry_duplicate_version_rework_and_restart"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-07",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/true_multi_agent.py",
+        "core/sitina/protocols/handoff_contracts.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Production Handoff contracts publish and bind strict shared SITINA_BLACKBOARD_DOCUMENT_V1 records with version, hashes, policies and CAS body reference; unknown free-form fields are rejected."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Blackboard 结构",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h07_handoff_binds_shared_versioned_blackboard_document_not_free_text"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-08",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py",
+        "core/sitina/orchestrator/checkpoint_resume.py",
+        "core/sitina/orchestrator/true_multi_agent.py",
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py",
+        "core/sitina/protocols/handoffs.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Phase 02 remains the shared MVCC owner. Phase 04 proves an old Task attempt/fence cannot write Blackboard or submit Handoff after reclamation, while the current generation succeeds; production and restart paths call fenced submission."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Blackboard 冲突",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h08_blackboard_interleaving_and_handoff_submission_reject_stale_task_fence"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-09",
+      "implementation_refs": [
+        "core/sitina/protocols/context_retention.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Fact-reconstructable retention requires terminal run, elapsed frozen boundary, no legal/audit hold and no active reference before emitting exact CAS GC eligibility."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Blackboard 清理",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h09_terminal_retention_holds_references_gc_boundary_and_restart"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-10",
+      "implementation_refs": [
+        "core/sitina/protocols/handoff_contracts.py",
+        "core/sitina/security/redaction.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "The shared redaction owner covers write/read/log/Handoff boundaries, Unicode-normalized nested fields, encoded/split secrets, email/phone PII and exact allowlists; sensitive Handoff persistence fails closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Blackboard 安全",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h10_write_read_log_handoff_redaction_handles_encoding_nesting_fragments_unicode_and_allowlist"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-11",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/conversation/context_management.py",
+        "core/sitina/effects/budgets.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Controller/agent/tool/candidate/summary allocation is a pure derived plan over shared TokenBudget and the existing BudgetBundle owner; reclamation increases capacity without crossing the run ceiling."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文 Token",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h11_controller_agent_tool_candidate_summary_allocations_reclaim_without_ceiling_overrun"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-12",
+      "implementation_refs": [
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "A read-only rebuildable history index supports ACL-filtered cursor pagination and evidence targeting; it returns CAS references and explicitly never auto-injects retrieved history."
+      ],
+      "status": "PASS_NEW",
+      "summary": "历史回溯",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h12_authorized_paginated_evidence_history_finds_early_context_without_auto_injection"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-01",
+      "implementation_refs": [
+        "config/sitina.yaml",
+        "core/sitina/orchestrator/timeout_support.py",
+        "core/sitina/reliability.py",
+        "core/sitina/runners/agent_runner.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "One versioned policy now owns retry count, retryable taxonomy, exponential delay, deterministic jitter, Retry-After and deadline admission; Provider call sites execute and journal only the returned schedule, and virtual-clock coverage performs no real sleep."
+      ],
+      "status": "PASS_NEW",
+      "summary": "重试策略",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f01_unified_retry_exponential_jitter_retry_after_classification_and_virtual_clock"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-02",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Failure Taxonomy 1.0 explicitly classifies transient, permanent, auth, quota, schema, safety, cancelled and unknown failures; the cross-boundary envelope retains the bounded redacted causal chain and root cause."
+      ],
+      "status": "PASS_NEW",
+      "summary": "失败分类",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f02_versioned_failure_taxonomy_has_all_classes_and_preserves_redacted_root_chain"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-03",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "The event-recorded degradation policy chooses only matrix-approved capability substitutions and fails closed for high/critical risk, missing permission, uncertain side effects or an uncovered capability."
+      ],
+      "status": "PASS_NEW",
+      "summary": "降级策略",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f03_degradation_uses_risk_capability_matrix_and_fails_closed_for_unsafe_conditions"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-04",
+      "implementation_refs": [
+        "core/sitina/effects/breakers.py",
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Provider/tool/profile circuit scope is isolated, transitions closed/open/half-open by threshold and virtual cooldown, and serializes the single recovery probe under concurrent callers."
+      ],
+      "status": "PASS_NEW",
+      "summary": "熔断器",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f04_circuit_breaker_isolates_provider_tool_profile_and_serializes_half_open_probe"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-05",
+      "implementation_refs": [
+        "core/sitina/effects/model.py",
+        "core/sitina/effects/gateway.py",
+        "core/sitina/protocols/runtime.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "audit_classification=PASS_EXISTING; the existing Effect identity/idempotency binding and result reuse remain authoritative; phase-05 adds a lost-response acceptance proving the repeated key returns the same result after one remote execution."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "幂等设计",
+      "test_ids": [
+        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send",
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f05_idempotency_key_reuses_result_after_lost_response_and_executes_side_effect_once"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-06",
+      "implementation_refs": [
+        "core/sitina/reliability.py",
+        "core/sitina/security/redaction.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "SITINA_FAILURE_ENVELOPE_V1 propagates type, taxonomy version, stage, full bounded causal chain, retryability, source/destination Agent and boundary-redacted diagnostic across Agent/Handoff boundaries."
+      ],
+      "status": "PASS_NEW",
+      "summary": "错误传播",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f06_cross_agent_failure_envelope_keeps_stage_cause_retryability_and_redacts_diagnostic"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-07",
+      "implementation_refs": [
+        "core/sitina/effects/creation.py",
+        "core/sitina/effects/compensation.py",
+        "core/sitina/effects/model.py",
+        "core/sitina/effects/reconcile.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "audit_classification=PASS_EXISTING; the existing Effect creation saga, compensation lineage and outcome/settlement/cardinality state remain authoritative; phase-05 verifies that confirmed partial work with open exposure remains RECONCILING rather than full success."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "事务边界",
+      "test_ids": [
+        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_effect_requested_wins_no_stream_and_forces_source_confirmation",
+        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_lost_ack_reuses_stable_process_and_command",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f07_transaction_boundary_never_reports_partial_effect_settlement_as_full_success"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-08",
+      "implementation_refs": [
+        "core/sitina/effects/compensation.py",
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "All rollback execution passes through one coordinator that records start/success/failure/dedup facts; an identical rollback ID executes once, compensation failure is retained, and the original outcome is never rewritten."
+      ],
+      "status": "PASS_NEW",
+      "summary": "回滚测试",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.test_compensation_effects",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f08_rollback_records_success_failure_and_deduplicates_repeated_compensation"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-09",
+      "implementation_refs": [
+        "core/sitina/archive/backup.py",
+        "core/sitina/archive/restore.py",
+        "core/sitina/reliability.py",
+        "docs/optimization/reliability.md",
+        "scripts/reliability-drill"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "The executable DR runbook creates a marked isolated home, builds a cold backup, restores and replays its event records with writer disabled, rejects the production home as target, and passed its independent 20-test gate with zero production attempts."
+      ],
+      "status": "PASS_NEW",
+      "summary": "灾难恢复",
+      "test_ids": [
+        "tests.test_canonical_backup",
+        "tests.test_restore_drill",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f09_dr_backup_restore_and_replay_use_only_isolated_copy_with_writer_disabled"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-10",
+      "implementation_refs": [
+        "core/sitina/reliability.py",
+        "core/sitina/runners/provider.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "One report probes Provider, Journal, CAS, projection, queue and config, separates liveness from readiness, converts probe exceptions to component status and redacts every diagnostic before event publication."
+      ],
+      "status": "PASS_NEW",
+      "summary": "健康检查",
+      "test_ids": [
+        "tests.test_provider_health_journal_native",
+        "tests.test_provider_recovery_projection",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f10_health_checks_all_components_separate_liveness_readiness_and_redact_secrets"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-11",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "SITINA_PARTIAL_SUCCESS_V1 names completed and failed work, missing capabilities and actionable next steps; any incomplete result without a next step is rejected and never labelled full success."
+      ],
+      "status": "PASS_NEW",
+      "summary": "优雅降级",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f11_partial_success_names_missing_capability_and_actionable_next_step"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-12",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Failure notification provides a category-specific user reason, run ID, retryability and safe advice; stable failure fingerprints deduplicate notifications and raw diagnostics are never copied into the message."
+      ],
+      "status": "PASS_NEW",
+      "summary": "失败通知",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f12_failure_notification_is_understandable_deduplicated_and_secret_free"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-01",
+      "implementation_refs": [
+        "core/sitina/extensions/tools.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Default-deny MCP policy now evaluates principal inheritance plus server, tool, action, resource, canonical arguments and risk; deny and approval precedence, wildcard matching, encoded traversal and alias conflicts are negative-tested."
+      ],
+      "status": "PASS_NEW",
+      "summary": "MCP 权限",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s01_mcp_default_deny_wildcards_escape_aliases_and_explicit_inheritance"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-02",
+      "implementation_refs": [
+        "core/sitina/runners/mcp_adapter.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "The unified tool timeout contract carries connection, read, total and cleanup-grace limits, propagates cancellation, closes adapters and verifies that a cooperative hanging worker is not left active."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具超时",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s02_tool_timeouts_propagate_cancellation_and_cleanup_without_live_worker"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-03",
+      "implementation_refs": [
+        "core/sitina/reliability.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Tool retries consume Failure Taxonomy 1.0 and the shared retry scheduler; a retryable non-idempotent call without an idempotency key stops after one attempt and enters manual recovery."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具重试",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s03_tool_retry_requires_retryable_taxonomy_and_idempotency_or_key"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-04",
+      "implementation_refs": [
+        "core/sitina/extensions/runtime.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Tool audit persistence now receives only normalized identity, redacted argument summary/hash, exact permission decision, duration, result reference and redacted failure envelope; raw arguments and results are excluded."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具审计",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s04_tool_audit_persists_only_redacted_summaries_hashes_decisions_refs_and_errors"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-05",
+      "implementation_refs": [
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Versioned risk scoring combines action rules, capability presence, impact scope, untrusted context and external targeting; unknown actions are critical, audited and fail closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "风险扫描",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s05_contextual_risk_scoring_is_versioned_auditable_and_unknown_high_risk_fails_closed"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-06",
+      "implementation_refs": [
+        "core/sitina/effects/approval.py",
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "PASS_EXISTING is preserved for the exact EffectApproval binding checks; phase 06 adds a thread-safe pending-wait projection with run/effect/hash/expiry binding, one-time consumption and timeout auto-deny cleanup."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "审批流程",
+      "test_ids": [
+        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_every_exact_binding_dimension_invalidates_approval",
+        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_attempt_retry_and_expiry_limits_fail_closed",
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s06_approval_wait_binds_run_effect_hash_expires_denies_cleans_and_consumes_once"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-07",
+      "implementation_refs": [
+        "config/agent_capabilities.yaml",
+        "core/sitina/orchestrator/team.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "All 18 configured roles are pinned to exact minimum capability sets; unknown roles fail closed and forbidden actions override an otherwise present capability."
+      ],
+      "status": "PASS_NEW",
+      "summary": "权限最小化",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s07_every_role_has_exact_minimum_capability_matrix_and_forbidden_actions_override"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-08",
+      "implementation_refs": [
+        "core/sitina/extensions/tools.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Prompt sources are typed and isolated; prompt text from every source is incapable of granting permissions, and tool/memory data remains non-authoritative even when it carries indirect injection or exfiltration instructions."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Prompt 注入",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s08_prompt_sources_are_isolated_and_tool_memory_injection_cannot_escalate_or_exfiltrate"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-09",
+      "implementation_refs": [
+        "core/sitina/guards/secrets.py",
+        "core/sitina/security/redaction.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Secret detection now combines structured sensitive fields, known credential prefixes, constrained entropy, URL/Unicode normalization, base64 decoding and split-fragment inspection; safe findings never contain the secret value and all named isolated scopes scan clean."
+      ],
+      "status": "PASS_NEW",
+      "summary": "密钥管理",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s09_structured_secret_detector_catches_format_entropy_base64_fragments_unicode_url_log_and_export",
+        "tests.test_evidence_hardening.EvidenceHardeningTests.test_secret_scan_placeholders_no_false_positive"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-10",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py",
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "PASS_EXISTING is preserved for Effect Gateway and offline replay isolation; phase 06 adds an adversarial zero-effect regression proving replay/evaluation receives no live permit or lease and cannot reach network, subprocess or external Effect execution."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "副作用隔离",
+      "test_ids": [
+        "tests.test_effect_capability_activation.EffectCapabilityActivationTests.test_disable_new_transmission_preserves_receipt_observation_and_reconciliation",
+        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox",
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s10_replay_and_evaluation_guards_never_execute_real_side_effects"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-01",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Complexity Score 1.0 deterministically scores goals, dependencies, risk, tool and side-effect classes, bounded context, ambiguity and expected artifacts; simple, boundary and complex fixtures prove bands without equating keyword count to complexity."
+      ],
+      "status": "PASS_NEW",
+      "summary": "动态复杂度",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r01_structured_complexity_scores_simple_boundary_and_complex_fixtures"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-02",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "The replaceable classifier is admitted only inside the configured ambiguity interval and when budget/SLA permit; exact schema validation, one repair, deterministic fallback, physical-call count and reported/upper-bound usage are covered. Real Provider usage remains explicitly pending the approval-gated phase 15 live gate."
+      ],
+      "status": "PASS_NEW",
+      "summary": "模型意图识别",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r02_classifier_only_runs_in_ambiguity_budget_sla_band_repairs_once_and_falls_back"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-03",
+      "implementation_refs": [
+        "core/sitina/conversation/runtime.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "FAST escalation supplies run, output hash and evidence reference as sourced candidate evidence to MULTI; the handoff forbids duplicate display and repeated side effects while retaining physical-call and causal-chain fields."
+      ],
+      "status": "PASS_NEW",
+      "summary": "FAST→MULTI 回放",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r03_fast_to_multi_handoff_preserves_sourced_candidate_causality_without_duplicate_effect_or_display"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-04",
+      "implementation_refs": [
+        "core/sitina/cli.py",
+        "core/sitina/conversation/models.py",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Every decision records input hash, policy version, evidence, conflicts, component scores, thresholds, budget, SLA, experiment, classifier use, final route and decision path; both a structured explain API and /mode expose it."
+      ],
+      "status": "PASS_NEW",
+      "summary": "路由可观测",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r04_every_route_observation_and_explanation_contains_required_fields"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-05",
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Feedback can only generate offline candidate rules; regression evaluation, exact human approval binding and versioned publication are mandatory, bad rules cannot publish, and online self-modification raises a hard denial."
+      ],
+      "status": "PASS_NEW",
+      "summary": "关键词维护",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r05_feedback_rules_are_offline_evaluated_approved_versioned_and_never_self_modify_online"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-06",
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "The correction API stores only privacy-safe labels and hashes bound to the original decision, preserves completed side effects without automatic rerun, and supports audited revocation."
+      ],
+      "status": "PASS_NEW",
+      "summary": "误判修复",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r06_route_correction_is_privacy_safe_reversible_and_never_replays_successful_effects"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-07",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Configured FAST, MULTI and classifier token upper bounds are admitted against remaining run budget; high-risk work selects reviewed MULTI or blocks rather than taking an unreviewed cheap path."
+      ],
+      "status": "PASS_NEW",
+      "summary": "成本意识",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r07_token_upper_bounds_are_budgeted_and_high_risk_never_chooses_cheap_unreviewed_route"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-08",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "tests/fixtures/routing_regression_v1.json"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "The versioned bilingual corpus asserts expected route, allowed set and reason codes; 10 fixtures achieve 1000000 ppm accuracy with zero false upgrades, downgrades, allowed-set violations and reason-code misses, plus an exact policy-difference fixture."
+      ],
+      "status": "PASS_NEW",
+      "summary": "路由回归",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r08_versioned_bilingual_regression_fixtures_meet_accuracy_and_error_rate_gates"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-09",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Stable decision order is forced mode, safety/high risk, budget/SLA and then complexity with deterministic tie-break; simultaneous FAST/MULTI signals repeat identically and conflicts are retained in observability."
+      ],
+      "status": "PASS_NEW",
+      "summary": "多标签冲突",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r09_conflict_priority_and_tie_break_are_forced_then_safety_budget_sla_complexity"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-10",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "tests/fixtures/routing_regression_v1.json"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Bounded Unicode normalization covers simplified/traditional forms, CJK spacing and punctuation, English case and common mixed-language synonyms without an unbounded keyword-count heuristic."
+      ],
+      "status": "PASS_NEW",
+      "summary": "中文支持",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r10_simplified_traditional_mixed_spacing_punctuation_case_and_synonyms_are_supported"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-11",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "core/sitina/conversation/runtime.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Routing consumes bounded prior route, score and unfinished-goal state for follow-ups; runtime /new reset clears that inheritance, and the acceptance test proves both paths."
+      ],
+      "status": "PASS_NEW",
+      "summary": "对话历史",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r11_followup_inherits_bounded_unfinished_complexity_and_new_context_clears_it"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-12",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Versioned general, code and compliance profiles may adjust thresholds and rubric identity, but validation rejects any profile whose risk floor weakens the global safety floor."
+      ],
+      "status": "PASS_NEW",
+      "summary": "领域适配",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r12_versioned_general_code_compliance_profiles_cannot_weaken_global_safety_floor"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-13",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "A stable subject-only hash assigns the versioned experiment bucket; outcomes, route, latency and token usage are attributable, and the kill switch deterministically returns control without persisting raw or sensitive attributes."
+      ],
+      "status": "PASS_NEW",
+      "summary": "A/B 测试",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r13_experiment_bucket_is_stable_killable_versioned_and_uses_only_subject_identity"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-14",
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "MULTI may degrade to a clearly labeled unreviewed FAST result only when policy allows, risk is below high and no side effect is uncertain; all other combinations fail closed while retaining the original failure."
+      ],
+      "status": "PASS_NEW",
+      "summary": "MULTI→FAST 降级",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r14_multi_to_fast_degradation_is_unreviewed_only_when_safe_and_otherwise_fails_closed"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "id": "R-15",
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
+      ],
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Interactive, standard and batch latency classes can be declared or inherited; injected virtual time proves explicit normal, fast, partial-result and high-risk fail-closed deadline outcomes."
+      ],
+      "status": "PASS_NEW",
+      "summary": "延迟 SLA",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r15_latency_class_inheritance_and_virtual_deadline_select_fast_partial_or_fail_closed"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "The Controller supplies a policy authorization reference while a reentrant scheduler computes and executes independent ready queues concurrently; checkpoint reconstruction retains completed state and output after Controller restart."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Controller 瓶颈",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o01_reentrant_scheduler_runs_multiple_queues_concurrently_and_recovers_after_controller_restart"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-02",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "SITINA_PLANNER_DAG_V1 validates unique task IDs, dependencies, inputs, output schema, owner capability, risk, shared task TokenBudget, deadline, completion criteria, resources and priority before adapting into the authoritative TaskGraph."
+      ],
+      "status": "PASS_NEW",
+      "summary": "任务分解",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o02_planner_schema_validates_complete_dag_and_rejects_missing_or_invalid_dependencies"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Ready nodes execute in a real worker pool; a barrier proves interval overlap, while dependencies and same-resource writes remain blocked from the same ready set."
+      ],
+      "status": "PASS_NEW",
+      "summary": "并行调度",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o03_ready_non_conflicting_nodes_overlap_and_dependencies_or_write_conflicts_block"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/team.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Capability coverage, risk ceiling, load and cost select the minimum sufficient team, record every considered Agent and produce different teams for simple and high-risk multi-capability tasks."
+      ],
+      "status": "PASS_NEW",
+      "summary": "动态团队",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o04_minimum_sufficient_team_changes_with_capability_risk_load_and_cost_evidence"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Agent, handoff and rework records attribute prompt/completion tokens, latency, physical calls and marginal benefit; exact aggregation reconciles to run totals without double counting."
+      ],
+      "status": "PASS_NEW",
+      "summary": "协作开销",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o05_agent_handoff_rework_cost_attribution_sums_exactly_to_run_totals"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-06",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Shared structured Failure values propagate transitively across required fan-out/fan-in edges, preserve optional partial success warnings and schedule explicit compensation for compensatable edges."
+      ],
+      "status": "PASS_NEW",
+      "summary": "失败传播",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o06_structured_failure_propagates_required_optional_compensatable_fanout_and_fanin"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-07",
+      "implementation_refs": [
+        "core/sitina/orchestrator/checkpoint.py",
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/scheduling/timers.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Per-task timeout sets the shared cancellation signal, saves a recoverable checkpoint, runs resource cleanup and selects a deterministic takeover Agent; the timed-out worker observes cancellation and stops."
+      ],
+      "status": "PASS_NEW",
+      "summary": "超时控制",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o07_worker_timeout_cancels_releases_resources_checkpoints_and_selects_takeover"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/orchestrator/timeout_support.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Cancellation and Provider/tool call admission share one lock, so the race cannot start calls after cancellation; cleanup finalizes the journal and releases leases and temporary resources."
+      ],
+      "status": "PASS_NEW",
+      "summary": "取消机制",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o08_user_cancel_race_stops_new_calls_and_cleans_journal_leases_and_temp_resources"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-09",
+      "implementation_refs": [
+        "core/sitina/protocols/runtime.py",
+        "core/sitina/effects/model.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "PASS_EXISTING is retained for authoritative command/effect idempotency; phase 08 adds stable run/task/attempt/operation keys and a concurrent 32-caller proof that tool effects, proposals and state commits each execute physically once."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "幂等性",
+      "test_ids": [
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event",
+        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send",
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o09_stable_attempt_idempotency_keys_deduplicate_effect_proposal_and_state_commits"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-10",
+      "implementation_refs": [
+        "core/sitina/protocols/runtime.py",
+        "core/sitina/orchestrator/state_machine.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "PASS_EXISTING is retained for the authoritative runtime state owner; phase 08 adds a centralized orchestration table whose complete state-pair matrix proves every legal and illegal transition and immutable terminal states."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "状态机",
+      "test_ids": [
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_allowed_transition_emits_event_and_binds_definition_policy",
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_invalid_terminal_and_timeout_transitions_fail_closed",
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o10_state_machine_table_covers_every_legal_and_illegal_transition_and_terminal_invariants"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-11",
+      "implementation_refs": [
+        "core/sitina/protocols/tasks.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "DAG validation rejects self and multi-node cycles before enqueue; the runtime wait-graph detector returns an explainable resource/lease cycle path instead of silently stalling."
+      ],
+      "status": "PASS_NEW",
+      "summary": "死锁检测",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o11_enqueue_and_runtime_deadlock_detection_explains_self_multi_node_and_resource_cycles"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-12",
+      "implementation_refs": [
+        "config/orchestration_policy.json",
+        "core/sitina/scheduling/scheduler.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Priority, deadline, configurable aging and stable task-ID tie-break produce deterministic order; virtual time proves an old low-priority task overtakes new work rather than starving."
+      ],
+      "status": "PASS_NEW",
+      "summary": "优先级",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o12_priority_deadline_stable_tie_break_and_aging_prevent_low_priority_starvation"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-13",
+      "implementation_refs": [
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Fixed-order global, run, Provider and tool semaphores enforce configured peaks under a 12-task stress test and release every permit after controlled exception/cancellation."
+      ],
+      "status": "PASS_NEW",
+      "summary": "资源限制",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o13_hierarchical_semaphores_bound_stress_peaks_and_release_on_exception_or_cancel"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-14",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "The shared TraceContract forms one correlation tree across run, task, attempt, Agent, handoff and tool spans; parent bindings and terminal span invariants validate as one complete trace."
+      ],
+      "status": "PASS_NEW",
+      "summary": "可观测性",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o14_trace_contract_links_task_attempt_agent_handoff_and_tool_under_one_correlation_id"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-15",
+      "implementation_refs": [
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "The simple low-risk hot path skips unnecessary planning/review stages but preserves safety, budget and trace, requires policy/result hash equivalence and records lower call and latency benchmarks."
+      ],
+      "status": "PASS_NEW",
+      "summary": "热路径",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o15_low_risk_hot_path_preserves_safety_budget_trace_with_fewer_calls_and_lower_latency"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-16",
+      "implementation_refs": [
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Pipeline, Supervisor, Network and Hierarchy are topology strategies over the same terminal, state and global permission boundary; each has a deterministic end-to-end completion fixture."
+      ],
+      "status": "PASS_NEW",
+      "summary": "协作模式",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o16_pipeline_supervisor_network_and_hierarchy_share_terminal_permission_and_state_contracts"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-17",
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Safe clients are reused only within tenant and Provider profile while every invocation receives isolated prompt/context and no credential values; cross-tenant resources differ and a failure evicts the pooled client."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Agent 复用",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o17_agent_client_reuse_isolates_prompt_credentials_tenant_and_evicts_failed_resources"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-18",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "End-to-end fixtures cover success, rework, rejection, no consensus, arbitration, timeout, cancellation, checkpoint recovery, concurrent writes and resource exhaustion with legal terminal state, one physical commit and zero post-terminal calls."
+      ],
+      "status": "PASS_NEW",
+      "summary": "协作测试",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o18_end_to_end_scenarios_cover_success_rework_rejection_consensus_arbitration_timeout_cancel_recovery_writes_and_exhaustion"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-01",
+      "implementation_refs": [
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Versioned candidates declare strategy, assumptions and risk focus; normalized similarity rejects near duplicates and permits one bounded regeneration before an explicit degraded outcome."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Proposal 多样性",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr01_strategy_assumption_risk_diversity_rejects_near_duplicates_then_regenerates_or_degrades"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-02",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py",
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Risk-configured min/max counts are intersected with hard candidate and total budgets; MULTI cannot claim competition completion below its funded minimum."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Proposal 数量",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr02_risk_budget_minimum_and_maximum_prevent_underfilled_multi_competition"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-03",
+      "implementation_refs": [
+        "config/proposal_policy.yaml",
+        "core/sitina/orchestrator/collaboration.py",
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Chat competition is admitted by complexity, risk and budget rather than task type; route-equivalent simple low-risk chat retains the existing minimal hot path."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Proposal 竞争",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr03_chat_competes_by_complexity_risk_budget_while_safe_simple_chat_uses_hot_path"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-04",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/protocols/reviews.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Evaluator input excludes author identity and unrelated chain history; self-review is forbidden, distinct profile/model isolation is preferred, and single-model fallback truthfully claims only context/role/sampling independence."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Evaluator 独立",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr04_evaluator_input_is_anonymous_self_review_forbidden_and_single_provider_context_is_independent"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-05",
+      "implementation_refs": [
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "The versioned unified rubric has exact weights for correctness, safety, completeness, evidence, implementability, cost and latency; safety/evidence remain non-averageable hard gates."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Evaluation 标准",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr05_versioned_unified_rubric_has_all_weights_and_non_averageable_hard_gates"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-06",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Selection rejects hard-gate and missing evaluations first, then uses normalized weighted score, confidence, disagreement and stable proposal-ID tie-break across extreme and tied inputs."
+      ],
+      "status": "PASS_NEW",
+      "summary": "选择算法",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr06_hard_gates_precede_normalized_confidence_disagreement_and_stable_tie_break"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-07",
+      "implementation_refs": [
+        "core/sitina/security/redaction.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Versioned rejection records retain reason code, rubric detail, canonical evidence, repair suggestions and model/policy versions; redaction removes secret material while preserving offline-learning fields."
+      ],
+      "status": "PASS_NEW",
+      "summary": "拒绝记录",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr07_structured_rejection_is_redacted_versioned_and_offline_learning_ready"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-08",
+      "implementation_refs": [
+        "config/proposal_review_policy.json",
+        "core/sitina/protocols/arbitration.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Versioned table-driven triggers quantify no eligible candidate, narrow score gap, reviewer conflict, risk disagreement and schema failure thresholds, including a clean negative case."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Arbitration 触发",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr08_arbitration_trigger_table_covers_each_threshold_and_clean_negative"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-09",
+      "implementation_refs": [
+        "core/sitina/orchestrator/arbitration.py",
+        "core/sitina/protocols/arbitration.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Arbiter selection prefers a profile/model unused by authors/reviewers; unavailable independence uses an isolated context and explicitly reports context-only isolation without false model-independence claims."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Arbiter 模型",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr09_arbiter_prefers_distinct_profile_model_and_truthfully_labels_context_only_fallback"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-10",
+      "implementation_refs": [
+        "core/sitina/protocols/rework.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Block recovery distinguishes bounded repairable rework, explicit user authorization and terminal/exhausted stop while retaining a canonical checkpoint reference and preventing loops."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Block 恢复",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr10_block_recovery_distinguishes_bounded_rework_user_authorization_and_terminal_without_loops"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-11",
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "The resumable Ask-user interface exposes options, reasons, risks, budget and safe timeout default; manual or timeout answers bind run, request and original decision hashes."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Ask_user",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr11_resumable_ask_user_exposes_options_reason_risk_budget_safe_timeout_and_hash_bound_answer"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-12",
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "All candidates share one immutable context reference and receive per-candidate/total hard token limits; generation stops before overspend or when marginal value falls below policy."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Proposal 成本",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr12_shared_context_per_candidate_and_total_budgets_stop_on_hard_limit_or_low_marginal_value"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-13",
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Conflict-free reviews run in a bounded worker pool with barrier-proven overlap and stable reviewer-order aggregation; overlapping read/write claims are rejected before parallel execution."
+      ],
+      "status": "PASS_NEW",
+      "summary": "评审并行",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr13_conflict_free_reviews_really_overlap_aggregate_stably_and_obey_concurrency_limit"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-14",
+      "implementation_refs": [
+        "core/sitina/protocols/reviews.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Review deadlines cancel pending work, close the result set and reject late writes; sufficient quorum continues while insufficient quorum routes to arbitration."
+      ],
+      "status": "PASS_NEW",
+      "summary": "评审超时",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr14_deadline_cancels_and_isolates_late_reviews_then_requires_quorum_or_arbitration"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-15",
+      "implementation_refs": [
+        "core/sitina/security/redaction.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Cache keys require exact normalized input, policy, model, prompt, permission and tenant binding; side-effecting, marked-sensitive or detector-identified secret content cannot enter the cache."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Proposal 缓存",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr15_cache_requires_exact_normalized_policy_model_prompt_permission_tenant_and_safe_candidate"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "id": "PR-16",
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
+      ],
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Review quality validates schema, reason depth, evidence consistency, anomalous score spread and self-review bias; one issue requires second validation and multiple issues require arbitration."
+      ],
+      "status": "PASS_NEW",
+      "summary": "评审质量",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr16_review_quality_validates_schema_reason_evidence_anomalies_and_bias_for_recheck_or_arbitration"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-01",
+      "implementation_refs": ["prompts/agents/controller.md", "config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Controller prompt and parsed role contract cover goal preservation, routing/team selection, budgets, permissions, terminal outcomes, escalation and prohibited authority."],
+      "status": "PASS_NEW",
+      "summary": "Controller",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p01_controller_contract_covers_goal_routing_team_budget_permissions_terminal_escalation_and_no_overreach"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-02",
+      "implementation_refs": ["prompts/agents/planner.md", "schemas/planner.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Planner uses explicit need-input and blocked paths for missing information, cycles, insufficient budget, unavailable capabilities and unsafe high-risk plans."],
+      "status": "PASS_NEW",
+      "summary": "Planner",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p02_planner_has_explicit_missing_information_cycle_budget_risk_and_failure_paths"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-03",
+      "implementation_refs": ["core/sitina/schemas/models.py", "schemas/planner.schema.json", "prompts/agents/planner.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Planner confidence is schema-bounded to 0..1 and assumptions, unknowns and alternatives are typed arrays validated against representative output."],
+      "status": "PASS_NEW",
+      "summary": "Planner",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p03_planner_confidence_assumptions_unknowns_and_alternatives_are_schema_validated"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-04",
+      "implementation_refs": ["prompts/agents/reviewer.md", "schemas/reviewer.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Reviewer must form a source-bound original-requirement assessment before viewing candidate conclusions and cannot inherit Planner judgment."],
+      "status": "PASS_NEW",
+      "summary": "Reviewer",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p04_reviewer_forms_original_requirement_judgment_before_candidate_review"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-05",
+      "implementation_refs": ["prompts/agents/reviewer.md", "core/sitina/schemas/models.py", "schemas/reviewer.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Accept, rework, reject and block conditions are explicit; every non-accept output requires a typed rejection with reason, requirement/evidence refs and required changes."],
+      "status": "PASS_NEW",
+      "summary": "Reviewer",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p05_reviewer_accept_rework_reject_block_conditions_and_structured_rejection"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-06",
+      "implementation_refs": ["prompts/agents/tester.md", "core/sitina/schemas/models.py", "schemas/tester.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Tester output records environment, risk, reproducibility and evidence completeness and forbids treating failed, skipped, unavailable or unrun work as passing."],
+      "status": "PASS_NEW",
+      "summary": "Tester",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p06_tester_reports_environment_risk_reproducibility_evidence_and_never_fabricates"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-07",
+      "implementation_refs": ["prompts/agents/tester.md", "schemas/tester.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Risk-based test selection is constrained to unit, contract, integration, E2E, concurrency, fault, security, performance and explicitly approved live categories."],
+      "status": "PASS_NEW",
+      "summary": "Tester",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p07_tester_risk_catalog_is_machine_constrained"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-08",
+      "implementation_refs": ["prompts/agents/arbiter.md", "schemas/arbiter.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Arbiter covers safety, contradictory evidence, normalized-score ties and insufficient permission with deterministic or fail-closed outcomes."],
+      "status": "PASS_NEW",
+      "summary": "Arbiter",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p08_arbiter_prompt_covers_safety_evidence_tie_and_permission_conflicts"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-09",
+      "implementation_refs": ["core/sitina/runners/prompt_contracts.py", "schemas/arbiter.schema.json", "prompts/agents/arbiter.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Safety, permission and evidence gates are machine checked; any false or missing value restricts Arbiter to block/ask-user and cannot be offset by score."],
+      "status": "PASS_NEW",
+      "summary": "Arbiter",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p09_arbiter_hard_gates_fail_closed_and_cannot_be_averaged"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-10",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "core/sitina/schemas/models.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Every rendered role receives the shared claim contract for trust label, source, evidence and observation time; missing prompts block both mock and live role startup."],
+      "status": "PASS_NEW",
+      "summary": "所有 Agent",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p10_all_final_prompts_embed_parsed_fact_source_evidence_trust_time_contract_and_missing_prompt_blocks_start"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-11",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/schemas/models.py", "core/sitina/runners/agent_runner.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["All roles share typed input/output/tool/run token limits and a structured budget report with compress, escalate and block outcomes."],
+      "status": "PASS_NEW",
+      "summary": "所有 Agent",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p11_all_roles_share_machine_checked_input_output_tool_and_run_budget_contract"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-12",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "prompts/agents"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["User, tool, web, memory and handoff content are uniformly classified as untrusted data whose embedded instructions cannot alter policy, schema, permissions or budget."],
+      "status": "PASS_NEW",
+      "summary": "所有 Agent",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p12_all_roles_treat_user_tool_web_memory_and_handoff_as_untrusted_injection_data"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-13",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "config/agent_ownership.yaml", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Every role contract declares upstream/downstream topology, read/write boundary, completion condition and escalation path and is validated at startup."],
+      "status": "PASS_NEW",
+      "summary": "所有 Agent",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p13_every_role_declares_topology_permissions_completion_and_escalation"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-14",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "core/sitina/runners/agent_runner.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Live schema repair is limited to one separately observed physical call, admitted only within output/run token budget, and terminates on repeated failure without mock fallback."],
+      "status": "PASS_NEW",
+      "summary": "所有 Agent",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p14_schema_repair_is_single_observable_budgeted_attempt_then_terminal"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-15",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "prompts/agents/planner.md", "prompts/agents/architect.md", "prompts/agents/tester.md", "prompts/agents/reviewer.md", "prompts/agents/researcher.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Proposal authors must declare material candidate diversity across strategy, assumptions and risk focus using the shared proposal field."],
+      "status": "PASS_NEW",
+      "summary": "Proposal 作者",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p15_proposal_authors_must_declare_material_strategy_assumption_and_risk_diversity"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-16",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "config/proposal_review_policy.json", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Rendered evaluator contract is validated against the exact PR-05 rubric version, seven weights, hard gates, evidence requirement and confidence handling."],
+      "status": "PASS_NEW",
+      "summary": "Evaluator",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p16_evaluators_use_exact_pr05_rubric_weights_hard_gates_evidence_and_confidence"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-17",
+      "implementation_refs": ["prompts/agents/security.md", "core/sitina/schemas/models.py", "schemas/security.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Security returns typed threat, permission, secret and side-effect checks, owns a veto, and its schema makes high-risk execution authorization impossible."],
+      "status": "PASS_NEW",
+      "summary": "Security",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p17_security_schema_covers_threat_permission_secret_effects_and_forbids_high_risk_execution"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-18",
+      "implementation_refs": ["prompts/agents/critic.md", "config/agent_prompt_contracts.json", "schemas/critic.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Critic owns adversarial problem discovery and counterexamples, routes findings to Reviewer, and is machine-declared unable to make the final gate decision."],
+      "status": "PASS_NEW",
+      "summary": "Critic",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p18_critic_owns_adversarial_errors_and_counterexamples_but_not_final_review"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-19",
+      "implementation_refs": ["prompts/agents/researcher.md", "core/sitina/schemas/models.py", "schemas/researcher.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Research output separates facts, inferences and unknowns and schema-validates source provenance, trust and freshness while quarantining external instructions."],
+      "status": "PASS_NEW",
+      "summary": "Researcher",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p19_researcher_schema_separates_facts_inferences_unknowns_freshness_and_untrusted_sources"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-20",
+      "implementation_refs": ["prompts/agents/memory.md", "core/sitina/schemas/models.py", "schemas/memory.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Memory candidates expose deduplication, conflicts, privacy, freshness and provenance fields and are schema-locked to pending status without direct promotion."],
+      "status": "PASS_NEW",
+      "summary": "Memory",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p20_memory_candidates_are_deduplicated_conflict_privacy_freshness_provenance_pending_only"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-21",
+      "implementation_refs": ["prompts/agents/summary.md", "core/sitina/schemas/models.py", "schemas/summary.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Summary output structures goal, completed work, decisions, constraints, failures, open items, evidence and budget while deriving verification from supplied evidence."],
+      "status": "PASS_NEW",
+      "summary": "Summary",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p21_summary_schema_structures_goal_completion_decisions_constraints_failures_open_evidence_and_budget"]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
+      "id": "P-22",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "docs/optimization/agent-prompts.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["The validated responsibility matrix assigns Critic problem discovery, evaluator scoring, Reviewer acceptance and Arbiter conflict resolution to unique owners with explicit routes."],
+      "status": "PASS_NEW",
+      "summary": "角色重叠",
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p22_responsibility_matrix_routes_critic_reviewer_evaluator_and_arbiter_without_dual_ownership"]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "The trace validator proves the versioned run/task/agent/provider-or-tool/state/effect lineage and rejects orphan, layer-break, cycle, identity, terminal metadata, and usage defects."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Trace 完整性",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t01_trace_integrity_run_task_agent_provider_tool_state_effect_versions_usage_and_orphan_detection"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-02",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Sampling is deterministic by trace ID; error, high-risk, approval, over-budget, billing, and audit records are always retained."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Trace 采样",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t02_sampling_always_keeps_error_high_risk_approval_overbudget_billing_audit_and_deterministically_samples_success"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-03",
+      "implementation_refs": [
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/observability_management.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "The read-only trace CLI supports run, agent, tool, status, time and correlation filters, cursor pagination, structured output and boundary redaction across legacy and B+ event shapes."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Trace 查询",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t03_trace_query_filters_run_agent_tool_status_time_correlation_paginates_redacts_and_cli_parses"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-04",
+      "implementation_refs": [
+        "core/sitina/evidence/replay.py",
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "audit_classification=PASS_EXISTING; the existing recorded-event replay boundary was reverified with explicit provider, network, and real-effect monkeypatch counters at zero."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "Replay 边界",
+      "test_ids": [
+        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox",
+        "tests.test_offline_replay.OfflineReplayTests.test_replay_original_stops_at_t_and_does_not_generate_assessment",
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t04_replay_reads_recorded_events_with_zero_provider_network_and_real_effect_calls"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py",
+        "core/sitina/orchestrator/observability_management.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Replay consistency uses a stable normalized state hash, an explicit volatile-time field set, and a bounded v0-to-v1 event upcaster that rejects unsupported generations."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Replay 一致性",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t05_replay_state_hash_is_stable_with_explicit_volatile_normalization_and_version_upcast"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Metrics derive from the run ledger and cover success, routing, rework, handoff, budget, partial success, and recovery with three bounded dimension keys."
+      ],
+      "status": "PASS_NEW",
+      "summary": "指标收集",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t06_business_metrics_cover_success_routing_rework_handoff_budget_partial_and_recovery_with_bounded_dimensions"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-07",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Versioned alert thresholds cover multi-window SLO burn, repeated failure, queue backlog, token/cost anomaly, deduplication, cooldown, flapping, and recovery."
+      ],
+      "status": "PASS_NEW",
+      "summary": "告警规则",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t07_alerts_apply_multiwindow_slo_failures_backlog_token_cost_dedupe_flap_cooldown_and_recovery"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Structured logs have a versioned JSON schema, levels, event codes, correlation identifiers, structured boundary redaction, and compatible human rendering."
+      ],
+      "status": "PASS_NEW",
+      "summary": "日志结构化",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t08_structured_logs_are_schema_level_code_correlation_redacted_and_human_readable"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-09",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Trace/span/correlation context is injectable across process boundaries; synchronous children retain parents and asynchronous consumers use causal links."
+      ],
+      "status": "PASS_NEW",
+      "summary": "调用链",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t09_trace_context_propagates_across_agent_thread_process_and_uses_link_for_async_queue"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "T-10",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Profiling defaults off and, when enabled, emits only stage wall time, CPU time, memory delta, and queue wait without payload fields."
+      ],
+      "status": "PASS_NEW",
+      "summary": "性能剖析",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t10_profiler_defaults_off_and_reports_only_stage_wall_cpu_memory_queue_fields_when_enabled"
+      ]
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "id": "X-17",
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
+      ],
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "RunTrajectoryMonitor detects every specified threshold at the inclusive boundary, returns policy-bound actions, preserves normal negatives, and persists fingerprints for restart deduplication."
+      ],
+      "status": "PASS_NEW",
+      "summary": "轨迹监控和异常检测",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_x17_trajectory_monitor_detects_every_anomaly_boundary_normal_negative_actions_and_restart_dedup"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py",
+        "config/performance_policy.json"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Atomic run-stage-agent/tool reservations enforce every ancestor hard limit; settlement/refund reconcile usage and missing usage remains reserved as unsettled until later resolution."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Token 预算",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc01_hierarchical_budget_reservation_settlement_refund_hard_cap_concurrency_and_missing_usage_unsettled"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-02",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py",
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Cost attribution distinguishes logical calls, physical attempts, retry, fallback and cache hits, and reconciles input/output/cache/cost/latency totals at run, stage, agent and call dimensions."
+      ],
+      "status": "PASS_NEW",
+      "summary": "成本归因",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc02_cost_attribution_run_stage_agent_logical_physical_retry_cache_fallback_and_totals_identity"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py",
+        "config/performance_policy.json"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "O-13's shared hierarchical limiter and aging scheduler were reverified for global/run/Provider quotas, fairness, backpressure and cancellation-safe capacity release."
+      ],
+      "status": "PASS_NEW",
+      "summary": "并发控制",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc03_existing_hierarchical_concurrency_enforces_quotas_fairness_backpressure_and_releases_on_cancel"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py",
+        "config/performance_policy.json"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "AES-GCM cache admission requires deterministic, side-effect-free, complete results and binds model/prompt/tools/policy/permissions/tenant with TTL, invalidation and explicit cache-versus-physical usage."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Provider 缓存",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc04_provider_cache_requires_safe_complete_binding_encrypts_ttl_invalidates_and_distinguishes_usage"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Batching requires declared Provider support and full compatibility; per-item idempotency, errors, usage and response order remain intact, with individual-call fallback otherwise."
+      ],
+      "status": "PASS_NEW",
+      "summary": "批处理",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc05_batch_uses_declared_capability_preserves_item_idempotency_errors_usage_and_falls_back_safely"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Dependency-aware critical-path analysis identifies parallelizable/reusable serial waits; repeatable p50/p95 evidence accepts only equivalent zero-error output without increased physical calls."
+      ],
+      "status": "PASS_NEW",
+      "summary": "延迟优化",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc06_repeatable_benchmark_records_environment_samples_warmup_quantiles_error_and_proves_equivalent_faster_path"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-07",
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Thread-safe pooling isolates tenant, Provider profile and credential fingerprint; expiry, failure, concurrent reuse and safe close are verified without persisting credential values."
+      ],
+      "status": "PASS_NEW",
+      "summary": "资源池化",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc07_resource_pool_isolates_tenant_credentials_profile_handles_concurrency_expiry_failure_and_close"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "id": "PC-08",
+      "implementation_refs": [
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "The read-only cost-status CLI reports authoritative ledger source, freshness, used/reserved/remaining tokens, forecast overrun, hard stop and unsettled usage."
+      ],
+      "status": "PASS_NEW",
+      "summary": "成本监控",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc08_runtime_cost_monitor_reports_used_reserved_remaining_forecast_hard_stop_freshness_source_and_cli"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "E-01",
+      "implementation_refs": [
+        "core/sitina/evals/system_evaluation.py",
+        "tests/fixtures/routing_regression_v1.json"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "R-08 fixtures now produce versioned overall, dangerous-downgrade, false-upgrade, language-slice, and domain-slice routing metrics in continuous regression tests."
+      ],
+      "status": "PASS_NEW",
+      "summary": "路由测试",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e01_r08_fixtures_report_accuracy_dangerous_downgrade_upgrade_language_domain_and_policy_version"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "E-02",
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/evals/system_evaluation.py"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "All four collaboration topologies and success, rework, reject, block, ask-user, no-consensus, cancel, restart, and partial-success outcomes are asserted with single finalization and no post-terminal external calls."
+      ],
+      "status": "PASS_NEW",
+      "summary": "协作测试",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e02_all_topologies_and_success_rework_reject_block_ask_user_consensus_cancel_restart_partial_outcomes_finalize_once"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "E-03",
+      "implementation_refs": [
+        "core/sitina/evals/system_evaluation.py",
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "The executable concurrency contract binds Blackboard, budget, lease, scheduler, cache-fill, and terminal races; cache-fill uses barriers at 2/4/8 workers without timing sleeps."
+      ],
+      "status": "PASS_NEW",
+      "summary": "并发测试",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e03_barrier_concurrency_suite_covers_blackboard_budget_lease_scheduler_cache_fill_and_terminal_without_sleep"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "E-04",
+      "implementation_refs": [
+        "core/sitina/evals/system_evaluation.py"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "The executable chaos contract resolves real Provider, tool, Journal, CAS, projection, worker, and disk fault tests and requires recovery or fail-closed evidence."
+      ],
+      "status": "PASS_NEW",
+      "summary": "混沌测试",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e04_chaos_suite_binds_provider_tool_journal_cas_projection_worker_and_disk_faults_to_recovery_fail_closed_tests"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "E-05",
+      "implementation_refs": [
+        "tests/benchmarks/test_system_performance_benchmarks.py",
+        "core/sitina/orchestrator/performance_management.py"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "Routing, FAST, MULTI, handoff, Blackboard, and replay each have separate deterministic latency, throughput, and resource regression results outside the functional suite."
+      ],
+      "status": "PASS_NEW",
+      "summary": "性能测试",
+      "test_ids": [
+        "tests.benchmarks.test_system_performance_benchmarks.SystemPerformanceBenchmarkTests.test_e05_routing_fast_multi_handoff_blackboard_replay_have_separate_repeatable_latency_throughput_resource_gates"
+      ]
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "id": "X-16",
+      "implementation_refs": [
+        "core/sitina/evals/system_evaluation.py"
+      ],
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "RunEvaluator emits six versioned dimensions with status, score, reason codes, and evidence refs; read-only replay performs zero Provider, network, effect, or ledger writes and caps tampered or missing evidence."
+      ],
+      "status": "PASS_NEW",
+      "summary": "RunEvaluator",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_x16_run_evaluator_is_read_only_replayable_six_dimensional_and_caps_tampered_or_missing_evidence"
+      ]
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-14/gate-summary.json"
+      ],
+      "id": "X-19",
+      "implementation_refs": [
+        "core/sitina/conversation/suggestion.py",
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/team.py"
+      ],
+      "last_verified_commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "notes": [
+        "The versioned suggest command reuses the real router, risk, budget, SLA, workflow and team policy; it reports friendly estimates and explicit overrides while performing zero Provider, network or state writes. Risk overrides cannot downgrade detected risk."
+      ],
+      "status": "PASS_NEW",
+      "summary": "选型决策工具",
+      "test_ids": [
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_simple_code_architecture_risk_mixed_followup_budget_sla_unknown_and_policy_alignment",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_cli_is_provider_free_side_effect_free_and_exposes_friendly_versioned_overrides",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_configuration_error_is_diagnostic_and_does_not_fall_back_or_write"
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "source_not_provided": [
+    "E-06",
+    "E-07",
+    "E-08",
+    "E-09",
+    "E-10",
+    "E-11",
+    "第18项"
+  ],
+  "spec_path": "/Users/moss/Desktop/sitina/Sitina_Codex_优化提示词_顺序执行版.md",
+  "test_runs": [
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-baseline-attempt-1",
+      "status": "FAIL"
+    },
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-baseline-attempt-2",
+      "status": "PARTIAL_PASS_DOCTOR_SETUP_REQUIRED"
+    },
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-doctor-initialized",
+      "status": "PASS"
+    },
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_ref": "docs/optimization/evidence/phase-00/gate-summary.json",
+      "id": "phase00-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 44
+    },
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_ref": "docs/optimization/evidence/phase-00/gate-summary.json",
+      "id": "phase00-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 930
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_ref": "docs/optimization/evidence/phase-10/gate-summary.json",
+      "id": "phase10-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 22
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_ref": "docs/optimization/evidence/phase-10/gate-summary.json",
+      "id": "phase10-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1066
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_ref": "docs/optimization/evidence/phase-11/gate-summary.json",
+      "id": "phase11-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 11
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_ref": "docs/optimization/evidence/phase-11/gate-summary.json",
+      "id": "phase11-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1077
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_ref": "docs/optimization/evidence/phase-12/gate-summary.json",
+      "id": "phase12-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 8
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_ref": "docs/optimization/evidence/phase-12/gate-summary.json",
+      "id": "phase12-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1085
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-evaluation-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 8
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-integration-chaos-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 120
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1093
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_ref": "docs/optimization/evidence/phase-14/gate-summary.json",
+      "id": "phase14-suggest-docs-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 39
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_ref": "docs/optimization/evidence/phase-14/gate-summary.json",
+      "id": "phase14-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1096
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "schema": "SITINA_STEP6_EXECUTION_SANDBOX_RELIABILITY_EVIDENCE_V1",
+  "captured_at_utc": "2026-07-22T09:17:30Z",
+  "verdict": "STEP6_PASS",
+  "scope": "LOCAL_SOFTWARE_RELIABILITY_ONLY",
+  "source": {
+    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "branch": "codex/step6-execution-sandbox",
+    "parent_commit": "fa12d5976c57131147aae864c140e790ba47f5f3",
+    "implementation_diff_sha256": "2d218d69ad02c4886a8a03a8ff9cf7b67c0e4139743494457b129843256cbea4",
+    "implementation_changed_file_count": 4,
+    "implementation_insertions": 726,
+    "implementation_deletions": 257,
+    "files": [
+      {
+        "path": "core/sitina/legacy/fence.py",
+        "sha256": "948fa4a61130c03d20381d99076be12811176c6b7554d214881e970951b2f446"
+      },
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox.py",
+        "sha256": "285d008f08b71b1d2fc43278ac34e34454d03ddfc1274ad7aa2f7d879abd9294"
+      },
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox_worker.py",
+        "sha256": "eee2edff2d91c82fc1c2a5de286d3652f23a9cb7d04b1be7ad50e210b4a4cc76"
+      },
+      {
+        "path": "tests/test_execution_sandbox.py",
+        "sha256": "7c694c7772db153e99b91d251fdaac508b54018de8f40f40e0f3da4458663b6c"
+      }
+    ]
+  },
+  "result_source_boundary": {
+    "parent_owned_inputs": [
+      "statically collected target identity",
+      "ordered doctest example identities and fingerprints",
+      "expected output and exception text",
+      "doctest option flags",
+      "sealed TestPlan hash",
+      "sealed diff hash"
+    ],
+    "executor_output_schema": "DOCTEST_ITEM_OBSERVATIONS_V1",
+    "executor_outputs_only": [
+      "example index and sealed fingerprint",
+      "attempted flag",
+      "captured stdout",
+      "exception type",
+      "exception-only text"
+    ],
+    "executor_cannot_supply": [
+      "passed count",
+      "failed count",
+      "error count",
+      "aggregate verdict",
+      "TestEvidence acceptance"
+    ],
+    "parent_computation": "The parent validates exact schema, cardinality, ordering and fingerprints, compares raw observations with the sealed plan using doctest output semantics, and independently derives every final count and acceptance decision.",
+    "generic_unittest": "FAIL_CLOSED_UNSUPPORTED before target assertions because an independently observable item-result protocol is not yet available.",
+    "signing_boundary": "The exact capability- and hash-bound Python supervisor owns the one-use HMAC key and launches one Seatbelt executor. Target code executes only in the executor and never receives the signing key.",
+    "capability_bindings": [
+      "Python binary and hash",
+      "sandbox-exec binary and hash",
+      "worker path and hash",
+      "exact argv and cwd",
+      "sealed plan and diff hashes",
+      "Seatbelt policy hash",
+      "read and write scopes",
+      "resource limits and expiry",
+      "one-use nonce"
+    ]
+  },
+  "directed_regressions": {
+    "suite": "tests.test_execution_sandbox",
+    "tests": 19,
+    "passed": 19,
+    "failures": 0,
+    "errors": 0,
+    "outcomes": [
+      "normal passing doctest accepted with exact complete TestEvidence",
+      "real output mismatch counted by the parent as failed=1 while the healthy executor return code remains zero",
+      "expected exception type and text compared and accepted by the parent",
+      "unexpected exception counted by the parent as an error",
+      "zero-test plan rejected before sandbox startup",
+      "target early exit yields executed=0, passed=0 and error evidence",
+      "incomplete item observations yield executed=0, passed=0 and error evidence",
+      "legacy executor-supplied aggregate PASS schema rejected",
+      "generic unittest rejected with collected>0, executed=0, passed=0 and error>0 before assertions",
+      "background thread, timeout, forged frame, symlink and attestation tampering rejected"
+    ]
+  },
+  "isolated_gates": {
+    "suite_registry": "tests/test_suites.json",
+    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "fresh_nonproduction_home": true,
+    "execution_activation_gate": {
+      "collected": 51,
+      "executed": 51,
+      "passed": 51,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collection_complete": true,
+      "execution_complete": true,
+      "accepted": true
+    },
+    "unit_fast": {
+      "tests": 217,
+      "passed": 217,
+      "failures": 0,
+      "errors": 0
+    },
+    "integration_isolated": {
+      "tests": 220,
+      "passed": 220,
+      "failures": 0,
+      "errors": 0
+    },
+    "all_registered_unique_selectors": {
+      "selector_occurrences": 174,
+      "unique_selectors": 166,
+      "tests": 1013,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5,
+      "skip_reason": "Five historical Phase -1 acceptance tests are conditional on SITINA_BPLUS_TEST_LAYER=legacy_readonly_observation."
+    },
+    "isolation_observations": {
+      "external_attempt_count": 0,
+      "production_path_attempt_count": 0,
+      "temporary_test_homes_removed": true
+    }
+  },
+  "preserved_closure": {
+    "TestEvidence": "Activation regressions verify immutable publication, exact hashes, controller attestation and accept-with-evidence enforcement.",
+    "resource_budget": "CPU, memory growth, output and file bytes, process count, open files and wall time remain capability-bound and kernel/process enforced.",
+    "actual_change_accounting": "Bridge regressions verify successful mutation-event counts and exact successful-path equality with collected diffs.",
+    "immutable_patch_evidence": "Bridge regressions verify deterministic manifests, immutable content references, replay-tree hashes and rejection of hidden, destructive or tampered mutations."
+  },
+  "production_sentinels": {
+    "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+    "goal_thread_id": "019f810d-78fe-75d2-8efd-d43fccbd82d7",
+    "production_home": "/Users/moss/SitinaHub",
+    "v1_before": "92c9f53fe7ad786f6ade409699dcb633f64587233b98b5a89d8afd4f1fda594a",
+    "v1_after": "92c9f53fe7ad786f6ade409699dcb633f64587233b98b5a89d8afd4f1fda594a",
+    "mutable_v2_before": "18a40f3d593f3ff6ed4b7292b33586f928f7a04a27664d842595ede4cbaf93f4",
+    "mutable_v2_after": "18a40f3d593f3ff6ed4b7292b33586f928f7a04a27664d842595ede4cbaf93f4",
+    "unchanged": true,
+    "final_category_count": 16,
+    "final_entry_count": 323354
+  },
+  "real_sitina_readonly_reviews": {
+    "review_packet": {
+      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-result-source-review-packet-20260722T090815Z.json",
+      "sha256": "f3cf0d7887d542b899fc93a83a3d8f7ef1d08d20e5421dfe16663756e079c028"
+    },
+    "runtime": "sitina-autonomous-extensions-v1",
+    "model": "deepseek-v4-pro",
+    "first_review": {
+      "run_id": "agent-run-f49c5330d4004a369a075f036260f70a",
+      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-f49c5330d4004a369a075f036260f70a.jsonl",
+      "audit_sha256": "b3b3563f4ba41382ab0c35e2c7c5f915615678b7968628c3d592a4f0a47ead41",
+      "provider_calls": 2,
+      "input_tokens": 5066,
+      "output_tokens": 1901,
+      "total_tokens": 6967,
+      "tool_calls": 1,
+      "tool_permissions": [
+        "read"
+      ],
+      "external_mutation_count": 0,
+      "terminal_state": "SUCCEEDED",
+      "response_disposition": "INCOMPLETE_NOT_USED_FOR_COMMIT_DECISION",
+      "response_detail": "The response began with PASS but hit its output limit before emitting blockers and may_commit."
+    },
+    "final_review": {
+      "run_id": "agent-run-e7596890661e491cbbd1b769f4015ede",
+      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-e7596890661e491cbbd1b769f4015ede.jsonl",
+      "audit_sha256": "f01a283f4c38ad2c47b81d21fc0f2938d48976357dc85e7d1150e80d2b4d57b5",
+      "provider_calls": 2,
+      "input_tokens": 4913,
+      "output_tokens": 1227,
+      "total_tokens": 6140,
+      "tool_calls": 1,
+      "tool_permissions": [
+        "read"
+      ],
+      "external_mutation_count": 0,
+      "terminal_state": "SUCCEEDED",
+      "verdict": "PASS",
+      "blockers": [],
+      "may_commit": true
+    }
+  },
+  "diagnostic_nonpasses": [
+    {
+      "stage": "initial unit_fast startup",
+      "classification": "FIXTURE_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "An empty temporary home lacked copied config and the foundation import path. The DisposableHomeFactory rerun passed 217/217."
+    },
+    {
+      "stage": "isolated harness controller startup",
+      "classification": "EXPECTED_PRODUCTION_FENCE_DENIAL_NOT_TEST_PASS",
+      "detail": "The first controller inherited protected Production SITINA_HOME and was denied subprocess startup. A disjoint temporary controller home enabled the isolated run without weakening the fence."
+    },
+    {
+      "stage": "final sentinel capture startup",
+      "classification": "IMPORT_PRECONDITION_FAILURE_NOT_SENTINEL_PASS",
+      "detail": "The first read-only capture omitted the source module path and stopped at import. The corrected capture completed and matched the pre-test hashes."
+    },
+    {
+      "stage": "historical legacy_readonly_observation diagnostic",
+      "classification": "STALE_HISTORICAL_CONTENT_MANIFEST_NOT_CURRENT_GATE",
+      "detail": "Three of five historical observations pass. The other two remain pinned to the 2026-07-13 dependency lock and prior README size. No historical or Production baseline was refreshed, installed or promoted."
+    }
+  ],
+  "safety_state": {
+    "production_deployment_modified": false,
+    "feature_flags_changed": false,
+    "production_sentinel_or_baseline_installed_or_promoted": false,
+    "production_canary_run": false,
+    "production_data_deleted_or_moved": false,
+    "review_temp_homes_removed": true
+  }
+}

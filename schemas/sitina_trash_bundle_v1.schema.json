@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sitina.local/schemas/sitina_trash_bundle_v1.schema.json",
+  "title": "Sitina Trash Bundle V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "session_id", "journal_frontier", "object_refs", "run_ids"],
+  "properties": {
+    "schema": {"const": "SITINA_TRASH_BUNDLE_V1"},
+    "session_id": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]*$"},
+    "journal_frontier": {"type": "integer", "minimum": 0},
+    "object_refs": {
+      "type": "array",
+      "maxItems": 100000,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}
+    },
+    "run_ids": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]*$"}
+    }
+  }
+}

@@ -1,0 +1,1058 @@
+{
+  "generated_from": "docs/optimization/optimization-ledger.json",
+  "requirement_count": 149,
+  "requirements": {
+    "B-01": {
+      "assertion": "状态一致性: b01 two agents same version only one commits and conflict is retryable.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable"
+      ]
+    },
+    "B-02": {
+      "assertion": "状态快照: b02 position version snapshot restore damage and monotonic recovery.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b02_position_version_snapshot_restore_damage_and_monotonic_recovery"
+      ]
+    },
+    "B-03": {
+      "assertion": "状态 Diff: b03 diff records actor hashes causation and redacts sensitive values.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b03_diff_records_actor_hashes_causation_and_redacts_sensitive_values"
+      ]
+    },
+    "B-04": {
+      "assertion": "状态大小: b04 capacity warning and rejection leave original state unchanged.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b04_capacity_warning_and_rejection_leave_original_state_unchanged"
+      ]
+    },
+    "B-05": {
+      "assertion": "状态持久化: b05 restart recovery project reuse and tenant run isolation.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b05_restart_recovery_project_reuse_and_tenant_run_isolation"
+      ]
+    },
+    "B-06": {
+      "assertion": "状态 Schema: b06 structured schema notes invalid unknown and deterministic upcast.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b06_structured_schema_notes_invalid_unknown_and_deterministic_upcast"
+      ]
+    },
+    "B-07": {
+      "assertion": "状态查询: b07 query filters stable pagination and hidden unauthorized documents.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b07_query_filters_stable_pagination_and_hidden_unauthorized_documents"
+      ]
+    },
+    "B-08": {
+      "assertion": "状态权限: b08 capabilities nested aliases paths and access audits.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b08_capabilities_nested_aliases_paths_and_access_audits"
+      ]
+    },
+    "B-09": {
+      "assertion": "状态通知: b09 recoverable deduplicated subscription polling and slow consumer.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b09_recoverable_deduplicated_subscription_polling_and_slow_consumer"
+      ]
+    },
+    "B-10": {
+      "assertion": "状态测试: b10 seeded interleaving crash recovery and high concurrency are repeatable.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable"
+      ]
+    },
+    "E-01": {
+      "assertion": "路由测试: e01 r08 fixtures report accuracy dangerous downgrade upgrade language domain and policy version.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e01_r08_fixtures_report_accuracy_dangerous_downgrade_upgrade_language_domain_and_policy_version"
+      ]
+    },
+    "E-02": {
+      "assertion": "协作测试: e02 all topologies and success rework reject block ask user consensus cancel restart partial outcomes finalize once.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e02_all_topologies_and_success_rework_reject_block_ask_user_consensus_cancel_restart_partial_outcomes_finalize_once"
+      ]
+    },
+    "E-03": {
+      "assertion": "并发测试: e03 barrier concurrency suite covers blackboard budget lease scheduler cache fill and terminal without sleep.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e03_barrier_concurrency_suite_covers_blackboard_budget_lease_scheduler_cache_fill_and_terminal_without_sleep"
+      ]
+    },
+    "E-04": {
+      "assertion": "混沌测试: e04 chaos suite binds provider tool journal cas projection worker and disk faults to recovery fail closed tests.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e04_chaos_suite_binds_provider_tool_journal_cas_projection_worker_and_disk_faults_to_recovery_fail_closed_tests"
+      ]
+    },
+    "E-05": {
+      "assertion": "性能测试: e05 routing fast multi handoff blackboard replay have separate repeatable latency throughput resource gates.",
+      "evidence_kind": "benchmark",
+      "test_ids": [
+        "tests.benchmarks.test_system_performance_benchmarks.SystemPerformanceBenchmarkTests.test_e05_routing_fast_multi_handoff_blackboard_replay_have_separate_repeatable_latency_throughput_resource_gates"
+      ]
+    },
+    "F-01": {
+      "assertion": "重试策略: f01 unified retry exponential jitter retry after classification and virtual clock.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f01_unified_retry_exponential_jitter_retry_after_classification_and_virtual_clock"
+      ]
+    },
+    "F-02": {
+      "assertion": "失败分类: f02 versioned failure taxonomy has all classes and preserves redacted root chain.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f02_versioned_failure_taxonomy_has_all_classes_and_preserves_redacted_root_chain"
+      ]
+    },
+    "F-03": {
+      "assertion": "降级策略: f03 degradation uses risk capability matrix and fails closed for unsafe conditions.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f03_degradation_uses_risk_capability_matrix_and_fails_closed_for_unsafe_conditions"
+      ]
+    },
+    "F-04": {
+      "assertion": "熔断器: f04 circuit breaker isolates provider tool profile and serializes half open probe.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f04_circuit_breaker_isolates_provider_tool_profile_and_serializes_half_open_probe"
+      ]
+    },
+    "F-05": {
+      "assertion": "幂等设计: f05 idempotency key reuses result after lost response and executes side effect once.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f05_idempotency_key_reuses_result_after_lost_response_and_executes_side_effect_once"
+      ]
+    },
+    "F-06": {
+      "assertion": "错误传播: f06 cross agent failure envelope keeps stage cause retryability and redacts diagnostic.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f06_cross_agent_failure_envelope_keeps_stage_cause_retryability_and_redacts_diagnostic"
+      ]
+    },
+    "F-07": {
+      "assertion": "事务边界: f07 transaction boundary never reports partial effect settlement as full success.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f07_transaction_boundary_never_reports_partial_effect_settlement_as_full_success"
+      ]
+    },
+    "F-08": {
+      "assertion": "回滚测试: f08 rollback records success failure and deduplicates repeated compensation.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f08_rollback_records_success_failure_and_deduplicates_repeated_compensation"
+      ]
+    },
+    "F-09": {
+      "assertion": "灾难恢复: f09 dr backup restore and replay use only isolated copy with writer disabled.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f09_dr_backup_restore_and_replay_use_only_isolated_copy_with_writer_disabled"
+      ]
+    },
+    "F-10": {
+      "assertion": "健康检查: f10 health checks all components separate liveness readiness and redact secrets.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f10_health_checks_all_components_separate_liveness_readiness_and_redact_secrets"
+      ]
+    },
+    "F-11": {
+      "assertion": "优雅降级: f11 partial success names missing capability and actionable next step.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f11_partial_success_names_missing_capability_and_actionable_next_step"
+      ]
+    },
+    "F-12": {
+      "assertion": "失败通知: f12 failure notification is understandable deduplicated and secret free.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f12_failure_notification_is_understandable_deduplicated_and_secret_free"
+      ]
+    },
+    "H-01": {
+      "assertion": "上下文限制: h01 provider tokenizer accounts system tools history output and fallback.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h01_provider_tokenizer_accounts_system_tools_history_output_and_fallback"
+      ]
+    },
+    "H-02": {
+      "assertion": "上下文选择: h02 deterministic priority never evicts safety constraints or unfinished work.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h02_deterministic_priority_never_evicts_safety_constraints_or_unfinished_work"
+      ]
+    },
+    "H-03": {
+      "assertion": "上下文压缩: h03 structured compression preserves required fact set and source evidence.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h03_structured_compression_preserves_required_fact_set_and_source_evidence"
+      ]
+    },
+    "H-04": {
+      "assertion": "Handoff 完整性: h04 manifest acknowledgement accepts complete and lists every missing binding.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h04_manifest_acknowledgement_accepts_complete_and_lists_every_missing_binding"
+      ]
+    },
+    "H-05": {
+      "assertion": "Handoff 拒绝: h05 repairable rework is finite permission safety fail closed and cancel cleans up.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h05_repairable_rework_is_finite_permission_safety_fail_closed_and_cancel_cleans_up"
+      ]
+    },
+    "H-06": {
+      "assertion": "Handoff 测试: h06 success missing tamper expiry duplicate version rework and restart.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h06_success_missing_tamper_expiry_duplicate_version_rework_and_restart"
+      ]
+    },
+    "H-07": {
+      "assertion": "Blackboard 结构: h07 handoff binds shared versioned blackboard document not free text.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h07_handoff_binds_shared_versioned_blackboard_document_not_free_text"
+      ]
+    },
+    "H-08": {
+      "assertion": "Blackboard 冲突: h08 blackboard interleaving and handoff submission reject stale task fence.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h08_blackboard_interleaving_and_handoff_submission_reject_stale_task_fence"
+      ]
+    },
+    "H-09": {
+      "assertion": "Blackboard 清理: h09 terminal retention holds references gc boundary and restart.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h09_terminal_retention_holds_references_gc_boundary_and_restart"
+      ]
+    },
+    "H-10": {
+      "assertion": "Blackboard 安全: h10 write read log handoff redaction handles encoding nesting fragments unicode and allowlist.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h10_write_read_log_handoff_redaction_handles_encoding_nesting_fragments_unicode_and_allowlist"
+      ]
+    },
+    "H-11": {
+      "assertion": "上下文 Token: h11 controller agent tool candidate summary allocations reclaim without ceiling overrun.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h11_controller_agent_tool_candidate_summary_allocations_reclaim_without_ceiling_overrun"
+      ]
+    },
+    "H-12": {
+      "assertion": "历史回溯: h12 authorized paginated evidence history finds early context without auto injection.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h12_authorized_paginated_evidence_history_finds_early_context_without_auto_injection"
+      ]
+    },
+    "M-01": {
+      "assertion": "记忆分层: m01 working episodic long term promote read isolate and restart.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m01_working_episodic_long_term_promote_read_isolate_and_restart"
+      ]
+    },
+    "M-02": {
+      "assertion": "记忆整合: m02 normalized duplicate near and complementary consolidation keep provenance.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m02_normalized_duplicate_near_and_complementary_consolidation_keep_provenance"
+      ]
+    },
+    "M-03": {
+      "assertion": "记忆检索: m03 pluggable semantic retrieval has acl and deterministic fallback.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m03_pluggable_semantic_retrieval_has_acl_and_deterministic_fallback"
+      ]
+    },
+    "M-04": {
+      "assertion": "记忆衰减: m04 ttl decay permanent retention and reads do not rewrite history.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m04_ttl_decay_permanent_retention_and_reads_do_not_rewrite_history"
+      ]
+    },
+    "M-05": {
+      "assertion": "记忆冲突: m05 conflicts coexist until journal reconstructed human arbitration.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m05_conflicts_coexist_until_journal_reconstructed_human_arbitration"
+      ]
+    },
+    "M-06": {
+      "assertion": "记忆容量: m06 namespace capacity explains eviction and protects references.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m06_namespace_capacity_explains_eviction_and_protects_references"
+      ]
+    },
+    "M-07": {
+      "assertion": "记忆溯源: m07 run agent evidence trust timestamp and hash provenance has no orphans.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m07_run_agent_evidence_trust_timestamp_and_hash_provenance_has_no_orphans"
+      ]
+    },
+    "M-08": {
+      "assertion": "记忆污染: m08 wrong malicious and unauthorized memory is quarantined and never propagates.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m08_wrong_malicious_and_unauthorized_memory_is_quarantined_and_never_propagates"
+      ]
+    },
+    "O-01": {
+      "assertion": "Controller 瓶颈: o01 reentrant scheduler runs multiple queues concurrently and recovers after controller restart.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o01_reentrant_scheduler_runs_multiple_queues_concurrently_and_recovers_after_controller_restart"
+      ]
+    },
+    "O-02": {
+      "assertion": "任务分解: o02 planner schema validates complete dag and rejects missing or invalid dependencies.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o02_planner_schema_validates_complete_dag_and_rejects_missing_or_invalid_dependencies"
+      ]
+    },
+    "O-03": {
+      "assertion": "并行调度: o03 ready non conflicting nodes overlap and dependencies or write conflicts block.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o03_ready_non_conflicting_nodes_overlap_and_dependencies_or_write_conflicts_block"
+      ]
+    },
+    "O-04": {
+      "assertion": "动态团队: o04 minimum sufficient team changes with capability risk load and cost evidence.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o04_minimum_sufficient_team_changes_with_capability_risk_load_and_cost_evidence"
+      ]
+    },
+    "O-05": {
+      "assertion": "协作开销: o05 agent handoff rework cost attribution sums exactly to run totals.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o05_agent_handoff_rework_cost_attribution_sums_exactly_to_run_totals"
+      ]
+    },
+    "O-06": {
+      "assertion": "失败传播: o06 structured failure propagates required optional compensatable fanout and fanin.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o06_structured_failure_propagates_required_optional_compensatable_fanout_and_fanin"
+      ]
+    },
+    "O-07": {
+      "assertion": "超时控制: o07 worker timeout cancels releases resources checkpoints and selects takeover.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o07_worker_timeout_cancels_releases_resources_checkpoints_and_selects_takeover"
+      ]
+    },
+    "O-08": {
+      "assertion": "取消机制: o08 user cancel race stops new calls and cleans journal leases and temp resources.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o08_user_cancel_race_stops_new_calls_and_cleans_journal_leases_and_temp_resources"
+      ]
+    },
+    "O-09": {
+      "assertion": "幂等性: o09 stable attempt idempotency keys deduplicate effect proposal and state commits.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o09_stable_attempt_idempotency_keys_deduplicate_effect_proposal_and_state_commits"
+      ]
+    },
+    "O-10": {
+      "assertion": "状态机: o10 state machine table covers every legal and illegal transition and terminal invariants.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o10_state_machine_table_covers_every_legal_and_illegal_transition_and_terminal_invariants"
+      ]
+    },
+    "O-11": {
+      "assertion": "死锁检测: o11 enqueue and runtime deadlock detection explains self multi node and resource cycles.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o11_enqueue_and_runtime_deadlock_detection_explains_self_multi_node_and_resource_cycles"
+      ]
+    },
+    "O-12": {
+      "assertion": "优先级: o12 priority deadline stable tie break and aging prevent low priority starvation.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o12_priority_deadline_stable_tie_break_and_aging_prevent_low_priority_starvation"
+      ]
+    },
+    "O-13": {
+      "assertion": "资源限制: o13 hierarchical semaphores bound stress peaks and release on exception or cancel.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o13_hierarchical_semaphores_bound_stress_peaks_and_release_on_exception_or_cancel"
+      ]
+    },
+    "O-14": {
+      "assertion": "可观测性: o14 trace contract links task attempt agent handoff and tool under one correlation id.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o14_trace_contract_links_task_attempt_agent_handoff_and_tool_under_one_correlation_id"
+      ]
+    },
+    "O-15": {
+      "assertion": "热路径: o15 low risk hot path preserves safety budget trace with fewer calls and lower latency.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o15_low_risk_hot_path_preserves_safety_budget_trace_with_fewer_calls_and_lower_latency"
+      ]
+    },
+    "O-16": {
+      "assertion": "协作模式: o16 pipeline supervisor network and hierarchy share terminal permission and state contracts.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o16_pipeline_supervisor_network_and_hierarchy_share_terminal_permission_and_state_contracts"
+      ]
+    },
+    "O-17": {
+      "assertion": "Agent 复用: o17 agent client reuse isolates prompt credentials tenant and evicts failed resources.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o17_agent_client_reuse_isolates_prompt_credentials_tenant_and_evicts_failed_resources"
+      ]
+    },
+    "O-18": {
+      "assertion": "协作测试: o18 end to end scenarios cover success rework rejection consensus arbitration timeout cancel recovery writes and exhaustion.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o18_end_to_end_scenarios_cover_success_rework_rejection_consensus_arbitration_timeout_cancel_recovery_writes_and_exhaustion"
+      ]
+    },
+    "P-01": {
+      "assertion": "Controller: p01 controller contract covers goal routing team budget permissions terminal escalation and no overreach.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p01_controller_contract_covers_goal_routing_team_budget_permissions_terminal_escalation_and_no_overreach"
+      ]
+    },
+    "P-02": {
+      "assertion": "Planner: p02 planner has explicit missing information cycle budget risk and failure paths.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p02_planner_has_explicit_missing_information_cycle_budget_risk_and_failure_paths"
+      ]
+    },
+    "P-03": {
+      "assertion": "Planner: p03 planner confidence assumptions unknowns and alternatives are schema validated.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p03_planner_confidence_assumptions_unknowns_and_alternatives_are_schema_validated"
+      ]
+    },
+    "P-04": {
+      "assertion": "Reviewer: p04 reviewer forms original requirement judgment before candidate review.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p04_reviewer_forms_original_requirement_judgment_before_candidate_review"
+      ]
+    },
+    "P-05": {
+      "assertion": "Reviewer: p05 reviewer accept rework reject block conditions and structured rejection.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p05_reviewer_accept_rework_reject_block_conditions_and_structured_rejection"
+      ]
+    },
+    "P-06": {
+      "assertion": "Tester: p06 tester reports environment risk reproducibility evidence and never fabricates.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p06_tester_reports_environment_risk_reproducibility_evidence_and_never_fabricates"
+      ]
+    },
+    "P-07": {
+      "assertion": "Tester: p07 tester risk catalog is machine constrained.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p07_tester_risk_catalog_is_machine_constrained"
+      ]
+    },
+    "P-08": {
+      "assertion": "Arbiter: p08 arbiter prompt covers safety evidence tie and permission conflicts.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p08_arbiter_prompt_covers_safety_evidence_tie_and_permission_conflicts"
+      ]
+    },
+    "P-09": {
+      "assertion": "Arbiter: p09 arbiter hard gates fail closed and cannot be averaged.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p09_arbiter_hard_gates_fail_closed_and_cannot_be_averaged"
+      ]
+    },
+    "P-10": {
+      "assertion": "所有 Agent: p10 all final prompts embed parsed fact source evidence trust time contract and missing prompt blocks start.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p10_all_final_prompts_embed_parsed_fact_source_evidence_trust_time_contract_and_missing_prompt_blocks_start"
+      ]
+    },
+    "P-11": {
+      "assertion": "所有 Agent: p11 all roles share machine checked input output tool and run budget contract.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p11_all_roles_share_machine_checked_input_output_tool_and_run_budget_contract"
+      ]
+    },
+    "P-12": {
+      "assertion": "所有 Agent: p12 all roles treat user tool web memory and handoff as untrusted injection data.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p12_all_roles_treat_user_tool_web_memory_and_handoff_as_untrusted_injection_data"
+      ]
+    },
+    "P-13": {
+      "assertion": "所有 Agent: p13 every role declares topology permissions completion and escalation.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p13_every_role_declares_topology_permissions_completion_and_escalation"
+      ]
+    },
+    "P-14": {
+      "assertion": "所有 Agent: p14 schema repair is single observable budgeted attempt then terminal.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p14_schema_repair_is_single_observable_budgeted_attempt_then_terminal"
+      ]
+    },
+    "P-15": {
+      "assertion": "Proposal 作者: p15 proposal authors must declare material strategy assumption and risk diversity.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p15_proposal_authors_must_declare_material_strategy_assumption_and_risk_diversity"
+      ]
+    },
+    "P-16": {
+      "assertion": "Evaluator: p16 evaluators use exact pr05 rubric weights hard gates evidence and confidence.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p16_evaluators_use_exact_pr05_rubric_weights_hard_gates_evidence_and_confidence"
+      ]
+    },
+    "P-17": {
+      "assertion": "Security: p17 security schema covers threat permission secret effects and forbids high risk execution.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p17_security_schema_covers_threat_permission_secret_effects_and_forbids_high_risk_execution"
+      ]
+    },
+    "P-18": {
+      "assertion": "Critic: p18 critic owns adversarial errors and counterexamples but not final review.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p18_critic_owns_adversarial_errors_and_counterexamples_but_not_final_review"
+      ]
+    },
+    "P-19": {
+      "assertion": "Researcher: p19 researcher schema separates facts inferences unknowns freshness and untrusted sources.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p19_researcher_schema_separates_facts_inferences_unknowns_freshness_and_untrusted_sources"
+      ]
+    },
+    "P-20": {
+      "assertion": "Memory: p20 memory candidates are deduplicated conflict privacy freshness provenance pending only.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p20_memory_candidates_are_deduplicated_conflict_privacy_freshness_provenance_pending_only"
+      ]
+    },
+    "P-21": {
+      "assertion": "Summary: p21 summary schema structures goal completion decisions constraints failures open evidence and budget.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p21_summary_schema_structures_goal_completion_decisions_constraints_failures_open_evidence_and_budget"
+      ]
+    },
+    "P-22": {
+      "assertion": "角色重叠: p22 responsibility matrix routes critic reviewer evaluator and arbiter without dual ownership.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p22_responsibility_matrix_routes_critic_reviewer_evaluator_and_arbiter_without_dual_ownership"
+      ]
+    },
+    "PC-01": {
+      "assertion": "Token 预算: pc01 hierarchical budget reservation settlement refund hard cap concurrency and missing usage unsettled.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc01_hierarchical_budget_reservation_settlement_refund_hard_cap_concurrency_and_missing_usage_unsettled"
+      ]
+    },
+    "PC-02": {
+      "assertion": "成本归因: pc02 cost attribution run stage agent logical physical retry cache fallback and totals identity.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc02_cost_attribution_run_stage_agent_logical_physical_retry_cache_fallback_and_totals_identity"
+      ]
+    },
+    "PC-03": {
+      "assertion": "并发控制: pc03 existing hierarchical concurrency enforces quotas fairness backpressure and releases on cancel.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc03_existing_hierarchical_concurrency_enforces_quotas_fairness_backpressure_and_releases_on_cancel"
+      ]
+    },
+    "PC-04": {
+      "assertion": "Provider 缓存: pc04 provider cache requires safe complete binding encrypts ttl invalidates and distinguishes usage.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc04_provider_cache_requires_safe_complete_binding_encrypts_ttl_invalidates_and_distinguishes_usage"
+      ]
+    },
+    "PC-05": {
+      "assertion": "批处理: pc05 batch uses declared capability preserves item idempotency errors usage and falls back safely.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc05_batch_uses_declared_capability_preserves_item_idempotency_errors_usage_and_falls_back_safely"
+      ]
+    },
+    "PC-06": {
+      "assertion": "延迟优化: pc06 repeatable benchmark records environment samples warmup quantiles error and proves equivalent faster path.",
+      "evidence_kind": "benchmark",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc06_repeatable_benchmark_records_environment_samples_warmup_quantiles_error_and_proves_equivalent_faster_path"
+      ]
+    },
+    "PC-07": {
+      "assertion": "资源池化: pc07 resource pool isolates tenant credentials profile handles concurrency expiry failure and close.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc07_resource_pool_isolates_tenant_credentials_profile_handles_concurrency_expiry_failure_and_close"
+      ]
+    },
+    "PC-08": {
+      "assertion": "成本监控: pc08 runtime cost monitor reports used reserved remaining forecast hard stop freshness source and cli.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc08_runtime_cost_monitor_reports_used_reserved_remaining_forecast_hard_stop_freshness_source_and_cli"
+      ]
+    },
+    "PR-01": {
+      "assertion": "Proposal 多样性: pr01 strategy assumption risk diversity rejects near duplicates then regenerates or degrades.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr01_strategy_assumption_risk_diversity_rejects_near_duplicates_then_regenerates_or_degrades"
+      ]
+    },
+    "PR-02": {
+      "assertion": "Proposal 数量: pr02 risk budget minimum and maximum prevent underfilled multi competition.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr02_risk_budget_minimum_and_maximum_prevent_underfilled_multi_competition"
+      ]
+    },
+    "PR-03": {
+      "assertion": "Proposal 竞争: pr03 chat competes by complexity risk budget while safe simple chat uses hot path.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr03_chat_competes_by_complexity_risk_budget_while_safe_simple_chat_uses_hot_path"
+      ]
+    },
+    "PR-04": {
+      "assertion": "Evaluator 独立: pr04 evaluator input is anonymous self review forbidden and single provider context is independent.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr04_evaluator_input_is_anonymous_self_review_forbidden_and_single_provider_context_is_independent"
+      ]
+    },
+    "PR-05": {
+      "assertion": "Evaluation 标准: pr05 versioned unified rubric has all weights and non averageable hard gates.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr05_versioned_unified_rubric_has_all_weights_and_non_averageable_hard_gates"
+      ]
+    },
+    "PR-06": {
+      "assertion": "选择算法: pr06 hard gates precede normalized confidence disagreement and stable tie break.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr06_hard_gates_precede_normalized_confidence_disagreement_and_stable_tie_break"
+      ]
+    },
+    "PR-07": {
+      "assertion": "拒绝记录: pr07 structured rejection is redacted versioned and offline learning ready.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr07_structured_rejection_is_redacted_versioned_and_offline_learning_ready"
+      ]
+    },
+    "PR-08": {
+      "assertion": "Arbitration 触发: pr08 arbitration trigger table covers each threshold and clean negative.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr08_arbitration_trigger_table_covers_each_threshold_and_clean_negative"
+      ]
+    },
+    "PR-09": {
+      "assertion": "Arbiter 模型: pr09 arbiter prefers distinct profile model and truthfully labels context only fallback.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr09_arbiter_prefers_distinct_profile_model_and_truthfully_labels_context_only_fallback"
+      ]
+    },
+    "PR-10": {
+      "assertion": "Block 恢复: pr10 block recovery distinguishes bounded rework user authorization and terminal without loops.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr10_block_recovery_distinguishes_bounded_rework_user_authorization_and_terminal_without_loops"
+      ]
+    },
+    "PR-11": {
+      "assertion": "Ask_user: pr11 resumable ask user exposes options reason risk budget safe timeout and hash bound answer.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr11_resumable_ask_user_exposes_options_reason_risk_budget_safe_timeout_and_hash_bound_answer"
+      ]
+    },
+    "PR-12": {
+      "assertion": "Proposal 成本: pr12 shared context per candidate and total budgets stop on hard limit or low marginal value.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr12_shared_context_per_candidate_and_total_budgets_stop_on_hard_limit_or_low_marginal_value"
+      ]
+    },
+    "PR-13": {
+      "assertion": "评审并行: pr13 conflict free reviews really overlap aggregate stably and obey concurrency limit.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr13_conflict_free_reviews_really_overlap_aggregate_stably_and_obey_concurrency_limit"
+      ]
+    },
+    "PR-14": {
+      "assertion": "评审超时: pr14 deadline cancels and isolates late reviews then requires quorum or arbitration.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr14_deadline_cancels_and_isolates_late_reviews_then_requires_quorum_or_arbitration"
+      ]
+    },
+    "PR-15": {
+      "assertion": "Proposal 缓存: pr15 cache requires exact normalized policy model prompt permission tenant and safe candidate.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr15_cache_requires_exact_normalized_policy_model_prompt_permission_tenant_and_safe_candidate"
+      ]
+    },
+    "PR-16": {
+      "assertion": "评审质量: pr16 review quality validates schema reason evidence anomalies and bias for recheck or arbitration.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr16_review_quality_validates_schema_reason_evidence_anomalies_and_bias_for_recheck_or_arbitration"
+      ]
+    },
+    "R-01": {
+      "assertion": "动态复杂度: r01 structured complexity scores simple boundary and complex fixtures.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r01_structured_complexity_scores_simple_boundary_and_complex_fixtures"
+      ]
+    },
+    "R-02": {
+      "assertion": "模型意图识别: r02 classifier only runs in ambiguity budget sla band repairs once and falls back.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r02_classifier_only_runs_in_ambiguity_budget_sla_band_repairs_once_and_falls_back"
+      ]
+    },
+    "R-03": {
+      "assertion": "FAST→MULTI 回放: r03 fast to multi handoff preserves sourced candidate causality without duplicate effect or display.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r03_fast_to_multi_handoff_preserves_sourced_candidate_causality_without_duplicate_effect_or_display"
+      ]
+    },
+    "R-04": {
+      "assertion": "路由可观测: r04 every route observation and explanation contains required fields.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r04_every_route_observation_and_explanation_contains_required_fields"
+      ]
+    },
+    "R-05": {
+      "assertion": "关键词维护: r05 feedback rules are offline evaluated approved versioned and never self modify online.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r05_feedback_rules_are_offline_evaluated_approved_versioned_and_never_self_modify_online"
+      ]
+    },
+    "R-06": {
+      "assertion": "误判修复: r06 route correction is privacy safe reversible and never replays successful effects.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r06_route_correction_is_privacy_safe_reversible_and_never_replays_successful_effects"
+      ]
+    },
+    "R-07": {
+      "assertion": "成本意识: r07 token upper bounds are budgeted and high risk never chooses cheap unreviewed route.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r07_token_upper_bounds_are_budgeted_and_high_risk_never_chooses_cheap_unreviewed_route"
+      ]
+    },
+    "R-08": {
+      "assertion": "路由回归: r08 versioned bilingual regression fixtures meet accuracy and error rate gates.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r08_versioned_bilingual_regression_fixtures_meet_accuracy_and_error_rate_gates"
+      ]
+    },
+    "R-09": {
+      "assertion": "多标签冲突: r09 conflict priority and tie break are forced then safety budget sla complexity.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r09_conflict_priority_and_tie_break_are_forced_then_safety_budget_sla_complexity"
+      ]
+    },
+    "R-10": {
+      "assertion": "中文支持: r10 simplified traditional mixed spacing punctuation case and synonyms are supported.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r10_simplified_traditional_mixed_spacing_punctuation_case_and_synonyms_are_supported"
+      ]
+    },
+    "R-11": {
+      "assertion": "对话历史: r11 followup inherits bounded unfinished complexity and new context clears it.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r11_followup_inherits_bounded_unfinished_complexity_and_new_context_clears_it"
+      ]
+    },
+    "R-12": {
+      "assertion": "领域适配: r12 versioned general code compliance profiles cannot weaken global safety floor.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r12_versioned_general_code_compliance_profiles_cannot_weaken_global_safety_floor"
+      ]
+    },
+    "R-13": {
+      "assertion": "A/B 测试: r13 experiment bucket is stable killable versioned and uses only subject identity.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r13_experiment_bucket_is_stable_killable_versioned_and_uses_only_subject_identity"
+      ]
+    },
+    "R-14": {
+      "assertion": "MULTI→FAST 降级: r14 multi to fast degradation is unreviewed only when safe and otherwise fails closed.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r14_multi_to_fast_degradation_is_unreviewed_only_when_safe_and_otherwise_fails_closed"
+      ]
+    },
+    "R-15": {
+      "assertion": "延迟 SLA: r15 latency class inheritance and virtual deadline select fast partial or fail closed.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r15_latency_class_inheritance_and_virtual_deadline_select_fast_partial_or_fail_closed"
+      ]
+    },
+    "S-01": {
+      "assertion": "MCP 权限: s01 mcp default deny wildcards escape aliases and explicit inheritance.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s01_mcp_default_deny_wildcards_escape_aliases_and_explicit_inheritance"
+      ]
+    },
+    "S-02": {
+      "assertion": "工具超时: s02 tool timeouts propagate cancellation and cleanup without live worker.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s02_tool_timeouts_propagate_cancellation_and_cleanup_without_live_worker"
+      ]
+    },
+    "S-03": {
+      "assertion": "工具重试: s03 tool retry requires retryable taxonomy and idempotency or key.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s03_tool_retry_requires_retryable_taxonomy_and_idempotency_or_key"
+      ]
+    },
+    "S-04": {
+      "assertion": "工具审计: s04 tool audit persists only redacted summaries hashes decisions refs and errors.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s04_tool_audit_persists_only_redacted_summaries_hashes_decisions_refs_and_errors"
+      ]
+    },
+    "S-05": {
+      "assertion": "风险扫描: s05 contextual risk scoring is versioned auditable and unknown high risk fails closed.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s05_contextual_risk_scoring_is_versioned_auditable_and_unknown_high_risk_fails_closed"
+      ]
+    },
+    "S-06": {
+      "assertion": "审批流程: s06 approval wait binds run effect hash expires denies cleans and consumes once.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s06_approval_wait_binds_run_effect_hash_expires_denies_cleans_and_consumes_once"
+      ]
+    },
+    "S-07": {
+      "assertion": "权限最小化: s07 every role has exact minimum capability matrix and forbidden actions override.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s07_every_role_has_exact_minimum_capability_matrix_and_forbidden_actions_override"
+      ]
+    },
+    "S-08": {
+      "assertion": "Prompt 注入: s08 prompt sources are isolated and tool memory injection cannot escalate or exfiltrate.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s08_prompt_sources_are_isolated_and_tool_memory_injection_cannot_escalate_or_exfiltrate"
+      ]
+    },
+    "S-09": {
+      "assertion": "密钥管理: s09 structured secret detector catches format entropy base64 fragments unicode url log and export.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s09_structured_secret_detector_catches_format_entropy_base64_fragments_unicode_url_log_and_export"
+      ]
+    },
+    "S-10": {
+      "assertion": "副作用隔离: s10 replay and evaluation guards never execute real side effects.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s10_replay_and_evaluation_guards_never_execute_real_side_effects"
+      ]
+    },
+    "T-01": {
+      "assertion": "Trace 完整性: t01 trace integrity run task agent provider tool state effect versions usage and orphan detection.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t01_trace_integrity_run_task_agent_provider_tool_state_effect_versions_usage_and_orphan_detection"
+      ]
+    },
+    "T-02": {
+      "assertion": "Trace 采样: t02 sampling always keeps error high risk approval overbudget billing audit and deterministically samples success.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t02_sampling_always_keeps_error_high_risk_approval_overbudget_billing_audit_and_deterministically_samples_success"
+      ]
+    },
+    "T-03": {
+      "assertion": "Trace 查询: t03 trace query filters run agent tool status time correlation paginates redacts and cli parses.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t03_trace_query_filters_run_agent_tool_status_time_correlation_paginates_redacts_and_cli_parses"
+      ]
+    },
+    "T-04": {
+      "assertion": "Replay 边界: t04 replay reads recorded events with zero provider network and real effect calls.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t04_replay_reads_recorded_events_with_zero_provider_network_and_real_effect_calls"
+      ]
+    },
+    "T-05": {
+      "assertion": "Replay 一致性: t05 replay state hash is stable with explicit volatile normalization and version upcast.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t05_replay_state_hash_is_stable_with_explicit_volatile_normalization_and_version_upcast"
+      ]
+    },
+    "T-06": {
+      "assertion": "指标收集: t06 business metrics cover success routing rework handoff budget partial and recovery with bounded dimensions.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t06_business_metrics_cover_success_routing_rework_handoff_budget_partial_and_recovery_with_bounded_dimensions"
+      ]
+    },
+    "T-07": {
+      "assertion": "告警规则: t07 alerts apply multiwindow slo failures backlog token cost dedupe flap cooldown and recovery.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t07_alerts_apply_multiwindow_slo_failures_backlog_token_cost_dedupe_flap_cooldown_and_recovery"
+      ]
+    },
+    "T-08": {
+      "assertion": "日志结构化: t08 structured logs are schema level code correlation redacted and human readable.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t08_structured_logs_are_schema_level_code_correlation_redacted_and_human_readable"
+      ]
+    },
+    "T-09": {
+      "assertion": "调用链: t09 trace context propagates across agent thread process and uses link for async queue.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t09_trace_context_propagates_across_agent_thread_process_and_uses_link_for_async_queue"
+      ]
+    },
+    "T-10": {
+      "assertion": "性能剖析: t10 profiler defaults off and reports only stage wall cpu memory queue fields when enabled.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t10_profiler_defaults_off_and_reports_only_stage_wall_cpu_memory_queue_fields_when_enabled"
+      ]
+    },
+    "X-16": {
+      "assertion": "RunEvaluator: x16 run evaluator is read only replayable six dimensional and caps tampered or missing evidence.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_x16_run_evaluator_is_read_only_replayable_six_dimensional_and_caps_tampered_or_missing_evidence"
+      ]
+    },
+    "X-17": {
+      "assertion": "轨迹监控和异常检测: x17 trajectory monitor detects every anomaly boundary normal negative actions and restart dedup.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_x17_trajectory_monitor_detects_every_anomaly_boundary_normal_negative_actions_and_restart_dedup"
+      ]
+    },
+    "X-19": {
+      "assertion": "选型决策工具: the versioned suggest command reuses router, risk, budget, SLA and workflow/team policy across required scenarios, exposes estimates and overrides, and performs no Provider calls or state writes while failing diagnostically on invalid configuration.",
+      "evidence_kind": "behavior",
+      "test_ids": [
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_simple_code_architecture_risk_mixed_followup_budget_sla_unknown_and_policy_alignment",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_cli_is_provider_free_side_effect_free_and_exposes_friendly_versioned_overrides",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_configuration_error_is_diagnostic_and_does_not_fall_back_or_write"
+      ]
+    }
+  },
+  "rules": {
+    "empty_mappings_allowed": false,
+    "method_specific_ids": true,
+    "pass_new_document_only_allowed": false,
+    "shared_tests_allowed_with_per_requirement_assertion": true
+  },
+  "schema": "SITINA_REQUIREMENT_TEST_MAP_V1"
+}

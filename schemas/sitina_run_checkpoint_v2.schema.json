@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_RUN_CHECKPOINT_V2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_RUN_CHECKPOINT_V2"},
+    "checkpoint_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "checkpoint_kind": {"enum": ["incremental", "terminal_compact"]},
+    "base_checkpoint_ref": {"anyOf": [{"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}, {"type": "null"}]},
+    "journal_range": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"from_position": {"type": "integer", "minimum": 1}, "to_position": {"type": "integer", "minimum": 1}},
+      "required": ["from_position", "to_position"]
+    },
+    "new_cas_refs": {"type": "array", "maxItems": 6000, "uniqueItems": true, "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}},
+    "blackboard_delta_ref": {"anyOf": [{"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}, {"type": "null"}]},
+    "worktree_state_ref": {"anyOf": [{"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}, {"type": "null"}]},
+    "frontier_commitment": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["schema", "checkpoint_id", "run_id", "checkpoint_kind", "base_checkpoint_ref", "journal_range", "new_cas_refs", "blackboard_delta_ref", "worktree_state_ref", "frontier_commitment"]
+}

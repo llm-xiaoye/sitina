@@ -1,0 +1,185 @@
+{
+  "schema_version": "1.0",
+  "agents": {
+    "controller": {
+      "capabilities": ["dispatch", "policy_decision", "team_selection"],
+      "supported_task_types": ["chat", "local_file_query", "code_change", "high_risk_code_change", "maintenance", "memory_review", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "planner": {
+      "capabilities": ["task_planning", "proposal_authoring", "task_graph_patch"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "maintenance", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": true,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "architect": {
+      "capabilities": ["architecture_review", "rollback_planning", "proposal_authoring"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "maintenance"],
+      "risk_ceiling": "critical",
+      "can_propose": true,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "coder": {
+      "capabilities": ["code_generation", "patch_drafting"],
+      "supported_task_types": ["code_change", "high_risk_code_change"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": true,
+      "requires_approval_for": ["file_write"],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply"]
+    },
+    "tester": {
+      "capabilities": ["unit_testing", "verification", "proposal_authoring"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "maintenance", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": true,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "reviewer": {
+      "capabilities": ["code_review", "gate_decision", "proposal_evaluation"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": true,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "security": {
+      "capabilities": ["security_review", "security_veto", "proposal_evaluation"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "maintenance"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "arbiter": {
+      "capabilities": ["conflict_resolution", "proposal_arbitration", "lease_arbitration", "reviewer_arbitration"],
+      "supported_task_types": ["local_file_query", "code_change", "high_risk_code_change", "maintenance", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "critic": {
+      "capabilities": ["proposal_evaluation", "risk_challenge"],
+      "supported_task_types": ["code_change", "high_risk_code_change", "maintenance"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "researcher": {
+      "capabilities": ["evidence_lookup", "readonly_mcp", "proposal_authoring", "proposal_evaluation"],
+      "supported_task_types": ["local_file_query", "mcp_tool_task"],
+      "risk_ceiling": "medium",
+      "can_propose": true,
+      "can_evaluate": true,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "summary": {
+      "capabilities": ["summarization", "verification_summary"],
+      "supported_task_types": ["chat", "local_file_query", "code_change", "high_risk_code_change", "maintenance", "memory_review", "mcp_tool_task"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "memory": {
+      "capabilities": ["memory_candidate", "no_candidate_reason"],
+      "supported_task_types": ["chat", "local_file_query", "code_change", "high_risk_code_change", "maintenance", "mcp_tool_task", "memory_review"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": ["memory_accept"],
+      "forbidden_actions": ["memory_accept", "approval_mutation", "patch_apply", "filesystem_mutation"]
+    },
+    "filesystem": {
+      "capabilities": ["filesystem_readonly"],
+      "supported_task_types": ["local_file_query", "mcp_tool_task"],
+      "risk_ceiling": "medium",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": ["file_write"],
+      "forbidden_actions": ["write_file", "delete_file", "move_file", "overwrite_file", "memory_accept", "approval_mutation"]
+    },
+    "git_worktree_manager": {
+      "capabilities": ["git_worktree", "git_patch_apply", "patch_hash_verify"],
+      "supported_task_types": ["code_change", "high_risk_code_change"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": true,
+      "requires_approval_for": ["git_apply"],
+      "forbidden_actions": ["memory_accept", "approval_mutation"]
+    },
+    "maintenance_ops": {
+      "capabilities": ["maintenance_guarded"],
+      "supported_task_types": ["maintenance"],
+      "risk_ceiling": "critical",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": true,
+      "requires_approval_for": ["maintenance"],
+      "forbidden_actions": ["memory_accept", "approval_mutation"]
+    },
+    "git": {
+      "capabilities": ["git_readonly"],
+      "supported_task_types": ["mcp_tool_task"],
+      "risk_ceiling": "medium",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["patch_apply", "memory_accept", "approval_mutation"]
+    },
+    "sqlite": {
+      "capabilities": ["sqlite_readonly"],
+      "supported_task_types": ["mcp_tool_task"],
+      "risk_ceiling": "medium",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["write_query", "memory_accept", "approval_mutation"]
+    },
+    "obsidian": {
+      "capabilities": ["markdown_search", "line_citation"],
+      "supported_task_types": ["local_file_query", "mcp_tool_task"],
+      "risk_ceiling": "medium",
+      "can_propose": false,
+      "can_evaluate": false,
+      "can_execute_side_effect": false,
+      "requires_approval_for": [],
+      "forbidden_actions": ["note_write", "memory_accept", "approval_mutation"]
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "schema": "SITINA_ROUTING_POLICY_V2",
+  "policy_version": "routing-policy-2026-07-19-v2",
+  "complexity": {
+    "boundary_threshold": 35,
+    "complex_threshold": 65
+  },
+  "classifier": {
+    "lower_confidence_ppm": 450000,
+    "upper_confidence_ppm": 700000,
+    "token_upper_bound": 600,
+    "minimum_latency_ms": 1200
+  },
+  "token_upper_bounds": {
+    "fast": 4096,
+    "multi": 24000,
+    "classifier": 600
+  },
+  "default_run_budget_tokens": 32000,
+  "global_safety_floor": "high",
+  "domain_profiles": [
+    {
+      "name": "general",
+      "version": "general-1.0",
+      "multi_threshold": 65,
+      "risk_floor": "high",
+      "rubric": "correctness-safety-completeness",
+      "markers": []
+    },
+    {
+      "name": "code",
+      "version": "code-1.0",
+      "multi_threshold": 60,
+      "risk_floor": "high",
+      "rubric": "correctness-tests-rollback-maintainability",
+      "markers": ["代码", "编程", "bug", "debug", "code", "repository", "api"]
+    },
+    {
+      "name": "compliance",
+      "version": "compliance-1.0",
+      "multi_threshold": 50,
+      "risk_floor": "critical",
+      "rubric": "authority-evidence-safety-completeness",
+      "markers": ["合规", "审计", "法规", "法律", "compliance", "audit", "legal"]
+    }
+  ],
+  "experiment": {
+    "experiment_id": "router-v2-threshold-evaluation",
+    "policy_version": "routing-policy-2026-07-19-v2",
+    "treatment_percent": 50,
+    "kill_switch": false
+  },
+  "latency_deadlines_ms": {
+    "interactive": 1500,
+    "standard": 10000,
+    "batch": 60000
+  }
+}

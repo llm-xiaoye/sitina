@@ -1,0 +1,104 @@
+{
+  "schema": "SITINA_OPTIMIZATION_PHASE12_GATE_EVIDENCE_V1",
+  "checkpoint": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+  "business_requirement_status_changes": 8,
+  "requirement_results": {
+    "PC-01": "PASS_NEW",
+    "PC-02": "PASS_NEW",
+    "PC-03": "PASS_NEW",
+    "PC-04": "PASS_NEW",
+    "PC-05": "PASS_NEW",
+    "PC-06": "PASS_NEW",
+    "PC-07": "PASS_NEW",
+    "PC-08": "PASS_NEW"
+  },
+  "budget_and_cost_boundaries": {
+    "hierarchy": ["run", "stage", "agent_or_tool"],
+    "concurrent_oversell": false,
+    "missing_usage_state": "unsettled",
+    "cache_cipher": "AES-GCM",
+    "cache_physical_calls_on_hit": 0,
+    "cost_monitor_source": "run_ledger",
+    "cost_monitor_read_only": true
+  },
+  "deterministic_benchmark": {
+    "environment": {"fixture": "deterministic", "provider": "none"},
+    "warmup_iterations": 2,
+    "measurement_iterations": 5,
+    "baseline": {"p50_duration_ns": 110, "p95_duration_ns": 130, "physical_call_count": 10, "error_count": 0},
+    "candidate": {"p50_duration_ns": 52, "p95_duration_ns": 60, "physical_call_count": 5, "error_count": 0},
+    "output_equivalent": true,
+    "accepted": true,
+    "live_usage_claim": false
+  },
+  "full_gate": {
+    "status": "PASS",
+    "source_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+    "live_provider_enabled": false,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "name": "config_validate",
+        "exit_code": 0,
+        "duration_seconds": 1.421465,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508"
+      },
+      {
+        "name": "cumulative_tests",
+        "exit_code": 0,
+        "duration_seconds": 117.43105,
+        "test_count": 1085,
+        "skipped_count": 21,
+        "timed_out": false,
+        "stdout_sha256": "5f0407d00a8841aac8a0fc7058a0e9bd9350ef05b8a87b851b96c49f99b09c8e"
+      }
+    ]
+  },
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-12/phase-12-ledger-source-r1.json",
+      "test_count": 9,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "c8e6fd1e749cacb3550a7f21380bff1389e80a75cce6ad54c2d7d359e20feddf"
+    },
+    "performance_cost_and_concurrency": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-12/phase-12-targeted-r2.json",
+      "test_count": 8,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "637ad693971420b70a01476cd5d51065ecc3c7af270c41cfe91899ec8c2db4bd"
+    },
+    "affected_accounting_concurrency_and_cli": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-12/phase-12-integration-r1.json",
+      "test_count": 150,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "1899b0d27b85cd6734077e9cc2ac8a953ac00bdffee643534565e1b7c50dccae"
+    }
+  },
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-12/phase-12-preflight.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-targeted-r1.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-integration-r1.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-full-precommit.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-full-gate.json",
+    "external:output/optimization-bootstrap/phase-12/phase-12-ledger-source-r1.json"
+  ],
+  "notes": [
+    "PC-01 through PC-08 each have a dedicated final behavior test and use the O-13 limiter rather than introducing a second concurrency authority.",
+    "The benchmark uses deterministic Provider-free timing fixtures and is not represented as live latency, token, or cost evidence.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remained disabled."
+  ]
+}

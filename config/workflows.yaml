@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "workflows": {
+    "default_implementation": {
+      "max_turns": 16,
+      "max_rework_rounds": 2,
+      "max_duration_minutes": 30,
+      "loop_detection": {
+        "enabled": true,
+        "keys": ["diff_hash", "repeated_decision"]
+      },
+      "steps": ["controller", "planner", "coder", "tester", "reviewer", "controller", "summary", "memory"],
+      "dag": {
+        "enabled": false,
+        "nodes": [],
+        "edges": []
+      }
+    }
+  },
+  "mandatory_steps": {
+    "medium": ["tester", "reviewer"],
+    "high": ["tester", "reviewer"],
+    "critical": ["architect", "tester", "reviewer"]
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "business_requirement_status_changes": 16,
+  "checkpoint": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+  "concurrency_evidence": {
+    "barrier_based_overlap_without_sleep": true,
+    "controller_restart_reconstruction": true,
+    "idempotency_concurrent_callers": 32,
+    "resource_stress_tasks": 12,
+    "write_conflict_exclusion": true
+  },
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.479748,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 111.685891,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "a229a7e7a3869e1b8777eb5f77dc067e0a36af3341fc87cfe8006848e269092c",
+        "test_count": 1028,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+    "status": "PASS"
+  },
+  "notes": [
+    "O-01 through O-08 and O-11 through O-18 are PASS_NEW with one dedicated acceptance test per ID; O-09 and O-10 remain PASS_EXISTING and receive concurrent idempotency and complete transition-matrix strengthening evidence.",
+    "Phase 08 extends the existing authoritative TaskGraph, scheduling, task-attempt lease, Failure, TokenBudget, Trace, permission and Blackboard owners; it does not create a second orchestrator.",
+    "Real overlap is barrier-proven, cancellation and call admission are atomic, and all resource permits are returned after exception or cancellation.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled."
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "The first expanded resource stress assertion expected two global semaphore reservations, but a third caller may validly hold a global reservation while waiting at the stricter per-run limit.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-08-targeted-r2.json",
+      "resolution": "Asserted every configured semaphore ceiling independently and measured the actual protected critical-section peak as exactly the per-run limit of two.",
+      "verification": "external:output/optimization-bootstrap/phase-08-targeted-r3.json"
+    },
+    {
+      "failure": "A suite-integrity validation command referenced a nonexistent test_config_validation selector after 30 valid tests had executed.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-08-targeted-r6.json",
+      "resolution": "Removed the nonexistent selector and reran plan-suite, source-manifest, ledger and phase acceptance tests.",
+      "verification": "external:output/optimization-bootstrap/phase-08-targeted-r7.json"
+    },
+    {
+      "failure": "The first post-checkpoint full gate had one existing memory workflow assertion miss its pending candidate although the same 1028-test precheckpoint gate passed.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-08-full-gate.json",
+      "resolution": "Reproduced tests.test_sitina independently with all 63 tests passing, then reran the exact full gate on the same implementation checkpoint and obtained all-green results.",
+      "verification": "external:output/optimization-bootstrap/phase-08-full-gate-r2.json"
+    }
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-08-preflight.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-baseline.json",
+    "external:output/optimization-bootstrap/phase-08-targeted.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r3.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r4.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r5.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r6.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r7.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r8.json",
+    "external:output/optimization-bootstrap/phase-08-targeted-r9.json",
+    "external:output/optimization-bootstrap/phase-08-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-08-full-gate.json",
+    "external:output/optimization-bootstrap/phase-08-full-gate-r2.json"
+  ],
+  "requirement_results": {
+    "O-01": "PASS_NEW",
+    "O-02": "PASS_NEW",
+    "O-03": "PASS_NEW",
+    "O-04": "PASS_NEW",
+    "O-05": "PASS_NEW",
+    "O-06": "PASS_NEW",
+    "O-07": "PASS_NEW",
+    "O-08": "PASS_NEW",
+    "O-09": "PASS_EXISTING",
+    "O-10": "PASS_EXISTING",
+    "O-11": "PASS_NEW",
+    "O-12": "PASS_NEW",
+    "O-13": "PASS_NEW",
+    "O-14": "PASS_NEW",
+    "O-15": "PASS_NEW",
+    "O-16": "PASS_NEW",
+    "O-17": "PASS_NEW",
+    "O-18": "PASS_NEW"
+  },
+  "schema": "SITINA_OPTIMIZATION_PHASE08_GATE_EVIDENCE_V1",
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "evidence": "external:output/optimization-bootstrap/phase-08-targeted-r9.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 30
+    },
+    "compatibility_and_runtime": {
+      "evidence": "external:output/optimization-bootstrap/phase-08-targeted-r4.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 5,
+      "status": "PASS",
+      "test_count": 159
+    },
+    "determinism_concurrency_and_faults": {
+      "evidence": "external:output/optimization-bootstrap/phase-08-targeted-r5.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 1,
+      "status": "PASS",
+      "test_count": 36
+    },
+    "memory_flake_reproduction": {
+      "evidence": "external:output/optimization-bootstrap/phase-08-targeted-r8.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 1,
+      "status": "PASS",
+      "test_count": 63
+    },
+    "suite_and_source_integrity": {
+      "evidence": "external:output/optimization-bootstrap/phase-08-targeted-r7.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 30
+    }
+  },
+  "topology_e2e": {
+    "shared_permission_boundary": true,
+    "shared_terminal_contract": true,
+    "strategies": [
+      "pipeline",
+      "supervisor",
+      "network",
+      "hierarchy"
+    ]
+  }
+}

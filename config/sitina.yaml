@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "home": "/Users/moss/SitinaHub",
+  "phase": "phase_1_mvp",
+  "state_source_of_truth": "canonical_journal",
+  "storage_authority": {
+    "canonical_source": "journal",
+    "content_source": "cas",
+    "projection_role": "disposable_rebuildable_view",
+    "legacy_enabled": false,
+    "legacy_read_enabled": false,
+    "legacy_fallback_enabled": false,
+    "legacy_write_enabled": false,
+    "active_business_jsonl_enabled": false,
+    "missing_legacy_is_valid": true,
+    "legacy_retired_root": null
+  },
+  "runtime": {
+    "bplus_shadow_enabled": false,
+    "bplus_effect_shadow_enabled": false
+  },
+  "effects": {
+    "activation_level": "MOCK_ONLY",
+    "live_capability_authorized": false,
+    "adapter_manifest_set": "config/effect_adapters.mock.json",
+    "max_physical_sends_per_attempt": 1,
+    "sdk_retries_enabled": false,
+    "durable_ingress_required": true,
+    "custody_is_business_admission": false
+  },
+  "sqlite": {
+    "path": "data/sitina.db",
+    "enabled": false,
+    "role": "retired_legacy_source",
+    "journal_mode": "WAL",
+    "busy_timeout_ms": 5000
+  },
+  "context": {
+    "source_priority": ["source_code", "project_docs", "obsidian", "official_web", "general_web"],
+    "untrusted_nonce_required": true,
+    "obsidian": {
+      "vaults": [],
+      "incremental_index": true,
+      "line_based_citations": true,
+      "max_results": 10
+    }
+  },
+  "security": {
+    "fail_closed": true,
+    "schema_major": "1",
+    "profile_chmod": "600",
+    "jsonl_append_only": false,
+    "backup_excludes_tokens": true
+  },
+  "providers": {
+    "default_mode": "mock",
+    "live_requires_explicit_flag": true,
+    "schema_repair_attempts": 0,
+    "fallback_profiles": ["deepseek"],
+    "fallback_profiles_by_agent": {
+      "controller": ["deepseek"],
+      "planner": ["deepseek"],
+      "tester": ["deepseek"],
+      "reviewer": ["deepseek"],
+      "summary": ["deepseek"],
+      "coder": ["deepseek"]
+    },
+    "fallback_on_http_status": [429, 500, 502, 503, 504],
+    "health_profiles": ["gpt", "qwen", "minimax", "deepseek"],
+    "health_check_interval_seconds": 3600,
+    "health_unavailable_ttl_seconds": 900,
+    "connect_timeout_seconds": 10,
+    "read_timeout_seconds": 120,
+    "total_request_timeout_seconds": 120,
+    "run_deadline_seconds": 900,
+    "retry_backoff_seconds": 1,
+    "retry_max_backoff_seconds": 60,
+    "retry_jitter_ratio": 0.2,
+    "max_provider_retries": 1,
+    "max_live_agents_per_run": 24,
+    "max_live_agents_per_round": 8,
+    "max_live_proposers": 2,
+    "max_live_evaluators": 2,
+    "max_live_rounds": 2,
+    "max_live_revisions": 1,
+    "max_live_debate_rounds": 1,
+    "max_live_retries": 1,
+    "max_live_tokens_per_agent": 4096,
+    "max_live_tokens_per_run": 24000,
+    "max_live_seconds_per_agent": 120,
+    "max_live_seconds_per_run": 900
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "business_requirement_status_changes": 15,
+  "checkpoint": "69d12eed506e6d3d65be25aeece666a88956992f",
+  "classifier_usage_boundary": {
+    "live_provider_usage_status": "PENDING_APPROVAL_GATED_PHASE_15_LIVE_GATE",
+    "mock_physical_call_bound": 2,
+    "one_repair_only_verified": true,
+    "reported_and_upper_bound_usage_recorded": true,
+    "zero_cost_provider_claimed": false
+  },
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.55694,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 117.728726,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "c4154df2b5419c812fa0c5abbed5493fdebddb0d87ce77e4315f86def20444d1",
+        "test_count": 1010,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+    "status": "PASS"
+  },
+  "notes": [
+    "R-01 through R-15 are PASS_NEW with one dedicated acceptance test per ID while preserving the public /fast, /multi and /auto semantics.",
+    "AUTO uses deterministic safety, risk, budget and latency boundaries. The optional replaceable classifier only operates in the ambiguity band and cannot override permissions, approvals or Effect Gateway.",
+    "FAST-to-MULTI carries sourced candidate evidence without duplicate display or side effects; MULTI-to-FAST is explicitly unreviewed and only allowed on the safe policy path.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled and is not represented as zero-cost usage."
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "The first targeted run exposed four legacy compatibility regressions in exact routing confidence/score values, a FAST-to-MULTI compatibility phrase and an aggregate causal-parent assumption.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-07-targeted.json",
+      "resolution": "Preserved the legacy simple-route score/confidence and compatibility wording while adding optional structured observability and explicit sourced-candidate causality.",
+      "verification": "external:output/optimization-bootstrap/phase-07-targeted-r3.json"
+    },
+    {
+      "failure": "The second targeted run configured only 10000 remaining tokens in the classifier admission test, below the configured MULTI upper bound, so deterministic budget fallback correctly prevented classification.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-07-targeted-r2.json",
+      "resolution": "Raised the acceptance fixture budget to 32000 so it tests the intended ambiguity-band classifier path while retaining separate low-budget boundary tests.",
+      "verification": "external:output/optimization-bootstrap/phase-07-targeted-r3.json"
+    },
+    {
+      "failure": "A validation command in targeted run r4 used a nonexistent unittest selector after 112 valid tests had passed.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-07-targeted-r4.json",
+      "resolution": "Corrected the selector and reran the valid routing, compatibility, fault and budget suites.",
+      "verification": "external:output/optimization-bootstrap/phase-07-targeted-r5.json"
+    }
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-07-preflight.json",
+    "external:output/optimization-bootstrap/phase-07-targeted.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r3.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r4.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r5.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r6.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r7.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r8.json",
+    "external:output/optimization-bootstrap/phase-07-targeted-r9.json",
+    "external:output/optimization-bootstrap/phase-07-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-07-full-gate.json"
+  ],
+  "regression_fixture_metrics": {
+    "accuracy_ppm": 1000000,
+    "allowed_set_violations": 0,
+    "false_downgrades": 0,
+    "false_upgrades": 0,
+    "fixture_count": 10,
+    "policy_difference_fixture_ids": [
+      "zh-boundary-policy-diff"
+    ],
+    "reason_code_misses": 0,
+    "schema": "SITINA_ROUTING_REGRESSION_FIXTURES_V1"
+  },
+  "requirement_results": {
+    "R-01": "PASS_NEW",
+    "R-02": "PASS_NEW",
+    "R-03": "PASS_NEW",
+    "R-04": "PASS_NEW",
+    "R-05": "PASS_NEW",
+    "R-06": "PASS_NEW",
+    "R-07": "PASS_NEW",
+    "R-08": "PASS_NEW",
+    "R-09": "PASS_NEW",
+    "R-10": "PASS_NEW",
+    "R-11": "PASS_NEW",
+    "R-12": "PASS_NEW",
+    "R-13": "PASS_NEW",
+    "R-14": "PASS_NEW",
+    "R-15": "PASS_NEW"
+  },
+  "schema": "SITINA_OPTIMIZATION_PHASE07_GATE_EVIDENCE_V1",
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "evidence": "external:output/optimization-bootstrap/phase-07-targeted-r9.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "status": "PASS",
+      "test_count": 54
+    },
+    "compatibility_regression": {
+      "evidence": "external:output/optimization-bootstrap/phase-07-targeted-r3.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "status": "PASS",
+      "test_count": 58
+    },
+    "fault_and_budget_regression": {
+      "evidence": "external:output/optimization-bootstrap/phase-07-targeted-r7.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "status": "PASS",
+      "test_count": 127
+    },
+    "routing_acceptance": {
+      "evidence": "external:output/optimization-bootstrap/phase-07-targeted-r8.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "status": "PASS",
+      "test_count": 49
+    }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "schema": "SITINA_FORMAT_CAPABILITY_REGISTRY_V1",
+  "formats": [
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_JOURNAL_EVENT",
+      "writer_version": 2,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 2,
+      "rollback_floor_version": 2,
+      "upcaster": "journal-event-v1-to-v2",
+      "feature_flag": "journal_event_v2_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_RUN_CHECKPOINT",
+      "writer_version": 2,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 2,
+      "rollback_floor_version": 2,
+      "upcaster": "checkpoint-v1-to-v2",
+      "feature_flag": "checkpoint_v2_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_AUTHORITY_CHECKPOINT",
+      "writer_version": 1,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 1,
+      "rollback_floor_version": 1,
+      "upcaster": null,
+      "feature_flag": "authority_checkpoint_v1_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": true
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_RUN_EVIDENCE",
+      "writer_version": 2,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 2,
+      "rollback_floor_version": 2,
+      "upcaster": "evidence-v1-to-v2",
+      "feature_flag": "evidence_v2_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_AGENT_CONTEXT_MANIFEST",
+      "writer_version": 2,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 2,
+      "rollback_floor_version": 2,
+      "upcaster": "agent-context-v1-to-v2",
+      "feature_flag": "agent_context_v2_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_MEMORY",
+      "writer_version": 1,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 1,
+      "rollback_floor_version": 2,
+      "upcaster": null,
+      "feature_flag": "memory_v1_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_CAS_COMPRESSION",
+      "writer_version": 1,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 1,
+      "rollback_floor_version": 2,
+      "upcaster": null,
+      "feature_flag": "cas_zstd_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_ENVELOPE_ALIAS_PACK",
+      "writer_version": 1,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 1,
+      "rollback_floor_version": 2,
+      "upcaster": null,
+      "feature_flag": "alias_pack_v1_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_TRASH_BUNDLE",
+      "writer_version": 1,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 1,
+      "rollback_floor_version": 2,
+      "upcaster": null,
+      "feature_flag": "trash_bundle_v1_write",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": false
+    },
+    {
+      "schema": "SITINA_FORMAT_CAPABILITY_V1",
+      "format_name": "SITINA_PROJECTION_SCHEMA",
+      "writer_version": 2,
+      "minimum_reader_version": 1,
+      "minimum_full_reader_version": 2,
+      "rollback_floor_version": 1,
+      "upcaster": null,
+      "feature_flag": "projection_v2_build",
+      "rollback_safe_before_first_write": true,
+      "rollback_safe_after_first_write": true
+    }
+  ]
+}

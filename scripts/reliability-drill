@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Execute the Provider-free phase-05 DR and reliability runbook."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+GATE = ROOT / "scripts" / "optimization-gate"
+
+
+def main() -> None:
+    command = [
+        str(GATE),
+        "--phase",
+        "05",
+        "--test",
+        "tests/optimization/test_reliability_management.py",
+        "--test",
+        "tests/test_canonical_backup.py",
+        "--test",
+        "tests/test_restore_drill.py",
+        *sys.argv[1:],
+    ]
+    os.execv(str(GATE), command)
+
+
+if __name__ == "__main__":
+    main()

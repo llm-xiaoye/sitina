@@ -1,0 +1,2058 @@
+{
+  "$defs": {
+    "BlackboardDocumentRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "classification": {
+          "enum": [
+            "public",
+            "internal",
+            "confidential",
+            "restricted"
+          ],
+          "title": "Classification",
+          "type": "string"
+        },
+        "content_ref": {
+          "maxLength": 68,
+          "minLength": 68,
+          "pattern": "^cas:[0-9a-f]{64}$",
+          "title": "Content Ref",
+          "type": "string"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "document_hash": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Document Hash",
+          "type": "string"
+        },
+        "document_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Document Id",
+          "type": "string"
+        },
+        "document_version": {
+          "minimum": 1,
+          "title": "Document Version",
+          "type": "integer"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "last_writer_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Writer Id"
+        },
+        "merge_policy_hash": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Merge Policy Hash",
+          "type": "string"
+        },
+        "namespace": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_BLACKBOARD_DOCUMENT_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        },
+        "writer_policy_hash": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Writer Policy Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "document_id",
+        "namespace",
+        "document_version",
+        "document_hash",
+        "content_ref",
+        "classification",
+        "writer_policy_hash",
+        "merge_policy_hash"
+      ],
+      "title": "BlackboardDocumentRecord",
+      "type": "object"
+    },
+    "DependencyContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "dependency_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Dependency Id",
+          "type": "string"
+        },
+        "depends_on_task_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Depends On Task Id",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "graph_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Graph Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "hard",
+          "enum": [
+            "hard",
+            "soft",
+            "gate"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_TASK_DEPENDENCY_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "task_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "dependency_id",
+        "graph_id",
+        "task_id",
+        "depends_on_task_id"
+      ],
+      "title": "DependencyContract",
+      "type": "object"
+    },
+    "EvaluationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NEEDS_REVISION",
+            "BLOCK"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "evaluator_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "finding_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 68,
+            "minLength": 68,
+            "pattern": "^cas:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Finding Refs",
+          "type": "array"
+        },
+        "maximum_score": {
+          "exclusiveMinimum": 0,
+          "title": "Maximum Score",
+          "type": "integer"
+        },
+        "redacted": {
+          "const": true,
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "rubric_ref": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          ],
+          "title": "Rubric Ref"
+        },
+        "run_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_EVALUATION_RESULT_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "score": {
+          "minimum": 0,
+          "title": "Score",
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "status": {
+          "enum": [
+            "DRAFT",
+            "FINAL",
+            "INVALIDATED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "subject_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_ref": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          ],
+          "title": "Subject Ref"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "evaluation_id",
+        "run_id",
+        "subject_id",
+        "subject_ref",
+        "evaluator_id",
+        "rubric_ref",
+        "score",
+        "maximum_score",
+        "decision",
+        "status",
+        "redacted"
+      ],
+      "title": "EvaluationResult",
+      "type": "object"
+    },
+    "FailureContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "details_ref": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details Ref"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "failure_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "failure_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Failure Type",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "redacted": {
+          "const": true,
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "run_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_FAILURE_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "warning",
+            "minor",
+            "major",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "span_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Span Id"
+        },
+        "status": {
+          "default": "OPEN",
+          "enum": [
+            "OPEN",
+            "ACKNOWLEDGED",
+            "RESOLVED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "failure_id",
+        "run_id",
+        "failure_type",
+        "severity",
+        "retryable",
+        "message",
+        "redacted"
+      ],
+      "title": "FailureContract",
+      "type": "object"
+    },
+    "HandoffRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Id"
+        },
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "deadline": {
+          "title": "Deadline",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "frozen_contract_ref": {
+          "maxLength": 68,
+          "minLength": 68,
+          "pattern": "^cas:[0-9a-f]{64}$",
+          "title": "Frozen Contract Ref",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "handoff_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Handoff Id",
+          "type": "string"
+        },
+        "objective_ref": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Objective Ref",
+          "type": "string"
+        },
+        "receiver_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Receiver Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_HANDOFF_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sender_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Sender Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "status": {
+          "enum": [
+            "OFFERED",
+            "ACCEPTED",
+            "REJECTED",
+            "CANCELLED",
+            "EXPIRED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "handoff_id",
+        "run_id",
+        "task_id",
+        "generation",
+        "sender_id",
+        "receiver_id",
+        "status",
+        "objective_ref",
+        "frozen_contract_ref",
+        "deadline"
+      ],
+      "title": "HandoffRecord",
+      "type": "object"
+    },
+    "MemoryRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "confidence_millis": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Confidence Millis",
+          "type": "integer"
+        },
+        "content_hash": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "content_ref": {
+          "maxLength": 68,
+          "minLength": 68,
+          "pattern": "^cas:[0-9a-f]{64}$",
+          "title": "Content Ref",
+          "type": "string"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 68,
+            "minLength": 68,
+            "pattern": "^cas:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "memory_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "namespace": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_MEMORY_RECORD_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "agent_private",
+            "run_shared",
+            "project_shared",
+            "user"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "sensitivity": {
+          "enum": [
+            "low",
+            "moderate",
+            "high",
+            "restricted"
+          ],
+          "title": "Sensitivity",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "source_event_ids": {
+          "default": [],
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+            "type": "string"
+          },
+          "title": "Source Event Ids",
+          "type": "array"
+        },
+        "source_run_ids": {
+          "default": [],
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+            "type": "string"
+          },
+          "title": "Source Run Ids",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "candidate",
+            "accepted",
+            "rejected",
+            "superseded",
+            "revoked",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "memory_id",
+        "scope",
+        "owner_id",
+        "namespace",
+        "content_ref",
+        "content_hash",
+        "confidence_millis",
+        "sensitivity",
+        "status"
+      ],
+      "title": "MemoryRecord",
+      "type": "object"
+    },
+    "SourceDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        },
+        "component": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Component",
+          "type": "string"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        }
+      },
+      "required": [
+        "component"
+      ],
+      "title": "SourceDescriptor",
+      "type": "object"
+    },
+    "SpanContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        },
+        "events": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SpanEventContract"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "failure_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Id"
+        },
+        "kind": {
+          "enum": [
+            "internal",
+            "agent",
+            "tool",
+            "provider",
+            "client",
+            "server"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parent_span_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Span Id"
+        },
+        "schema": {
+          "const": "SITINA_SPAN_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "span_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Span Id",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "RUNNING",
+            "OK",
+            "ERROR",
+            "CANCELLED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "trace_id",
+        "span_id",
+        "name",
+        "kind",
+        "status",
+        "started_at"
+      ],
+      "title": "SpanContract",
+      "type": "object"
+    },
+    "SpanEventContract": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes_ref": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attributes Ref"
+        },
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "redacted": {
+          "const": true,
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "SITINA_SPAN_EVENT_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "span_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Span Id",
+          "type": "string"
+        },
+        "trace_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "event_id",
+        "trace_id",
+        "span_id",
+        "name",
+        "redacted"
+      ],
+      "title": "SpanEventContract",
+      "type": "object"
+    },
+    "TaskContract": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "graph_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Graph Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Id"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "SITINA_TASK_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "specification_hash": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Specification Hash",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "READY",
+            "RUNNING",
+            "BLOCKED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "SKIPPED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "task_id",
+        "graph_id",
+        "specification_hash",
+        "status",
+        "required"
+      ],
+      "title": "TaskContract",
+      "type": "object"
+    },
+    "TaskGraphContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "dependencies": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DependencyContract"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "graph_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Graph Id",
+          "type": "string"
+        },
+        "graph_version": {
+          "minimum": 0,
+          "title": "Graph Version",
+          "type": "integer"
+        },
+        "run_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_TASK_GRAPH_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "tasks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskContract"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "graph_id",
+        "run_id",
+        "graph_version"
+      ],
+      "title": "TaskGraphContract",
+      "type": "object"
+    },
+    "TokenBudgetContract": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Budget Id",
+          "type": "string"
+        },
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "consumed_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Consumed Tokens",
+          "type": "integer"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "hard_limit": {
+          "default": true,
+          "title": "Hard Limit",
+          "type": "boolean"
+        },
+        "maximum_tokens": {
+          "exclusiveMinimum": 0,
+          "title": "Maximum Tokens",
+          "type": "integer"
+        },
+        "reserved_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Reserved Tokens",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "SITINA_TOKEN_BUDGET_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Scope Id",
+          "type": "string"
+        },
+        "scope_type": {
+          "enum": [
+            "run",
+            "task",
+            "agent",
+            "call"
+          ],
+          "title": "Scope Type",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "budget_id",
+        "scope_type",
+        "scope_id",
+        "maximum_tokens"
+      ],
+      "title": "TokenBudgetContract",
+      "type": "object"
+    },
+    "TraceContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "root_span_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Root Span Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_TRACE_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/$defs/SpanContract"
+          },
+          "title": "Spans",
+          "type": "array"
+        },
+        "trace_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "trace_id",
+        "root_span_id",
+        "spans"
+      ],
+      "title": "TraceContract",
+      "type": "object"
+    },
+    "UsageContract": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "budget_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Id"
+        },
+        "cache_read_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cache Read Tokens",
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cache Write Tokens",
+          "type": "integer"
+        },
+        "call_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Call Id"
+        },
+        "causation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "completion_tokens": {
+          "minimum": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "correlation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "title": "Extensions",
+          "type": "object"
+        },
+        "prompt_tokens": {
+          "minimum": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "provider_receipt_ref": {
+          "anyOf": [
+            {
+              "maxLength": 68,
+              "minLength": 68,
+              "pattern": "^cas:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Receipt Ref"
+        },
+        "run_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "SITINA_TOKEN_USAGE_V1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceDescriptor"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "total_tokens": {
+          "minimum": 0,
+          "title": "Total Tokens",
+          "type": "integer"
+        },
+        "trust": {
+          "enum": [
+            "untrusted",
+            "derived",
+            "verified",
+            "authoritative"
+          ],
+          "title": "Trust",
+          "type": "string"
+        },
+        "usage_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+          "title": "Usage Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "correlation_id",
+        "causation_id",
+        "created_at",
+        "source",
+        "trust",
+        "schema",
+        "usage_id",
+        "run_id",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens"
+      ],
+      "title": "UsageContract",
+      "type": "object"
+    }
+  },
+  "$id": "https://sitina.local/schemas/shared-contracts-v1.schema.json",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/BlackboardDocumentRecord"
+    },
+    {
+      "$ref": "#/$defs/EvaluationResult"
+    },
+    {
+      "$ref": "#/$defs/FailureContract"
+    },
+    {
+      "$ref": "#/$defs/HandoffRecord"
+    },
+    {
+      "$ref": "#/$defs/MemoryRecord"
+    },
+    {
+      "$ref": "#/$defs/SpanContract"
+    },
+    {
+      "$ref": "#/$defs/SpanEventContract"
+    },
+    {
+      "$ref": "#/$defs/DependencyContract"
+    },
+    {
+      "$ref": "#/$defs/TaskGraphContract"
+    },
+    {
+      "$ref": "#/$defs/TaskContract"
+    },
+    {
+      "$ref": "#/$defs/TokenBudgetContract"
+    },
+    {
+      "$ref": "#/$defs/UsageContract"
+    },
+    {
+      "$ref": "#/$defs/TraceContract"
+    }
+  ],
+  "title": "Sitina shared contracts V1",
+  "x-sitina-cross-cutting-owners": {
+    "concurrency_limits": "sitina.scheduling.scheduler.Scheduler",
+    "retry_and_circuit_reliability": "sitina.orchestrator.retry.RetryPolicy",
+    "security_redaction": "sitina.security.redaction",
+    "token_budget_and_accounting": "sitina.effects.budgets.BudgetBundle + sitina.orchestrator.accounting.ProviderAccounting",
+    "trace_events_and_spans": "sitina.contracts.models.TraceContract + sitina.journal.local.LocalJournal"
+  },
+  "x-sitina-legacy-read-policy": "deterministic-v0-to-v1-upcast",
+  "x-sitina-new-write-default": "disabled",
+  "x-sitina-unknown-field-strategy": "reject"
+}

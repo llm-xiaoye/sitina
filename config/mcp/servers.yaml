@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0",
+  "servers": {
+    "filesystem": {
+      "name": "filesystem",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "python3",
+      "args": ["mcp_servers/filesystem_server.py"],
+      "cwd": "${SITINA_ROOT}",
+      "env": {},
+      "allowed_roots": [
+        "/Users/moss"
+      ],
+      "default_mode": "readonly",
+      "write_requires_approval": true,
+      "sensitive_path_protection": true,
+      "allowed_tools": {
+        "list_dir": {"type": "read_only", "approval": false},
+        "read_file": {"type": "read_only", "approval": false},
+        "stat_path": {"type": "read_only", "approval": false}
+      },
+      "risk_policy": "local_readonly_default",
+      "timeout_seconds": 30,
+      "description": "Local readonly filesystem MCP server scoped to configured local allowed roots."
+    },
+    "git": {
+      "name": "git",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "python3",
+      "args": ["mcp_servers/git_server.py"],
+      "cwd": "${SITINA_ROOT}",
+      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "allowed_tools": {
+        "status": {"type": "read_only", "approval": false},
+        "diff": {"type": "read_only", "approval": false},
+        "log": {"type": "read_only", "approval": false},
+        "show": {"type": "read_only", "approval": false}
+      },
+      "risk_policy": "local_readonly_default",
+      "timeout_seconds": 30,
+      "description": "Local readonly Git MCP server."
+    },
+    "sqlite": {
+      "name": "sqlite",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "python3",
+      "args": ["mcp_servers/sqlite_server.py"],
+      "cwd": "${SITINA_ROOT}",
+      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "allowed_tools": {
+        "query": {"type": "read_only", "approval": false}
+      },
+      "risk_policy": "local_readonly_default",
+      "timeout_seconds": 30,
+      "description": "Local readonly SQLite MCP server."
+    },
+    "obsidian": {
+      "name": "obsidian",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "python3",
+      "args": ["mcp_servers/obsidian_server.py"],
+      "cwd": "${SITINA_ROOT}",
+      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "allowed_tools": {
+        "search": {"type": "read_only", "approval": false}
+      },
+      "risk_policy": "local_readonly_default",
+      "timeout_seconds": 30,
+      "description": "Local readonly markdown search MCP server."
+    },
+    "fetch": {
+      "name": "fetch",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "Remote fetch MCP placeholder disabled by default."
+    },
+    "web_search": {
+      "name": "web_search",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "Remote web search MCP placeholder disabled by default."
+    },
+    "browser": {
+      "name": "browser",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "Browser remote control MCP placeholder disabled by default."
+    },
+    "github": {
+      "name": "github",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "GitHub remote MCP placeholder disabled by default."
+    },
+    "notion": {
+      "name": "notion",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "Notion remote MCP placeholder disabled by default."
+    },
+    "google_drive": {
+      "name": "google_drive",
+      "enabled": false,
+      "transport": "remote_disabled",
+      "allowed_tools": {},
+      "risk_policy": "disabled_remote_placeholder",
+      "timeout_seconds": 30,
+      "description": "Google Drive remote MCP placeholder disabled by default."
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "SITINA_ORCHESTRATION_POLICY_V1",
+  "version": "orchestration-policy-1",
+  "aging_quantum_ms": 1000,
+  "aging_points": 1,
+  "hot_path": {
+    "enabled": true,
+    "maximum_risk": "low",
+    "maximum_tasks": 1
+  },
+  "resource_limits": {
+    "global": 8,
+    "per_run": 4,
+    "per_provider": 2,
+    "per_tool": 2
+  },
+  "topologies": [
+    "pipeline",
+    "supervisor",
+    "network",
+    "hierarchy"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "SITINA_OBSERVABILITY_POLICY_V1",
+  "version": "1.0",
+  "sampling": {
+    "ordinary_success_rate_ppm": 100000,
+    "always_keep_risks": ["high", "critical"],
+    "always_keep_classes": ["error", "approval", "over_budget", "billing", "audit"]
+  },
+  "alerts": {
+    "fast_burn_rate_ppm": 2000000,
+    "slow_burn_rate_ppm": 1000000,
+    "repeated_failure_threshold": 3,
+    "queue_backlog_threshold": 20,
+    "token_anomaly_ratio_ppm": 1500000,
+    "cost_anomaly_ratio_ppm": 1500000,
+    "dedupe_cooldown_seconds": 300
+  },
+  "profiling": {
+    "enabled_by_default": false,
+    "allowed_fields": ["stage", "wall_time_ns", "cpu_time_ns", "memory_delta_bytes", "queue_wait_ns"]
+  },
+  "trajectory": {
+    "same_tool_threshold": 3,
+    "permission_denial_threshold": 2,
+    "unchanged_state_threshold": 3,
+    "token_budget_multiplier_ppm": 1500000,
+    "actions": {
+      "SAME_TOOL_REPEAT": "warn",
+      "PERMISSION_DENIAL_REPEAT": "circuit_break",
+      "UNCHANGED_STATE_LOOP": "pause_and_request_review",
+      "TOKEN_BUDGET_ANOMALY": "pause_and_request_review"
+    }
+  }
+}

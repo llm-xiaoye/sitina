@@ -1,0 +1,142 @@
+{
+  "business_requirement_status_changes": 16,
+  "checkpoint": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+  "competition_boundaries": {
+    "anonymous_evaluator_input": true,
+    "chat_complex_competition_enabled": true,
+    "hard_gates_before_scoring": true,
+    "simple_chat_hot_path_preserved": true,
+    "single_provider_isolation_truthfully_labeled": true,
+    "self_review_forbidden": true
+  },
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.799637,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 112.955492,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "1a427a037dde3bac08a2aae38efba686f9541d0bd4bb74b63a07e88b1813cf0f",
+        "test_count": 1044,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+    "status": "PASS"
+  },
+  "notes": [
+    "PR-01 through PR-16 are PASS_NEW with one dedicated acceptance test per ID while retaining the authoritative Proposal, Review and Arbitration protocol owners.",
+    "All candidate, scoring, rejection, selection, arbitration-trigger and user-decision records are versioned; evaluator input removes author identity and unrelated history.",
+    "Candidate/review concurrency is barrier-proven, write conflicts are rejected before parallel execution, and late review results cannot mutate a closed result set.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled."
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "The first targeted run expected a raw 64-character Ask-user binding while the initial helper returned the repository's prefixed sha256 form; its second budget fixture also funded both 120-token candidates under a 250-token total.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-09-targeted.json",
+      "resolution": "Used an exact raw SHA-256 decision binding and corrected the hard-budget fixture total to 200 tokens so the second candidate is genuinely over limit.",
+      "verification": "external:output/optimization-bootstrap/phase-09-targeted-r2.json"
+    },
+    {
+      "failure": "Adding chat to proposal policy initially caused ordinary low-complexity chat to run the full competition pipeline, violating the established hot-path contract.",
+      "first_evidence": "external:output/optimization-bootstrap/phase-09-targeted-r4.json",
+      "resolution": "Integrated complexity/risk/budget competition admission into CollaborationRuntime so complex chat can compete while simple low-risk chat keeps the route-equivalent minimal path.",
+      "verification": "external:output/optimization-bootstrap/phase-09-targeted-r5.json"
+    }
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-09-preflight.json",
+    "external:output/optimization-bootstrap/phase-09-targeted.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r3.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r4.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r5.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r6.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r7.json",
+    "external:output/optimization-bootstrap/phase-09-targeted-r8.json",
+    "external:output/optimization-bootstrap/phase-09-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-09-full-gate.json"
+  ],
+  "requirement_results": {
+    "PR-01": "PASS_NEW",
+    "PR-02": "PASS_NEW",
+    "PR-03": "PASS_NEW",
+    "PR-04": "PASS_NEW",
+    "PR-05": "PASS_NEW",
+    "PR-06": "PASS_NEW",
+    "PR-07": "PASS_NEW",
+    "PR-08": "PASS_NEW",
+    "PR-09": "PASS_NEW",
+    "PR-10": "PASS_NEW",
+    "PR-11": "PASS_NEW",
+    "PR-12": "PASS_NEW",
+    "PR-13": "PASS_NEW",
+    "PR-14": "PASS_NEW",
+    "PR-15": "PASS_NEW",
+    "PR-16": "PASS_NEW"
+  },
+  "rubric": {
+    "dimensions": [
+      "correctness",
+      "safety",
+      "completeness",
+      "evidence",
+      "implementability",
+      "cost",
+      "latency"
+    ],
+    "hard_gates": [
+      "safety",
+      "evidence"
+    ],
+    "version": "evaluation-rubric-1",
+    "weight_total_ppm": 1000000
+  },
+  "schema": "SITINA_OPTIMIZATION_PHASE09_GATE_EVIDENCE_V1",
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "evidence": "external:output/optimization-bootstrap/phase-09-targeted-r8.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 28
+    },
+    "budget_concurrency_and_source_integrity": {
+      "evidence": "external:output/optimization-bootstrap/phase-09-targeted-r6.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 1,
+      "status": "PASS",
+      "test_count": 28
+    },
+    "final_acceptance_and_hot_path": {
+      "evidence": "external:output/optimization-bootstrap/phase-09-targeted-r7.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 24
+    },
+    "proposal_review_protocols": {
+      "evidence": "external:output/optimization-bootstrap/phase-09-targeted-r3.json",
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 30
+    }
+  }
+}

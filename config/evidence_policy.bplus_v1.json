@@ -1,0 +1,17 @@
+{
+  "profile_id": "SITINA_EVIDENCE_POLICY_BPLUS_V1",
+  "minimum_completeness": "STREAM_CHAIN_VERIFIED",
+  "cryptographic_completeness_requires_omission_proof": true,
+  "allow_asserted_to_seal": false,
+  "seal_eligible_assessment_statuses": ["PASSED"],
+  "trust": {
+    "signature_profile": "ED25519_RAW_64_BYTES_HEX_V1",
+    "trusted_time_required_for_historical_validity": true,
+    "missing_trusted_time_disposition": "HISTORICAL_VALIDITY_INDETERMINATE"
+  },
+  "container": {
+    "preferred_profile": "DETERMINISTIC_TAR_ZST_V1",
+    "fallback_when_zstandard_unavailable": "LOGICAL_DIRECTORY_ONLY",
+    "claim_tar_zst_when_dependency_unavailable": false
+  }
+}

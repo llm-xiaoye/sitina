@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_RUN_EVIDENCE_V2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_RUN_EVIDENCE_V2"},
+    "evidence_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "journal_range": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"from_position": {"type": "integer", "minimum": 1}, "to_position": {"type": "integer", "minimum": 1}},
+      "required": ["from_position", "to_position"]
+    },
+    "terminal_event_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "terminal_event_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "checkpoint_ref": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+    "input_refs": {"type": "array", "maxItems": 2000, "uniqueItems": true, "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}},
+    "output_refs": {"type": "array", "maxItems": 2000, "uniqueItems": true, "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}},
+    "tool_record_refs": {"type": "array", "maxItems": 2000, "uniqueItems": true, "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}},
+    "provider_call_ids": {"type": "array", "maxItems": 2000, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 255}},
+    "evidence_policy_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["schema", "evidence_id", "run_id", "journal_range", "terminal_event_id", "terminal_event_hash", "checkpoint_ref", "input_refs", "output_refs", "tool_record_refs", "provider_call_ids", "evidence_policy_hash"]
+}

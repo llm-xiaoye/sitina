@@ -1,0 +1,19 @@
+{
+  "schema": "SITINA_MOCK_TOOL_SCRIPT_V1",
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "id": "mock-plugin-call-1",
+          "name": "example_native__echo_evidence",
+          "arguments": {
+            "text": "plugin subprocess completed"
+          }
+        }
+      ]
+    },
+    {
+      "text": "The installed Sitina plugin returned structured subprocess evidence."
+    }
+  ]
+}

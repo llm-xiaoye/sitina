@@ -1,0 +1,69 @@
+{
+  "business_requirement_status_changes": 8,
+  "checkpoint": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.735841,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 107.61945,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "7ab0a05934108bf0cf8f872bff124cac4fe27605a31addf6a51059fa12611a12",
+        "test_count": 961,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+    "status": "PASS",
+    "test_file_count": 160
+  },
+  "notes": [
+    "M-01 through M-08 are PASS_NEW with one dedicated acceptance test per ID; the original native Memory suite remains cumulative evidence for M-01 and M-07.",
+    "No SQLite, JSON, vector, or in-memory state authority was introduced. Journal remains lifecycle/conflict authority and CAS remains body/evidence authority; retrieval and capacity calculations are derived.",
+    "Memory bodies are always marked untrusted, ACL filtering precedes backend ranking, and quarantined bodies cannot be current retrieval results or consolidation inputs.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled."
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-03-preflight.json",
+    "external:output/optimization-bootstrap/phase-03-targeted.json",
+    "external:output/optimization-bootstrap/phase-03-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-03-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-03-full-gate.json"
+  ],
+  "requirement_results": {
+    "M-01": "PASS_NEW",
+    "M-02": "PASS_NEW",
+    "M-03": "PASS_NEW",
+    "M-04": "PASS_NEW",
+    "M-05": "PASS_NEW",
+    "M-06": "PASS_NEW",
+    "M-07": "PASS_NEW",
+    "M-08": "PASS_NEW"
+  },
+  "schema": "SITINA_OPTIMIZATION_PHASE03_GATE_EVIDENCE_V1",
+  "targeted_gate": {
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "status": "PASS",
+    "test_count": 40,
+    "test_modules": [
+      "tests.optimization.test_ledger_coverage",
+      "tests.optimization.test_shared_contracts",
+      "tests.optimization.test_blackboard_state_management",
+      "tests.optimization.test_memory_management",
+      "tests.test_memory_native_v1"
+    ]
+  }
+}

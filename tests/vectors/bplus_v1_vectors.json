@@ -1,0 +1,54 @@
+{
+  "schema": "SITINA_BPLUS_V1_GOLDEN_VECTORS",
+  "profile_ids": [
+    "SITINA_CANONICAL_JSON_V1",
+    "SITINA_LOCAL_FRAME_V1",
+    "SITINA_IDENTIFIER_HASH_V1",
+    "SITINA_CRYPTO_V1",
+    "SITINA_JOURNAL_AUTH_V1",
+    "MACOS_APFS_FSYNC_PROCESS_OS_CRASH_V1"
+  ],
+  "canonical": {
+    "input": {"z": 1, "a": "é", "array": [3, 2, 1]},
+    "expected_utf8_hex": "7b2261223a22c3a9222c226172726179223a5b332c322c315d2c227a223a317d",
+    "expected_sha256": "fc5ec4f96a997946dd13ea9260c7f826343d2af932b7738abc8c7a875d628e1a"
+  },
+  "command_request": {
+    "canonical_utf8": "{\"actor_id\":\"actor-1\",\"command_id\":\"018f0f15-9b8e-7c52-8f23-6d4ea3e46359\",\"command_type\":\"fixture.set\",\"issued_at\":\"2026-07-13T00:00:00Z\",\"major\":1,\"payload\":{\"x\":1},\"stream_id\":\"stream-1\",\"tenant_id\":\"tenant-1\"}",
+    "domain_hash": "d64f7e91f8be42c041148fc241bfad641bdebf85a6f0148c0179a45c19d84088"
+  },
+  "identifier": {
+    "uuid_text": "018f0f15-9b8e-7c52-8f23-6d4ea3e46359",
+    "uuid_bytes_hex": "018f0f159b8e7c528f236d4ea3e46359"
+  },
+  "domain_hashes": [
+    {"domain": "TRANSACTION_FRAME", "preimage_hex": "000102", "expected": "92a5095cd80531ffac7e3bfb9ba828fb8c3ae563402fb4057db5f6c0df374617"},
+    {"domain": "OBJECT_REFERENCE_MANIFEST", "preimage_hex": "5b5d", "expected": "b57ce94306e0fe20513415d42051f9954c1fd04901a44f361b0833b7d13bf850"},
+    {"domain": "CAS_CORE_HEADER", "preimage_hex": "7b7d", "expected": "467e1b7ec5095898ac20b0f8322cd7b4917b179fd82a55c83ccfc778a1aa2af4"}
+  ],
+  "journal_auth_preimage": {
+    "journal_id": "journal-1",
+    "epoch": 1,
+    "key_id": "journal-auth:test:v1",
+    "event_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "preimage_sha256": "535c903f19c369b911505965f2c7fd90820fa98efd8c44ae272a2ce77b766635"
+  },
+  "limits": {
+    "max_frame_bytes": 16777216,
+    "max_header_bytes": 65536,
+    "max_event_bytes": 4194304,
+    "max_events": 4096,
+    "max_object_references": 4096,
+    "max_id_bytes": 1024,
+    "object_nonce_bytes": 12,
+    "envelope_nonce_bytes": 12,
+    "dek_bytes": 32
+  },
+  "invalid": [
+    {"name": "float", "json": "{\"x\":1.5}"},
+    {"name": "duplicate_key", "json": "{\"x\":1,\"x\":2}"},
+    {"name": "oversized_integer", "json": "{\"x\":9223372036854775808}"},
+    {"name": "unknown_major", "json": "{\"major\":2}"},
+    {"name": "short_object_nonce", "nonce_hex": "0000000000000000000000"}
+  ]
+}

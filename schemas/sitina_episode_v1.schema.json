@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_EPISODE_V1", "type": "string"},
+    "episode_id": {
+      "maxLength": 128,
+      "minLength": 9,
+      "pattern": "^episode-[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+      "type": "string"
+    },
+    "source_run_id": {
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$",
+      "type": "string"
+    },
+    "goal_ref": {"maxLength": 68, "minLength": 68, "pattern": "^cas:[0-9a-f]{64}$", "type": "string"},
+    "action_event_range": {
+      "items": {"minimum": 1, "type": "integer"},
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "terminal_evidence_ref": {"maxLength": 68, "minLength": 68, "pattern": "^cas:[0-9a-f]{64}$", "type": "string"},
+    "outcome": {"enum": ["succeeded", "failed", "cancelled", "blocked"], "type": "string"},
+    "failure_reason_code": {
+      "anyOf": [
+        {"maxLength": 120, "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$", "type": "string"},
+        {"type": "null"}
+      ]
+    },
+    "lesson_ref": {"maxLength": 68, "minLength": 68, "pattern": "^cas:[0-9a-f]{64}$", "type": "string"},
+    "source_frontier": {"minimum": 1, "type": "integer"}
+  },
+  "required": [
+    "episode_id", "source_run_id", "goal_ref", "action_event_range", "terminal_evidence_ref",
+    "outcome", "lesson_ref", "source_frontier"
+  ],
+  "title": "SITINA_EPISODE_V1",
+  "type": "object"
+}

@@ -1,0 +1,107 @@
+{
+  "schema": "SITINA_OPTIMIZATION_PHASE11_GATE_EVIDENCE_V1",
+  "checkpoint": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+  "business_requirement_status_changes": 10,
+  "requirement_results": {
+    "T-01": "PASS_NEW",
+    "T-02": "PASS_NEW",
+    "T-03": "PASS_NEW",
+    "T-04": "PASS_EXISTING",
+    "T-05": "PASS_NEW",
+    "T-06": "PASS_NEW",
+    "T-07": "PASS_NEW",
+    "T-08": "PASS_NEW",
+    "T-09": "PASS_NEW",
+    "T-10": "PASS_NEW",
+    "X-17": "PASS_NEW"
+  },
+  "observability_boundaries": {
+    "authoritative_source": "run_ledger",
+    "read_only_query": true,
+    "replay_provider_calls": 0,
+    "replay_network_calls": 0,
+    "replay_real_effect_calls": 0,
+    "profiling_enabled_by_default": false,
+    "trajectory_thresholds_inclusive": true,
+    "restart_deduplication": true
+  },
+  "full_gate": {
+    "status": "PASS",
+    "source_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+    "live_provider_enabled": false,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "name": "config_validate",
+        "exit_code": 0,
+        "duration_seconds": 1.355713,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508"
+      },
+      {
+        "name": "cumulative_tests",
+        "exit_code": 0,
+        "duration_seconds": 117.163594,
+        "test_count": 1077,
+        "skipped_count": 21,
+        "timed_out": false,
+        "stdout_sha256": "00992d7ffc7395687d9e87dd9616497a76c756266f76250152270051da9c0eff"
+      }
+    ]
+  },
+  "targeted_gates": {
+    "ledger_and_source_closure": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-11/phase-11-ledger-source-r1.json",
+      "test_count": 9,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "2b5251455b9ecfe680720f7c9b95a6fd922724281f3d7f45ab5054c355388361"
+    },
+    "trace_replay_alerts_and_trajectory": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-11/phase-11-targeted-final.json",
+      "test_count": 11,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "85ca96fb207a9acf727b042ed3fd6fdb6890b8cc0d45810393b27db424a95d19"
+    },
+    "affected_replay_evidence_and_cli": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-11/phase-11-integration-r1.json",
+      "test_count": 131,
+      "skipped_count": 1,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "4a526ebe7e18021085dcb3c52ae904f04950b19b394eaed2c0b60c1b1e41634a"
+    }
+  },
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-11/phase-11-preflight.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-targeted-r1.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-targeted-r3.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-targeted-final.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-integration-r1.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-full-precommit.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-full-gate.json",
+    "external:output/optimization-bootstrap/phase-11/phase-11-ledger-source-r1.json"
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "The first targeted run exposed that text-only redaction did not redact a sensitive structured JSON field.",
+      "resolution": "Trace query and structured logging now reuse the repository's boundary-aware structured redaction before text redaction.",
+      "verification": "external:output/optimization-bootstrap/phase-11/phase-11-targeted-r2.json"
+    }
+  ],
+  "notes": [
+    "T-01 through T-10 and X-17 each have a dedicated final behavior test; T-04 remains PASS_EXISTING and received stronger zero-physical-call evidence.",
+    "The structured query accepts both legacy top-level identity fields and B+ journal identity fields inside payload_json.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remained disabled."
+  ]
+}

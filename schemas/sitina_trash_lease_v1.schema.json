@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_TRASH_LEASE_V1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_TRASH_LEASE_V1"},
+    "trash_lease_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "session_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "state": {"enum": ["ACTIVE", "MISSING_GRACE", "RESTORED", "RELEASED"]},
+    "object_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"}},
+    "bundle_commitment": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "trash_location": {"type": "string", "minLength": 1},
+    "activated_at": {"type": "string", "format": "date-time"},
+    "retain_until": {"type": "string", "format": "date-time"},
+    "missing_since": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    "missing_grace_until": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    "restored_position": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
+    "released_position": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]}
+  },
+  "required": ["schema", "trash_lease_id", "session_id", "state", "object_refs", "bundle_commitment", "trash_location", "activated_at", "retain_until", "missing_since", "missing_grace_until", "restored_position", "released_position"]
+}

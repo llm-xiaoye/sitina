@@ -1,0 +1,9 @@
+{
+  "default": {
+    "max_content_bytes": 16777216,
+    "max_records": 10000
+  },
+  "namespaces": {},
+  "tenants": {},
+  "schema": "SITINA_MEMORY_CAPACITY_POLICY_V1"
+}

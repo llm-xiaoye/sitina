@@ -1,0 +1,62 @@
+{
+  "schema": "CODE_MODE_PROFILE_V1",
+  "mode": "CODE_MODE_V1",
+  "provider": {
+    "profile": "deepseek",
+    "model": "deepseek-v4-pro",
+    "no_fallback": true,
+    "wire_protocol": "openai_chat_completions",
+    "adapter_capabilities": ["deepseek_thinking_disabled"]
+  },
+  "required_stages": ["Controller", "Planner", "Forge", "Tester", "Reviewer"],
+  "evidence_schema": "CODE_MODE_EVIDENCE_V1",
+  "production_identity": {
+    "entrypoint": "bin/sitina",
+    "identity_roots": ["core", "config", "scripts", "bin", "schemas", "prompts/agents", "pyproject.toml", "setup.py", "requirements.txt", "package.json", "package-lock.json"],
+    "runtime_excluded_roots": ["state", "cas", "journal", "artifacts", "review-evidence", "cache", ".cache", "venv", ".venv", "logs", "output", "backups", "data", "runtime", ".superpowers", ".canary-homes"]
+  },
+  "candidate_source_roots": ["core", "config", "scripts", "tests", "bin", "schemas", "prompts/agents", "pyproject.toml", "setup.py", "requirements.txt", "package.json", "package-lock.json"],
+  "candidate_excluded_roots": [".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", ".superpowers", "artifacts", "review-evidence", "journal", "cas", "state", "runtime", "cache", "logs", "output", "backups", "data", "reports", "evidence", "canary", "manifests", "control-plane", "activations", "foundations", "genesis", "handoff", "ledgers", "frozen-hooks", "tokens", "venv", ".venv", ".canary-homes"],
+  "identity_paths": [
+    "config/conversation_router.json",
+    "config/true_multi_agent_policy.json",
+    "config/code_mode_profile.json",
+    "config/permissions.yaml",
+    "core/sitina/conversation/router.py",
+    "core/sitina/conversation/runtime.py",
+    "core/sitina/orchestrator/true_multi_agent.py",
+    "core/sitina/orchestrator/true_multi_agent_runtime.py",
+    "core/sitina/orchestrator/execution_bridge.py",
+    "core/sitina/orchestrator/execution_verification.py",
+    "core/sitina/extensions/runtime.py",
+    "core/sitina/extensions/tools.py",
+    "core/sitina/runners/tool_executor.py",
+    "core/sitina/orchestrator/code_mode_gate.py",
+    "core/sitina/orchestrator/code_mode_authority_broker.py",
+    "core/sitina/orchestrator/code_mode_controller.py",
+    "core/sitina/orchestrator/code_mode_runtime.py",
+    "core/sitina/orchestrator/code_mode_reviewer.py",
+    "core/sitina/orchestrator/production_identity.py",
+    "scripts/code_mode_authority_host.py",
+    "scripts/code_mode_reviewer_host.py",
+    "scripts/code_mode_reviewer_producer.py",
+    "scripts/code_mode_runner.py",
+    "scripts/code_mode_worker.py",
+    "tests/code_mode_host_fixture.py",
+    "tests/code_mode_reviewer_fixture.py",
+    "tests/test_code_mode_gate.py",
+    "tests/test_code_mode_host_boundary.py",
+    "tests/test_code_mode_runtime_integration.py",
+    "tests/test_code_mode_worker_boundary.py"
+  ],
+  "test_inventory": [
+    "tests/test_true_multi_agent_cli_routing.py",
+    "tests/test_execution_bridge.py",
+    "tests/test_execution_bridge_integration.py",
+    "tests/test_extensions.py",
+    "tests/test_execution_target_v2.py",
+    "tests/test_managed_processes.py",
+    "tests/test_shell_mutation_guard.py",
+    "tests/test_true_multi_agent_provider_transport.py"
+  ]
+}

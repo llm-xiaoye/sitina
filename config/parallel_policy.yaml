@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "parallel_policy": {
+    "allowed_agent_kinds": ["tester", "reviewer", "read_only_analysis"],
+    "forbidden_agents": ["coder", "git_worktree_manager", "maintenance_ops", "memory"],
+    "forbidden_operations": ["git_apply", "maintenance_mutation", "memory_accept", "approval_mutation", "filesystem_write", "filesystem_delete", "filesystem_move", "filesystem_overwrite"],
+    "default_timeout_seconds": 120,
+    "merge_order": "stable_agent_id",
+    "groups": {
+      "parallel_reviewers": {
+        "allowed_agents": ["reviewer"],
+        "mode": "all_required",
+        "merge_policy": "review_merge_policy"
+      },
+      "parallel_testers": {
+        "allowed_agents": ["tester"],
+        "mode": "all_required",
+        "merge_policy": "tester_required_blocks"
+      },
+      "advisory_analysis": {
+        "allowed_agents": ["reviewer", "tester"],
+        "mode": "advisory",
+        "merge_policy": "warning_only"
+      }
+    }
+  }
+}

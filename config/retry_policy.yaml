@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "retry_policy": {
+    "default_max_attempts": 1,
+    "max_total_agent_steps": 20,
+    "loop_detection": true,
+    "escalations": ["ask_user", "blocked", "needs_approval", "needs_replan", "needs_manual_review", "warning_only"],
+    "rules": {
+      "coder_failed": {"action": "retry_same_agent", "max_attempts": 1, "escalation": "blocked"},
+      "tester_failed": {"action": "return_to_coder", "max_attempts": 2, "rerun_gates": ["tester", "reviewer"], "escalation": "needs_replan"},
+      "missing_evidence": {"action": "return_to_coder", "max_attempts": 2, "rerun_gates": ["tester", "reviewer"], "escalation": "needs_replan"},
+      "reviewer_needs_changes": {"action": "return_to_coder", "max_attempts": 2, "rerun_gates": ["tester", "reviewer"], "escalation": "needs_manual_review"},
+      "security_reviewer_blocked": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "ask_user"},
+      "multi_reviewer_needs_changes": {"action": "return_to_coder", "max_attempts": 2, "rerun_gates": ["tester", "reviewer", "multi_reviewer_merge"], "escalation": "needs_manual_review"},
+      "patch_hash_mismatch": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "blocked"},
+      "approval_expired": {"action": "ask_approval", "max_attempts": 1, "rerun_gates": ["reviewer"], "escalation": "needs_approval"},
+      "lease_conflict": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "ask_user"},
+      "handoff_invalid": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "blocked"},
+      "policy_invalid": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "blocked"},
+      "provider_failed": {"action": "fallback_provider", "max_attempts": 1, "escalation": "blocked"},
+      "mcp_blocked": {"action": "blocked", "max_attempts": 0, "escalation": "needs_approval"},
+      "sensitive_path_blocked": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "blocked"},
+      "proposal_blocked": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "ask_user"},
+      "arbitration_blocked": {"action": "blocked", "max_attempts": 0, "rerun_gates": [], "escalation": "ask_user"},
+      "approval_timeout": {"action": "blocked", "max_attempts": 0, "escalation": "blocked"},
+      "memory_failed": {"action": "warning", "max_attempts": 0, "escalation": "warning_only"},
+      "loop_detected": {"action": "blocked", "max_attempts": 0, "escalation": "blocked"}
+    }
+  }
+}

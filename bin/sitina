@@ -1,0 +1,62 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+SITINA_HOME="${SITINA_HOME:-$HOME/SitinaHub}"
+BUNDLED_PYTHON="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+
+if [ -x "${SITINA_PYTHON:-}" ]; then
+  PYTHON_BIN="$SITINA_PYTHON"
+elif [ -x "$BUNDLED_PYTHON" ]; then
+  PYTHON_BIN="$BUNDLED_PYTHON"
+else
+  PYTHON_BIN="$(command -v python3)"
+fi
+
+export SITINA_HOME
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$SITINA_HOME/core:${PYTHONPATH:-}"
+
+if [[ $# -eq 0 ]]; then
+  if [[ -t 0 && -t 1 ]]; then
+    set -- chat
+  else
+    set -- --help
+  fi
+fi
+
+if [[ "${1:-}" == "run" ]]; then
+  set +e
+  INITIAL_OUTPUT="$("$PYTHON_BIN" -m sitina.cli "$@")"
+  INITIAL_STATUS=$?
+  set -e
+  if [[ $INITIAL_STATUS -ne 75 ]]; then
+    print -r -- "$INITIAL_OUTPUT"
+    exit $INITIAL_STATUS
+  fi
+  RUN_ID="$(print -r -- "$INITIAL_OUTPUT" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')"
+  CHECKPOINT_TEXT="$(print -r -- "$INITIAL_OUTPUT" | "$PYTHON_BIN" -c 'import json,sys; print("\n".join(json.load(sys.stdin)["checkpoint_ids"]))')"
+  CHECKPOINT_IDS=("${(@f)CHECKPOINT_TEXT}")
+  if [[ ${#CHECKPOINT_IDS[@]} -ne 8 ]]; then
+    print -r -- '{"status":"failed_closed","reason":"checkpoint supervisor plan did not contain eight identities"}'
+    exit 2
+  fi
+  for CHECKPOINT_ID in "${CHECKPOINT_IDS[@]}"; do
+    set +e
+    WORKER_OUTPUT="$("$PYTHON_BIN" -m sitina.orchestrator.checkpoint_resume \
+      --home "$SITINA_HOME" --run-id "$RUN_ID" --checkpoint-id "$CHECKPOINT_ID")"
+    WORKER_STATUS=$?
+    set -e
+    if [[ $WORKER_STATUS -ne 0 ]]; then
+      print -r -- "$WORKER_OUTPUT"
+      exit $WORKER_STATUS
+    fi
+  done
+  FINALIZE_ARGS=()
+  for CHECKPOINT_ID in "${CHECKPOINT_IDS[@]}"; do
+    FINALIZE_ARGS+=(--checkpoint-id "$CHECKPOINT_ID")
+  done
+  exec "$PYTHON_BIN" -m sitina.orchestrator.checkpoint_resume \
+    --home "$SITINA_HOME" --run-id "$RUN_ID" --finalize "${FINALIZE_ARGS[@]}"
+fi
+
+exec "$PYTHON_BIN" -m sitina.cli "$@"
