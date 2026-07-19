@@ -28,6 +28,14 @@
       ],
       "name": "phase-02-blackboard",
       "phase": "02"
+    },
+    {
+      "commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
+      "name": "phase-03-memory",
+      "phase": "03"
     }
   ],
   "contract_dependency_by_domain": {
@@ -108,11 +116,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "03",
+  "current_phase": "04",
   "current_status_summary": {
-    "FAIL": 132,
+    "FAIL": 124,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 9
+    "PASS_NEW": 17
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -141,16 +149,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-03/gate-summary.json"
+      ],
       "id": "03",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "04",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -461,130 +471,172 @@
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-01",
       "implementation_refs": [
         "core/sitina/memory/native.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Every candidate starts working; reviewer-audited sequential promotion is required for episodic and long_term, tier-filtered reads are ACL-bound, and Journal reconstruction proves short-term records never auto-promote."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "记忆分层",
       "test_ids": [
-        "tests.test_memory_native_v1"
+        "tests.test_memory_native_v1",
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m01_working_episodic_long_term_promote_read_isolate_and_restart"
       ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-02",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Deterministic duplicate, near-duplicate, and complementary consolidation preserves every source creation event plus inherited run/agent/evidence provenance under an intersected ACL."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆整合",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m02_normalized_duplicate_near_and_complementary_consolidation_keep_provenance"
+      ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-03",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "ACL filtering precedes pluggable semantic ranking; absent, failed, or malformed backends use deterministic Unicode-normalized lexical ranking and every returned body remains explicitly untrusted data."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆检索",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m03_pluggable_semantic_retrieval_has_acl_and_deterministic_fallback"
+      ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-04",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Frozen-time TTL boundaries exclude expired records while legal-retention remains current; rational freshness decay affects ranking without appending or rewriting Journal history."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆衰减",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m04_ttl_decay_permanent_retention_and_reads_do_not_rewrite_history"
+      ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-05",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Differing values for a conflict key coexist until an authorized reviewer selects one; OPEN/RESOLVED conflict facts reconstruct from Journal and losing accepted records are explicitly revoked rather than silently overwritten."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆冲突",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m05_conflicts_coexist_until_journal_reconstructed_human_arbitration"
+      ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-06",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/memory_capacity.json",
+        "core/sitina/config.py",
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Strict namespace-over-tenant-over-default record/byte limits use preflighted, explained lowest-confidence/oldest eviction; explicit references and legal retention are protected and impossible pressure fails before mutation."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆容量",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m06_namespace_capacity_explains_eviction_and_protects_references"
+      ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-07",
       "implementation_refs": [
         "core/sitina/memory/native.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The verifier recomputes content hash, resolves CAS evidence, checks source event/run existence, and returns run/agent/trust/observed timestamp metadata; any orphan fails closed."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "记忆溯源",
       "test_ids": [
-        "tests.test_memory_native_v1"
+        "tests.test_memory_native_v1",
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m07_run_agent_evidence_trust_timestamp_and_hash_provenance_has_no_orphans"
       ]
     },
     {
       "domain": "Memory",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-03/gate-summary.json"
       ],
       "id": "M-08",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/memory/management.py",
+        "core/sitina/memory/native.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "a809849f365f3cb33baf66f1a25ff24adb56c1c1",
+      "notes": [
+        "Wrong, malicious/instruction-like, and unauthorized memories are ACL-filtered or quarantined with reduced confidence; current retrieval and consolidation exclude quarantine, reviewer revocation is audited, and all visible text remains untrusted."
+      ],
+      "status": "PASS_NEW",
       "summary": "记忆污染",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_memory_management.MemoryManagementTests.test_m08_wrong_malicious_and_unauthorized_memory_is_quarantined_and_never_propagates"
+      ]
     },
     {
       "domain": "Context/Handoff",
