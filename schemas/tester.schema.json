@@ -1,5 +1,54 @@
 {
   "$defs": {
+    "AgentBudgetReport": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "within_budget",
+          "enum": [
+            "within_budget",
+            "compressed",
+            "escalated",
+            "blocked"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "input_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens Used",
+          "type": "integer"
+        },
+        "output_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens Used",
+          "type": "integer"
+        },
+        "run_tokens_remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Tokens Remaining"
+        },
+        "tool_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Tokens Used",
+          "type": "integer"
+        }
+      },
+      "title": "AgentBudgetReport",
+      "type": "object"
+    },
     "Claim": {
       "additionalProperties": false,
       "properties": {
@@ -20,6 +69,30 @@
           ],
           "title": "Label",
           "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
         },
         "text": {
           "title": "Text",
@@ -110,6 +183,9 @@
       "default": null,
       "title": "Artifact Hash"
     },
+    "budget_report": {
+      "$ref": "#/$defs/AgentBudgetReport"
+    },
     "claims": {
       "items": {
         "$ref": "#/$defs/Claim"
@@ -128,6 +204,13 @@
       "title": "Decision",
       "type": "string"
     },
+    "environment": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Environment",
+      "type": "object"
+    },
     "evidence": {
       "items": {
         "$ref": "#/$defs/EvidenceRef"
@@ -135,10 +218,22 @@
       "title": "Evidence",
       "type": "array"
     },
+    "evidence_complete": {
+      "default": false,
+      "title": "Evidence Complete",
+      "type": "boolean"
+    },
     "extensions": {
       "additionalProperties": true,
       "title": "Extensions",
       "type": "object"
+    },
+    "reproducibility": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reproducibility",
+      "type": "array"
     },
     "resolved_findings": {
       "items": {
@@ -147,10 +242,39 @@
       "title": "Resolved Findings",
       "type": "array"
     },
+    "risk_level": {
+      "default": "low",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
     "schema_version": {
       "default": "1.0",
       "title": "Schema Version",
       "type": "string"
+    },
+    "test_types": {
+      "items": {
+        "enum": [
+          "unit",
+          "contract",
+          "integration",
+          "e2e",
+          "concurrency",
+          "fault",
+          "security",
+          "performance",
+          "live"
+        ],
+        "type": "string"
+      },
+      "title": "Test Types",
+      "type": "array"
     },
     "tests_run": {
       "items": {

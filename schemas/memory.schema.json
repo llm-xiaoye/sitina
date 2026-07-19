@@ -1,5 +1,54 @@
 {
   "$defs": {
+    "AgentBudgetReport": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "within_budget",
+          "enum": [
+            "within_budget",
+            "compressed",
+            "escalated",
+            "blocked"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "input_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens Used",
+          "type": "integer"
+        },
+        "output_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens Used",
+          "type": "integer"
+        },
+        "run_tokens_remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Tokens Remaining"
+        },
+        "tool_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Tokens Used",
+          "type": "integer"
+        }
+      },
+      "title": "AgentBudgetReport",
+      "type": "object"
+    },
     "Claim": {
       "additionalProperties": false,
       "properties": {
@@ -20,6 +69,30 @@
           ],
           "title": "Label",
           "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
         },
         "text": {
           "title": "Text",
@@ -81,11 +154,31 @@
           "title": "Confidence",
           "type": "number"
         },
+        "conflicts_with": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Conflicts With",
+          "type": "array"
+        },
         "content": {
           "maxLength": 8000,
           "minLength": 1,
           "title": "Content",
           "type": "string"
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
         },
         "evidence": {
           "items": {
@@ -107,6 +200,36 @@
           ],
           "title": "Memory Type",
           "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "privacy_decision": {
+          "default": "review",
+          "enum": [
+            "eligible",
+            "review",
+            "reject"
+          ],
+          "title": "Privacy Decision",
+          "type": "string"
+        },
+        "provenance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Provenance Refs",
+          "type": "array"
         },
         "reason": {
           "maxLength": 1000,
@@ -131,6 +254,24 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]*$",
           "title": "Source",
           "type": "string"
+        },
+        "status": {
+          "const": "pending",
+          "default": "pending",
+          "title": "Status",
+          "type": "string"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
         }
       },
       "required": [
@@ -159,6 +300,9 @@
       ],
       "title": "Agent Status",
       "type": "string"
+    },
+    "budget_report": {
+      "$ref": "#/$defs/AgentBudgetReport"
     },
     "candidates": {
       "items": {

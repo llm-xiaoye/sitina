@@ -1,5 +1,54 @@
 {
   "$defs": {
+    "AgentBudgetReport": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "within_budget",
+          "enum": [
+            "within_budget",
+            "compressed",
+            "escalated",
+            "blocked"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "input_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens Used",
+          "type": "integer"
+        },
+        "output_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens Used",
+          "type": "integer"
+        },
+        "run_tokens_remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Tokens Remaining"
+        },
+        "tool_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Tokens Used",
+          "type": "integer"
+        }
+      },
+      "title": "AgentBudgetReport",
+      "type": "object"
+    },
     "Claim": {
       "additionalProperties": false,
       "properties": {
@@ -20,6 +69,30 @@
           ],
           "title": "Label",
           "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
         },
         "text": {
           "title": "Text",
@@ -90,11 +163,28 @@
       "title": "Agent Status",
       "type": "string"
     },
+    "budget_report": {
+      "$ref": "#/$defs/AgentBudgetReport"
+    },
     "claims": {
       "items": {
         "$ref": "#/$defs/Claim"
       },
       "title": "Claims",
+      "type": "array"
+    },
+    "completed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Completed",
+      "type": "array"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
       "type": "array"
     },
     "decision": {
@@ -106,6 +196,13 @@
       "title": "Decision",
       "type": "string"
     },
+    "decisions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decisions",
+      "type": "array"
+    },
     "evidence": {
       "items": {
         "$ref": "#/$defs/EvidenceRef"
@@ -113,10 +210,36 @@
       "title": "Evidence",
       "type": "array"
     },
+    "evidence_summary": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Summary",
+      "type": "array"
+    },
     "extensions": {
       "additionalProperties": true,
       "title": "Extensions",
       "type": "object"
+    },
+    "failures": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failures",
+      "type": "array"
+    },
+    "goal": {
+      "default": "",
+      "title": "Goal",
+      "type": "string"
+    },
+    "open_items": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Items",
+      "type": "array"
     },
     "schema_version": {
       "default": "1.0",

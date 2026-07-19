@@ -11,6 +11,7 @@ from sitina.orchestrator.ledger import RunLedger
 from sitina.orchestrator.timeout_support import ProviderTimeoutConfig, RunCancelledError, RunControlStore, RunDeadline, TimeoutError
 from sitina.reliability import RetrySchedule, RetryScheduler, RetrySettings
 from sitina.runners.agent_parser import AgentOutputParser, AgentParseError
+from sitina.runners.prompt_contracts import PromptContractRegistry
 from sitina.runners.provider import (
     AnthropicCompatibleClient,
     ProviderAuthError,
@@ -218,6 +219,10 @@ class MockProvider:
                 "acceptance_criteria": ["handoff decision is schema-valid", "fail closed on reject or invalid"],
                 "proposed_touched_files": [],
                 "risk_assessment": {"risk_level": "low", "approval_required": False, "provider_mode": "mock"},
+                "confidence": 0.9,
+                "assumptions": ["The supplied handoff contract is the complete decision scope."],
+                "unknowns": [],
+                "alternatives": ["Reject the handoff when contract evidence proves a conflict."],
                 "extensions": {"handoff_decision": handoff_decision},
             }
         if "approved write fixture" in goal or "approved-write-fixture" in goal:
@@ -236,6 +241,10 @@ class MockProvider:
             "acceptance_criteria": acceptance,
             "proposed_touched_files": touched,
             "risk_assessment": {"risk_level": "low", "approval_required": False, "provider_mode": "mock"},
+            "confidence": 0.74,
+            "assumptions": ["No mutation may occur before scoped approval."],
+            "unknowns": [],
+            "alternatives": ["Use a read-only validation path when no mutation is requested."],
             "extensions": {
                 "proposal_bid": {
                     "summary": "Planner proposes the policy-compiled task graph with mandatory gates preserved.",
@@ -275,6 +284,11 @@ class MockProvider:
             "acceptance_results": [{"criterion": "config validate passes", "passed": True}],
             "artifact_hash": payload.get("expected_artifact_hash"),
             "resolved_findings": [],
+            "environment": {"provider_mode": "mock"},
+            "risk_level": "low",
+            "test_types": ["contract"],
+            "reproducibility": ["Run sitina config validate in the isolated test home."],
+            "evidence_complete": True,
             "extensions": {
                 "proposal_bid": {
                     "summary": "Tester proposes a verification-first path with tester and reviewer gates.",
@@ -298,6 +312,7 @@ class MockProvider:
             "findings": [],
             "resolved_findings": [],
             "overall_recommendation": "accept",
+            "original_requirement_assessment": [],
             "extensions": {
                 "proposal_bid": {
                     "summary": "Reviewer proposes preserving review as the final code gate.",
@@ -321,6 +336,13 @@ class MockProvider:
             "user_summary": "Mock provider workflow completed with schema-validated agent outputs.",
             "verification_status_derived": "verified",
             "unverified_items": [],
+            "goal": "Complete the supplied mock workflow.",
+            "completed": ["Schema-validated agent outputs were produced."],
+            "decisions": ["Use the deterministic mock provider."],
+            "constraints": ["No external provider call was made."],
+            "failures": [],
+            "open_items": [],
+            "evidence_summary": ["mock-provider-output"],
         }
 
     def _coder(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -369,6 +391,7 @@ class MockProvider:
     def _critic(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._base("critic", "no_objection", verification_status="partially_verified") | {
             "objections": [],
+            "counterexamples": [],
             "extensions": {"proposal_evaluation": {"decision": "support", "score": 82, "reason": "No hidden unsafe assumption found in mock evaluation."}},
         }
 
@@ -376,6 +399,10 @@ class MockProvider:
         return self._base("researcher", "evidence", verification_status="partially_verified") | {
             "sources_checked": ["local_context"],
             "untrusted_blocks": [],
+            "facts": [],
+            "inferences": [],
+            "unknowns": [],
+            "source_freshness": {"local_context": "current_run"},
             "extensions": {
                 "proposal_bid": {
                     "summary": "Researcher proposes readonly evidence gathering with local citations.",
@@ -403,6 +430,11 @@ class MockProvider:
         return self._base("security", decision, verification_status="verified" if not unsafe else "partially_verified") | {
             "security_findings": ["proposal contains forbidden mutation or bypass marker"] if unsafe else [],
             "severity": severity,
+            "threat_checks": ["prompt_injection_and_boundary_reviewed"],
+            "permission_checks": ["approval_and_scope_binding_reviewed"],
+            "secret_checks": ["secret_reference_boundary_reviewed"],
+            "side_effect_checks": ["side_effect_descriptors_reviewed"],
+            "high_risk_execution_allowed": False,
             "extensions": {
                 "proposal_evaluation": {
                     "decision": "block" if unsafe else "support",
@@ -447,6 +479,12 @@ class MockProvider:
             "winning_agent": winner,
             "resolution_reason": reason,
             "rework_required": decision in {"block", "ask_user"},
+            "hard_gate_results": {
+                "safety": False if any(marker in text for marker in ("forbidden", "bypass", "patch_apply", "force_arbitration_block")) else True,
+                "permission": False if conflict_type == "lease_conflict" and not lease_scope_approved else True,
+                "evidence": False if decision == "ask_user" or not payload.get("participants") else True,
+            },
+            "missing_authorities": ["approved_scope"] if conflict_type == "lease_conflict" and not lease_scope_approved else [],
             "extensions": {"proposal_evaluation": {"decision": "block" if decision in {"block", "ask_user"} else "support", "score": 70 if decision not in {"block", "ask_user"} else 0, "reason": reason}},
         }
 
@@ -467,6 +505,13 @@ class MockProvider:
                         "memory_type": "workflow_rule",
                         "sensitivity_level": "low",
                         "evidence": [{"kind": "event", "ref": "mock-memory-candidate-fixture"}],
+                        "provenance_refs": ["mock-memory-candidate-fixture"],
+                        "observed_at": "current_run",
+                        "valid_until": None,
+                        "duplicate_of": None,
+                        "conflicts_with": [],
+                        "privacy_decision": "eligible",
+                        "status": "pending",
                     }
                 ]
             }
@@ -486,6 +531,13 @@ class MockProvider:
             "verification_status": verification_status,
             "warnings": [],
             "extensions": {},
+            "budget_report": {
+                "input_tokens_used": 0,
+                "output_tokens_used": 0,
+                "tool_tokens_used": 0,
+                "run_tokens_remaining": None,
+                "action": "within_budget",
+            },
         }
 
 
@@ -494,7 +546,8 @@ class AgentRunner:
         self.home = home
         self.store = SitinaStore(home)
         self.ledger = RunLedger(home, self.store)
-        self.parser = AgentOutputParser()
+        self.prompt_contracts = PromptContractRegistry(home)
+        self.parser = AgentOutputParser(contract_registry=self.prompt_contracts)
         self.mock = MockProvider(home)
         self.resolver = RoleProfileResolver(home)
         self.client = AnthropicCompatibleClient(home)
@@ -609,6 +662,9 @@ class AgentRunner:
         logical_call_id: str | None = None,
     ) -> AgentRunResult:
         validate_agent_input(agent, input_payload)
+        # Prompt and its machine contract are execution preconditions in every
+        # provider mode; mock runs must not hide a missing or divergent prompt.
+        system_prompt = self._prompt(agent)
         if provider_mode == "mock":
             raw = self.mock.complete(agent, input_payload)
             parsed = self.parser.parse(agent, raw)
@@ -653,7 +709,6 @@ class AgentRunner:
             error = AgentRunnerError(f"{agent} has no configured live provider profile", error_type="provider_profile_missing")
             self._record_failure(run_id, task_id, task_type, agent, error)
             raise error
-        system_prompt = self._prompt(agent)
         user_prompt = self._user_prompt(agent, input_payload)
         profile = None
         provider_calls: list[dict[str, Any]] = []
@@ -832,7 +887,156 @@ class AgentRunner:
                 fallback_used=False,
             )
         except AgentParseError as first_error:
-            artifact = self._record_parse_artifact(run_id, agent, raw, first_error, repair_attempt=0)
+            first_artifact = self._record_parse_artifact(run_id, agent, raw, first_error, repair_attempt=0)
+            budget = input_payload.get("budget") if isinstance(input_payload.get("budget"), dict) else {}
+            usage = completion.metadata.get("token_usage") if isinstance(completion.metadata.get("token_usage"), dict) else {}
+            default_repair_cap = self._live_max_tokens(agent, max_tokens)
+            output_remaining = max(0, int(budget.get("output_token_limit", default_repair_cap)) - int(usage.get("output_tokens", 0)))
+            run_remaining = max(0, int(budget.get("run_tokens_remaining", default_repair_cap)) - int(usage.get("total_tokens", 0)))
+            repair_cap = min(default_repair_cap, output_remaining, run_remaining)
+            if self.prompt_contracts.can_repair(
+                completed_repairs=0,
+                output_tokens_remaining=output_remaining,
+                run_tokens_remaining=run_remaining,
+            ) and repair_cap >= 64:
+                repair_attempt_id = "provider_attempt_" + new_id()
+                repair_started_at = iso_now()
+                repair_started_monotonic = time.monotonic()
+                self._record_http_attempt(
+                    "provider_http_attempt_started",
+                    run_id=run_id,
+                    task_id=task_id,
+                    task_type=task_type,
+                    agent=agent,
+                    payload={
+                        "attempt_id": repair_attempt_id,
+                        "logical_call_id": logical_call_id,
+                        "attempt": len(provider_calls) + 1,
+                        "repair_attempt": 1,
+                        "provider_mode": "live",
+                        "profile_name": profile_name,
+                        "model": profile.model if profile else None,
+                        "provider_call_started_at": repair_started_at,
+                        "fallback_used": False,
+                    },
+                    status="ok",
+                    reason="bounded schema repair attempt started",
+                )
+                try:
+                    self._preflight_live_call(run_id=run_id, deadline=deadline)
+                    remaining = deadline.remaining_seconds() if deadline else config.total_request_timeout
+                    repaired_completion = self.client.complete_with_metadata(
+                        profile,
+                        system_prompt=system_prompt,
+                        user_prompt=self._repair_prompt(agent, input_payload, raw, str(first_error)),
+                        max_tokens=repair_cap,
+                        request_timeout_seconds=min(config.total_request_timeout, remaining),
+                        expect_json=True,
+                        json_schema=self._provider_json_schema(agent),
+                        cancel_check=(lambda: RunControlStore(self.home).is_cancel_requested(run_id)) if run_id else None,
+                    )
+                except Exception as repair_error:  # noqa: BLE001
+                    self._record_failed_http_attempt(
+                        run_id,
+                        task_id,
+                        task_type,
+                        agent,
+                        logical_call_id,
+                        repair_attempt_id,
+                        len(provider_calls) + 1,
+                        repair_started_at,
+                        repair_started_monotonic,
+                        repair_error,
+                        profile_name,
+                        profile.model if profile else None,
+                    )
+                    error = AgentRunnerError(
+                        f"{agent} schema repair failed: {redact_text(str(repair_error))[:500]}",
+                        error_type="agent_schema_invalid",
+                        details={
+                            "schema_name": agent,
+                            "artifact": first_artifact,
+                            "raw_output_hash": sha256_text(raw),
+                            "repair_attempts": 1,
+                            "profile_name": profile_name,
+                            "model": profile.model if profile else None,
+                            "provider_calls": provider_calls,
+                        },
+                    )
+                    self._record_failure(run_id, task_id, task_type, agent, error)
+                    raise error from repair_error
+                repair_call = dict(repaired_completion.metadata) | {
+                    "attempt": len(provider_calls) + 1,
+                    "attempt_id": repair_attempt_id,
+                    "logical_call_id": logical_call_id,
+                    "repair_attempt": 1,
+                }
+                provider_calls.append(repair_call)
+                self._record_http_attempt(
+                    "provider_http_attempt_completed",
+                    run_id=run_id,
+                    task_id=task_id,
+                    task_type=task_type,
+                    agent=agent,
+                    payload=repair_call,
+                    status="ok",
+                    reason="bounded schema repair attempt completed",
+                )
+                repaired_raw = repaired_completion.text
+                try:
+                    repaired = self.parser.parse(agent, repaired_raw)
+                except AgentParseError as second_error:
+                    artifact = self._record_parse_artifact(run_id, agent, repaired_raw, second_error, repair_attempt=1)
+                    failed_calls = [
+                        dict(call)
+                        | {
+                            "schema_name": agent,
+                            "schema_validation_status": "invalid",
+                            "redaction_status": "redacted",
+                            "fallback_used": False,
+                        }
+                        for call in provider_calls
+                    ]
+                    error = AgentRunnerError(
+                        f"{agent} schema_error after bounded repair: {second_error}",
+                        error_type="agent_schema_invalid",
+                        details={
+                            "schema_name": agent,
+                            "artifact": artifact,
+                            "previous_artifact": first_artifact,
+                            "raw_output_hash": sha256_text(repaired_raw),
+                            "repair_attempts": 1,
+                            "profile_name": profile_name,
+                            "model": profile.model if profile else None,
+                            "provider_calls": failed_calls,
+                        },
+                    )
+                    self._record_failure(run_id, task_id, task_type, agent, error)
+                    raise error from second_error
+                calls = [
+                    dict(call)
+                    | {
+                        "schema_name": agent,
+                        "schema_validation_status": "invalid" if index < len(provider_calls) - 1 else "valid",
+                        "redaction_status": "redacted",
+                        "fallback_used": False,
+                    }
+                    for index, call in enumerate(provider_calls)
+                ]
+                self._checkpoint_success(run_id, agent, calls, repair_attempts=1)
+                return AgentRunResult(
+                    agent=agent,
+                    output=repaired.output,
+                    payload=repaired.payload,
+                    raw_text=repaired_raw,
+                    provider_mode="live",
+                    profile_name=profile_name,
+                    model=profile.model if profile else None,
+                    provider_identity=provider_identity_summary(profile, provider_mode="live", profile_name=profile_name),
+                    repair_attempts=1,
+                    provider_calls=calls,
+                    fallback_used=False,
+                )
             failed_calls = [
                 dict(call)
                 | {
@@ -848,7 +1052,7 @@ class AgentRunner:
                 error_type="agent_schema_invalid",
                 details={
                     "schema_name": agent,
-                    "artifact": artifact,
+                    "artifact": first_artifact,
                     "raw_output_hash": sha256_text(raw),
                     "repair_attempts": 0,
                     "profile_name": profile_name,
@@ -1288,10 +1492,10 @@ class AgentRunner:
         )
 
     def _prompt(self, agent: str) -> str:
-        path = self.home / "prompts" / "agents" / f"{agent}.md"
-        if not path.exists():
-            raise AgentRunnerError(f"prompt missing for {agent}: {path}")
-        return path.read_text(encoding="utf-8")
+        try:
+            return self.prompt_contracts.render(agent)
+        except Exception as exc:  # noqa: BLE001
+            raise AgentRunnerError(f"prompt contract invalid for {agent}: {exc}", error_type="agent_prompt_invalid") from exc
 
     def _output_json_schema(self, agent: str) -> dict[str, Any] | None:
         path = self.home / "schemas" / f"{agent}.schema.json"

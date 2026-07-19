@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from sitina.schemas.models import CommonAgentOutput, validate_agent_output
+from sitina.runners.prompt_contracts import PromptContractError, PromptContractRegistry
 
 
 class AgentParseError(ValueError):
@@ -21,14 +22,21 @@ class ParsedAgentOutput:
 
 
 class AgentOutputParser:
+    def __init__(self, contract_registry: PromptContractRegistry | None = None):
+        self.contract_registry = contract_registry
+
     def parse(self, agent: str, text: str) -> ParsedAgentOutput:
         payload = self.parse_single_json(text)
         try:
+            if self.contract_registry is not None:
+                self.contract_registry.validate_output_payload(agent, payload)
             output = validate_agent_output(agent, payload)
         except ValidationError as exc:
             raise AgentParseError(f"{agent} output schema_error: {exc}") from exc
         except ValueError as exc:
             raise AgentParseError(f"{agent} output schema_error: {exc}") from exc
+        except PromptContractError as exc:
+            raise AgentParseError(f"{agent} output prompt_contract_error: {exc}") from exc
         return ParsedAgentOutput(output=output, payload=output.model_dump())
 
     def parse_single_json(self, text: str) -> dict[str, Any]:

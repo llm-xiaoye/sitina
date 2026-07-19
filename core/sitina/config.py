@@ -20,6 +20,7 @@ from sitina.orchestrator.workflow import WorkflowPolicy
 from sitina.protocols.blackboard_state import BlackboardLimits, BlackboardStateError
 from sitina.memory.management import MemoryCapacityPolicy, MemoryManagementError
 from sitina.runners.profiles import ProfileLoader
+from sitina.runners.prompt_contracts import PromptContractRegistry
 from sitina.legacy.retirement import LegacyRuntimePolicy
 from sitina.schemas.models import AGENT_OUTPUT_MODELS
 from sitina.utils import chmod_octal, load_json_yaml, write_json
@@ -84,6 +85,7 @@ class ConfigValidator:
         self._load("config/parallel_policy.yaml")
         self._load("config/proposal_policy.yaml")
         self._load("config/agent_capabilities.yaml")
+        self._load("config/agent_prompt_contracts.json")
         self._load("config/permissions.yaml")
         feature_flags = self._load("config/feature_flags.json")
         blackboard_limits_path = self.home / "config/blackboard_limits.json"
@@ -165,6 +167,7 @@ class ConfigValidator:
                 self.errors.append(f"prompt missing: prompts/agents/{agent}.md")
             elif "single JSON" not in path.read_text(encoding="utf-8"):
                 self.errors.append(f"prompt must require single JSON output: {agent}")
+        self.errors.extend(PromptContractRegistry(self.home).validate())
 
     def _workflow(self) -> None:
         self.errors.extend(WorkflowPolicy(self.home).validate())

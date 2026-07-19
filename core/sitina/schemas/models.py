@@ -50,6 +50,24 @@ class Claim(StrictModel):
     text: str
     label: Literal["confirmed", "inferred", "suggested", "unverified", "unable_to_verify"]
     evidence_ref: list[str] = Field(default_factory=list)
+    source_ref: str | None = None
+    observed_at: str | None = None
+
+
+class AgentBudgetReport(StrictModel):
+    input_tokens_used: int = Field(default=0, ge=0)
+    output_tokens_used: int = Field(default=0, ge=0)
+    tool_tokens_used: int = Field(default=0, ge=0)
+    run_tokens_remaining: int | None = Field(default=None, ge=0)
+    action: Literal["within_budget", "compressed", "escalated", "blocked"] = "within_budget"
+
+
+class AgentBudget(StrictModel):
+    input_token_limit: int = Field(gt=0)
+    output_token_limit: int = Field(gt=0)
+    tool_token_limit: int = Field(ge=0)
+    run_token_limit: int = Field(gt=0)
+    run_tokens_remaining: int = Field(ge=0)
 
 
 class CommonAgentOutput(StrictModel):
@@ -62,6 +80,7 @@ class CommonAgentOutput(StrictModel):
     verification_status: VerificationStatus = "not_verified"
     warnings: list[str] = Field(default_factory=list)
     extensions: dict[str, Any] = Field(default_factory=dict)
+    budget_report: AgentBudgetReport = Field(default_factory=AgentBudgetReport)
 
 
 class ControllerOutput(CommonAgentOutput):
@@ -89,6 +108,10 @@ class PlannerOutput(CommonAgentOutput):
     acceptance_criteria: list[str]
     proposed_touched_files: list[str]
     risk_assessment: dict[str, Any]
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    assumptions: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    alternatives: list[str] = Field(default_factory=list)
 
 
 class ArchitectOutput(CommonAgentOutput):
@@ -115,6 +138,11 @@ class TesterOutput(CommonAgentOutput):
     acceptance_results: list[dict[str, Any]]
     artifact_hash: str | None = None
     resolved_findings: list[str] = Field(default_factory=list)
+    environment: dict[str, str] = Field(default_factory=dict)
+    risk_level: RiskLevel = "low"
+    test_types: list[Literal["unit", "contract", "integration", "e2e", "concurrency", "fault", "security", "performance", "live"]] = Field(default_factory=list)
+    reproducibility: list[str] = Field(default_factory=list)
+    evidence_complete: bool = False
 
 
 class ReviewerFinding(StrictModel):
@@ -126,12 +154,22 @@ class ReviewerFinding(StrictModel):
     finding_id: str | None = None
 
 
+class ReviewerRejection(StrictModel):
+    outcome: Literal["rework", "reject", "block"]
+    reason_code: str
+    requirement_refs: list[str]
+    evidence_refs: list[str]
+    required_changes: list[str] = Field(default_factory=list)
+
+
 class ReviewerOutput(CommonAgentOutput):
     agent: Literal["reviewer"] = "reviewer"
     decision: Literal["accept", "request_changes", "blocked"] = "accept"
     findings: list[ReviewerFinding] = Field(default_factory=list)
     resolved_findings: list[str] = Field(default_factory=list)
     overall_recommendation: Literal["accept", "request_changes", "block"]
+    original_requirement_assessment: list[Claim] = Field(default_factory=list)
+    rejection: ReviewerRejection | None = None
 
     @model_validator(mode="after")
     def no_accept_with_blockers(self) -> "ReviewerOutput":
@@ -139,6 +177,10 @@ class ReviewerOutput(CommonAgentOutput):
             for finding in self.findings:
                 if finding.severity in {"critical", "major"}:
                     raise ValueError("reviewer cannot accept with critical or major findings")
+            if self.rejection is not None:
+                raise ValueError("reviewer cannot accept with a rejection record")
+        elif self.rejection is None:
+            raise ValueError("non-accept reviewer output requires a structured rejection record")
         return self
 
 
@@ -147,6 +189,11 @@ class SecurityOutput(CommonAgentOutput):
     decision: Literal["support", "needs_changes", "block", "cannot_complete"] = "support"
     security_findings: list[str] = Field(default_factory=list)
     severity: Literal["none", "minor", "major", "critical"] = "none"
+    threat_checks: list[str] = Field(default_factory=list)
+    permission_checks: list[str] = Field(default_factory=list)
+    secret_checks: list[str] = Field(default_factory=list)
+    side_effect_checks: list[str] = Field(default_factory=list)
+    high_risk_execution_allowed: Literal[False] = False
 
     @model_validator(mode="after")
     def no_support_with_blockers(self) -> "SecurityOutput":
@@ -159,6 +206,7 @@ class CriticOutput(CommonAgentOutput):
     agent: Literal["critic"] = "critic"
     decision: Literal["counterargument", "no_objection", "cannot_complete"] = "counterargument"
     objections: list[str] = Field(default_factory=list)
+    counterexamples: list[str] = Field(default_factory=list)
 
 
 class ArbiterOutput(CommonAgentOutput):
@@ -169,6 +217,8 @@ class ArbiterOutput(CommonAgentOutput):
     winning_agent: str | None = None
     resolution_reason: str
     rework_required: bool = False
+    hard_gate_results: dict[Literal["safety", "permission", "evidence"], bool | None] = Field(default_factory=dict)
+    missing_authorities: list[str] = Field(default_factory=list)
 
 
 class ResearcherOutput(CommonAgentOutput):
@@ -176,6 +226,10 @@ class ResearcherOutput(CommonAgentOutput):
     decision: Literal["evidence", "cannot_complete"] = "evidence"
     sources_checked: list[str]
     untrusted_blocks: list[str] = Field(default_factory=list)
+    facts: list[Claim] = Field(default_factory=list)
+    inferences: list[Claim] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    source_freshness: dict[str, str] = Field(default_factory=dict)
 
 
 class MemoryCandidateProposal(StrictModel):
@@ -186,6 +240,13 @@ class MemoryCandidateProposal(StrictModel):
     memory_type: Literal["general", "preference", "workflow_rule", "fact", "lesson", "constraint"] = "general"
     sensitivity_level: Literal["low", "moderate", "high", "restricted"] = "low"
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=64)
+    provenance_refs: list[str] = Field(default_factory=list, max_length=64)
+    observed_at: str | None = None
+    valid_until: str | None = None
+    duplicate_of: str | None = None
+    conflicts_with: list[str] = Field(default_factory=list, max_length=32)
+    privacy_decision: Literal["eligible", "review", "reject"] = "review"
+    status: Literal["pending"] = "pending"
 
 
 class MemoryOutput(CommonAgentOutput):
@@ -200,6 +261,13 @@ class SummaryOutput(CommonAgentOutput):
     user_summary: str
     verification_status_derived: VerificationStatus
     unverified_items: list[str] = Field(default_factory=list)
+    goal: str = ""
+    completed: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    failures: list[str] = Field(default_factory=list)
+    open_items: list[str] = Field(default_factory=list)
+    evidence_summary: list[str] = Field(default_factory=list)
 
 
 class MandatorySteps(StrictModel):
@@ -294,6 +362,7 @@ class ArtifactRecord(StrictModel):
 
 class AgentInputBase(StrictModel):
     blackboard_context: list[dict[str, Any]] | None = None
+    budget: AgentBudget | None = None
 
     @model_validator(mode="after")
     def reject_empty_required_values(self) -> "AgentInputBase":

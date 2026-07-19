@@ -1,31 +1,289 @@
 {
-  "type": "object",
+  "$defs": {
+    "AgentBudgetReport": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "within_budget",
+          "enum": [
+            "within_budget",
+            "compressed",
+            "escalated",
+            "blocked"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "input_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens Used",
+          "type": "integer"
+        },
+        "output_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens Used",
+          "type": "integer"
+        },
+        "run_tokens_remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Tokens Remaining"
+        },
+        "tool_tokens_used": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tool Tokens Used",
+          "type": "integer"
+        }
+      },
+      "title": "AgentBudgetReport",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ref": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ref",
+          "type": "array"
+        },
+        "label": {
+          "enum": [
+            "confirmed",
+            "inferred",
+            "suggested",
+            "unverified",
+            "unable_to_verify"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "label"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "default": "artifact",
+          "enum": [
+            "artifact",
+            "file",
+            "url",
+            "obsidian",
+            "audit",
+            "event"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "trust_level": {
+          "default": "untrusted",
+          "enum": [
+            "trusted",
+            "local_note",
+            "official",
+            "general_web",
+            "untrusted"
+          ],
+          "title": "Trust Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "const": "arbiter",
+      "default": "arbiter",
+      "title": "Agent",
+      "type": "string"
+    },
+    "agent_status": {
+      "enum": [
+        "ok",
+        "need_more_input",
+        "cannot_complete"
+      ],
+      "title": "Agent Status",
+      "type": "string"
+    },
+    "budget_report": {
+      "$ref": "#/$defs/AgentBudgetReport"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "conflict_id": {
+      "title": "Conflict Id",
+      "type": "string"
+    },
+    "conflict_type": {
+      "title": "Conflict Type",
+      "type": "string"
+    },
+    "decision": {
+      "default": "block",
+      "enum": [
+        "grant_agent_a",
+        "grant_agent_b",
+        "merge",
+        "block",
+        "ask_user"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "extensions": {
+      "additionalProperties": true,
+      "title": "Extensions",
+      "type": "object"
+    },
+    "hard_gate_results": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "enum": [
+          "safety",
+          "permission",
+          "evidence"
+        ]
+      },
+      "title": "Hard Gate Results",
+      "type": "object"
+    },
+    "missing_authorities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Authorities",
+      "type": "array"
+    },
+    "resolution_reason": {
+      "title": "Resolution Reason",
+      "type": "string"
+    },
+    "rework_required": {
+      "default": false,
+      "title": "Rework Required",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "verification_status": {
+      "default": "not_verified",
+      "enum": [
+        "not_verified",
+        "partially_verified",
+        "verified",
+        "unable_to_verify"
+      ],
+      "title": "Verification Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "winning_agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Winning Agent"
+    }
+  },
   "required": [
-    "schema_version",
-    "agent",
     "agent_status",
-    "decision",
-    "verification_status",
     "conflict_id",
     "conflict_type",
-    "resolution_reason",
-    "rework_required"
+    "resolution_reason"
   ],
-  "properties": {
-    "schema_version": {"const": "1.0"},
-    "agent": {"const": "arbiter"},
-    "agent_status": {"enum": ["ok", "need_more_input", "cannot_complete"]},
-    "decision": {"enum": ["grant_agent_a", "grant_agent_b", "merge", "block", "ask_user"]},
-    "evidence": {"type": "array"},
-    "claims": {"type": "array"},
-    "verification_status": {"enum": ["not_verified", "partially_verified", "verified", "unable_to_verify"]},
-    "warnings": {"type": "array"},
-    "extensions": {"type": "object"},
-    "conflict_id": {"type": "string"},
-    "conflict_type": {"type": "string"},
-    "winning_agent": {"type": ["string", "null"]},
-    "resolution_reason": {"type": "string"},
-    "rework_required": {"type": "boolean"}
-  },
-  "additionalProperties": false
+  "title": "ArbiterOutput",
+  "type": "object"
 }
