@@ -20,6 +20,14 @@
       ],
       "name": "phase-01-contracts",
       "phase": "01"
+    },
+    {
+      "commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
+      "name": "phase-02-blackboard",
+      "phase": "02"
     }
   ],
   "contract_dependency_by_domain": {
@@ -100,7 +108,12 @@
       "token-usage"
     ]
   },
-  "current_phase": "02",
+  "current_phase": "03",
+  "current_status_summary": {
+    "FAIL": 132,
+    "PASS_EXISTING": 8,
+    "PASS_NEW": 9
+  },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
     {
@@ -120,16 +133,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-02/gate-summary.json"
+      ],
       "id": "02",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "03",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -234,176 +249,214 @@
       "domain": "Blackboard",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-01",
       "implementation_refs": [
-        "core/sitina/protocols/blackboard.py"
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "PASS_EXISTING retained; phase 02 adds an atomic aggregate lock and a barrier-based two-writer acceptance proving one commit, one retryable conflict, no lost state, and successful retry."
       ],
       "status": "PASS_EXISTING",
       "summary": "状态一致性",
       "test_ids": [
-        "tests.test_blackboard_mvcc.BlackboardMVCCTests.test_stale_base_returns_conflict_without_document_mutation"
+        "tests.test_blackboard_mvcc.BlackboardMVCCTests.test_stale_base_returns_conflict_without_document_mutation",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable"
       ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-02",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Read-only tenant/run/position/version snapshots are deep-frozen and hash-bound; damaged or cross-boundary restore fails closed and resumed versions remain monotonic."
+      ],
+      "status": "PASS_NEW",
       "summary": "状态快照",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b02_position_version_snapshot_restore_damage_and_monotonic_recovery"
+      ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-03",
       "implementation_refs": [
-        "core/sitina/protocols/blackboard.py"
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Committed facts bind actor, causation, before/after hashes and field commitments; sensitive fields use REDACTED commitments and the replay verifier checks the version/hash chain."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "状态 Diff",
       "test_ids": [
-        "tests.test_blackboard_mvcc",
-        "tests.test_blackboard_native"
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b03_diff_records_actor_hashes_causation_and_redacts_sensitive_values"
       ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-04",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/blackboard_limits.json",
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Strict configured total/document/field byte limits and warning threshold are validated; over-limit rejection emits a no-mutation audit fact."
+      ],
+      "status": "PASS_NEW",
       "summary": "状态大小",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b04_capacity_warning_and_rejection_leave_original_state_unchanged"
+      ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-05",
       "implementation_refs": [
-        "core/sitina/protocols/blackboard.py"
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Namespace policy explicitly distinguishes RUN_LOCAL and PROJECT_SHARED; snapshot restart, permitted project reuse, run-local anti-promotion and tenant/run isolation are tested."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "状态持久化",
       "test_ids": [
-        "tests.test_blackboard_mvcc",
-        "tests.test_blackboard_native"
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b05_restart_recovery_project_reuse_and_tenant_run_isolation"
       ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-06",
       "implementation_refs": [
-        "core/sitina/protocols/blackboard.py"
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "SITINA_BLACKBOARD_BODY_V1 provides strict notes/data/tags structure; deterministic text-to-notes V0 upcast is audited and invalid/unknown schemas fail closed."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "状态 Schema",
       "test_ids": [
-        "tests.test_blackboard_mvcc",
-        "tests.test_blackboard_native"
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b06_structured_schema_notes_invalid_unknown_and_deterministic_upcast"
       ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-07",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "A snapshot-derived index supports namespace/nested-key/tag/run/version filtering; cursor position freezes pagination and unauthorized Documents remain invisible."
+      ],
+      "status": "PASS_NEW",
       "summary": "状态查询",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b07_query_filters_stable_pagination_and_hidden_unauthorized_documents"
+      ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-08",
       "implementation_refs": [
-        "core/sitina/protocols/blackboard.py"
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Frozen namespace reader/writer capabilities and writable paths are enforced; recursively normalized safety aliases cannot be written and every denial is audited without values."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "状态权限",
       "test_ids": [
-        "tests.test_blackboard_mvcc",
-        "tests.test_blackboard_native"
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b08_capabilities_nested_aliases_paths_and_access_audits"
       ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-09",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Journal-position subscriptions rebuild from facts, deliver deterministic notification IDs, deduplicate repeated events, retain slow-consumer lag and share deduplicated polling fallback."
+      ],
+      "status": "PASS_NEW",
       "summary": "状态通知",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b09_recoverable_deduplicated_subscription_polling_and_slow_consumer"
+      ]
     },
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "B-10",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "notes": [
+        "Deterministic barriers, seeded interleavings, conflict retries, snapshot crash recovery and 16-writer stress prove repeatable outcomes without sleep-based timing."
+      ],
+      "status": "PASS_NEW",
       "summary": "状态测试",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable"
+      ]
     },
     {
       "domain": "Memory",
@@ -666,21 +719,26 @@
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json"
       ],
       "id": "H-08",
       "implementation_refs": [
-        "core/sitina/conversation/context.py"
+        "core/sitina/conversation/context.py",
+        "core/sitina/protocols/blackboard.py",
+        "core/sitina/protocols/blackboard_state.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Phase 02 supplies the shared MVCC/conflict and deterministic stress evidence. H-08 remains FAIL until phase 05 proves Handoff interleaving and generation fencing against this same owner; no second MVCC implementation is permitted."
       ],
       "status": "FAIL",
       "summary": "Blackboard 冲突",
       "test_ids": [
         "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable",
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable"
       ]
     },
     {
