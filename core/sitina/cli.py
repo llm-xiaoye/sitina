@@ -45,6 +45,7 @@ from sitina.orchestrator.leases import LeaseManager
 from sitina.orchestrator.maintenance import MaintenanceOps
 from sitina.orchestrator.observability_management import TraceQuery, TraceQueryEngine
 from sitina.orchestrator.parallel import ParallelCoordinator
+from sitina.orchestrator.performance_management import RuntimeCostMonitor
 from sitina.orchestrator.policy import WorkflowPolicyEngine
 from sitina.orchestrator.proposals import ProposalManager
 from sitina.orchestrator.replay import ReplayEngine
@@ -1161,6 +1162,23 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0 if result.get("status") in {"replay_ok", "replay_incomplete"} else 2
 
 
+def cmd_cost_status(args: argparse.Namespace) -> int:
+    if _bplus_installed():
+        trace = _bplus_context().trace_run(args.run_id)
+        timeline = trace.get("timeline", []) if isinstance(trace, dict) else []
+    else:
+        SitinaStore(SITINA_HOME).init_db()
+        timeline = RunLedger(SITINA_HOME).timeline(args.run_id)
+    result = RuntimeCostMonitor.snapshot(
+        args.run_id,
+        timeline,
+        hard_limit_tokens=args.hard_limit_tokens,
+        forecast_additional_tokens=args.forecast_additional_tokens,
+    )
+    print_json(result.model_dump(by_alias=True))
+    return 0
+
+
 def cmd_replay_diff(args: argparse.Namespace) -> int:
     replay = ReplayEngine(SITINA_HOME).replay(args.run_id, record=False)
     graph = TaskGraphRuntime(SITINA_HOME).load(args.run_id)
@@ -1951,6 +1969,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_id", nargs="+")
     p.add_argument("--sandbox", nargs="?", const=str(SITINA_HOME / "temp" / "replay-sandbox"))
     p.set_defaults(func=cmd_replay)
+
+    p = sub.add_parser("cost-status")
+    p.add_argument("run_id")
+    p.add_argument("--hard-limit-tokens", type=int, default=100000)
+    p.add_argument("--forecast-additional-tokens", type=int, default=0)
+    p.set_defaults(func=cmd_cost_status)
 
     p = sub.add_parser("goal")
     goal_sub = p.add_subparsers(dest="goal_cmd", required=True)

@@ -1,0 +1,33 @@
+{
+  "schema": "SITINA_PERFORMANCE_POLICY_V1",
+  "version": "1.0",
+  "token_budget": {
+    "default_run_limit": 100000,
+    "reservation_required": true,
+    "missing_usage_state": "unsettled"
+  },
+  "concurrency": {
+    "global_limit": 16,
+    "run_limit": 8,
+    "provider_limit": 4,
+    "tool_limit": 4,
+    "backpressure_timeout_ms": 1000
+  },
+  "provider_cache": {
+    "enabled": true,
+    "default_ttl_seconds": 300,
+    "requires_deterministic": true,
+    "requires_side_effect_free": true,
+    "required_bindings": ["tenant_id", "model", "prompt_hash", "tools_hash", "policy_hash", "permission_hash"]
+  },
+  "benchmark": {
+    "warmup_iterations": 3,
+    "measurement_iterations": 20,
+    "quantiles": [50, 95],
+    "require_output_equivalence": true
+  },
+  "resource_pool": {
+    "default_ttl_seconds": 300,
+    "isolation_keys": ["tenant_id", "provider_profile", "credential_fingerprint"]
+  }
+}

@@ -11,6 +11,7 @@ from sitina.contracts.feature_flags import SharedContractFeatureError, shared_co
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.parallel import ParallelCoordinator
 from sitina.orchestrator.observability_management import ObservabilityPolicy, ObservabilityPolicyError
+from sitina.orchestrator.performance_management import PerformancePolicy, PerformancePolicyError
 from sitina.orchestrator.policy import WorkflowPolicyEngine
 from sitina.orchestrator.proposals import ProposalManager
 from sitina.orchestrator.retry import RetryPolicy
@@ -91,6 +92,10 @@ class ConfigValidator:
             ObservabilityPolicy.load(self.home)
         except ObservabilityPolicyError as exc:
             self.errors.append(f"config/observability_policy.json invalid: {exc}")
+        try:
+            PerformancePolicy.load(self.home)
+        except PerformancePolicyError as exc:
+            self.errors.append(f"config/performance_policy.json invalid: {exc}")
         self._load("config/permissions.yaml")
         feature_flags = self._load("config/feature_flags.json")
         blackboard_limits_path = self.home / "config/blackboard_limits.json"
