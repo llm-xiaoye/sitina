@@ -76,6 +76,14 @@
       ],
       "name": "phase-08-orchestration",
       "phase": "08"
+    },
+    {
+      "commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
+      "name": "phase-09-proposal-review",
+      "phase": "09"
     }
   ],
   "contract_dependency_by_domain": {
@@ -156,11 +164,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "09",
+  "current_phase": "10",
   "current_status_summary": {
-    "FAIL": 63,
+    "FAIL": 47,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 78
+    "PASS_NEW": 94
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -237,16 +245,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-09/gate-summary.json"
+      ],
       "id": "09",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "10",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -2170,308 +2180,340 @@
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-01",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Versioned candidates declare strategy, assumptions and risk focus; normalized similarity rejects near duplicates and permits one bounded regeneration before an explicit degraded outcome."
+      ],
+      "status": "PASS_NEW",
       "summary": "Proposal 多样性",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr01_strategy_assumption_risk_diversity_rejects_near_duplicates_then_regenerates_or_degrades"
+      ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-02",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/protocols/proposals.py",
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Risk-configured min/max counts are intersected with hard candidate and total budgets; MULTI cannot claim competition completion below its funded minimum."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Proposal 数量",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr02_risk_budget_minimum_and_maximum_prevent_underfilled_multi_competition"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-03",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "config/proposal_policy.yaml",
+        "core/sitina/orchestrator/collaboration.py",
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Chat competition is admitted by complexity, risk and budget rather than task type; route-equivalent simple low-risk chat retains the existing minimal hot path."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Proposal 竞争",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr03_chat_competes_by_complexity_risk_budget_while_safe_simple_chat_uses_hot_path"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-04",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/protocols/reviews.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Evaluator input excludes author identity and unrelated chain history; self-review is forbidden, distinct profile/model isolation is preferred, and single-model fallback truthfully claims only context/role/sampling independence."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Evaluator 独立",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr04_evaluator_input_is_anonymous_self_review_forbidden_and_single_provider_context_is_independent"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-05",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "config/proposal_review_policy.json",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The versioned unified rubric has exact weights for correctness, safety, completeness, evidence, implementability, cost and latency; safety/evidence remain non-averageable hard gates."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Evaluation 标准",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr05_versioned_unified_rubric_has_all_weights_and_non_averageable_hard_gates"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-06",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/protocols/proposals.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Selection rejects hard-gate and missing evaluations first, then uses normalized weighted score, confidence, disagreement and stable proposal-ID tie-break across extreme and tied inputs."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "选择算法",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr06_hard_gates_precede_normalized_confidence_disagreement_and_stable_tie_break"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-07",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/security/redaction.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Versioned rejection records retain reason code, rubric detail, canonical evidence, repair suggestions and model/policy versions; redaction removes secret material while preserving offline-learning fields."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "拒绝记录",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr07_structured_rejection_is_redacted_versioned_and_offline_learning_ready"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-08",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "config/proposal_review_policy.json",
+        "core/sitina/protocols/arbitration.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Versioned table-driven triggers quantify no eligible candidate, narrow score gap, reviewer conflict, risk disagreement and schema failure thresholds, including a clean negative case."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Arbitration 触发",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr08_arbitration_trigger_table_covers_each_threshold_and_clean_negative"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-09",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/orchestrator/arbitration.py",
+        "core/sitina/protocols/arbitration.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Arbiter selection prefers a profile/model unused by authors/reviewers; unavailable independence uses an isolated context and explicitly reports context-only isolation without false model-independence claims."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Arbiter 模型",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr09_arbiter_prefers_distinct_profile_model_and_truthfully_labels_context_only_fallback"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-10",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/protocols/rework.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Block recovery distinguishes bounded repairable rework, explicit user authorization and terminal/exhausted stop while retaining a canonical checkpoint reference and preventing loops."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Block 恢复",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr10_block_recovery_distinguishes_bounded_rework_user_authorization_and_terminal_without_loops"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-11",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The resumable Ask-user interface exposes options, reasons, risks, budget and safe timeout default; manual or timeout answers bind run, request and original decision hashes."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Ask_user",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr11_resumable_ask_user_exposes_options_reason_risk_budget_safe_timeout_and_hash_bound_answer"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-12",
       "implementation_refs": [
-        "core/sitina/protocols/proposals.py"
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "All candidates share one immutable context reference and receive per-candidate/total hard token limits; generation stops before overspend or when marginal value falls below policy."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Proposal 成本",
       "test_ids": [
-        "tests.test_proposal_protocol",
-        "tests.test_review_protocol",
-        "tests.test_arbitration_protocol"
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr12_shared_context_per_candidate_and_total_budgets_stop_on_hard_limit_or_low_marginal_value"
       ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-13",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Conflict-free reviews run in a bounded worker pool with barrier-proven overlap and stable reviewer-order aggregation; overlapping read/write claims are rejected before parallel execution."
+      ],
+      "status": "PASS_NEW",
       "summary": "评审并行",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr13_conflict_free_reviews_really_overlap_aggregate_stably_and_obey_concurrency_limit"
+      ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-14",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/reviews.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Review deadlines cancel pending work, close the result set and reject late writes; sufficient quorum continues while insufficient quorum routes to arbitration."
+      ],
+      "status": "PASS_NEW",
       "summary": "评审超时",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr14_deadline_cancels_and_isolates_late_reviews_then_requires_quorum_or_arbitration"
+      ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-15",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/security/redaction.py",
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Cache keys require exact normalized input, policy, model, prompt, permission and tenant binding; side-effecting, marked-sensitive or detector-identified secret content cannot enter the cache."
+      ],
+      "status": "PASS_NEW",
       "summary": "Proposal 缓存",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr15_cache_requires_exact_normalized_policy_model_prompt_permission_tenant_and_safe_candidate"
+      ]
     },
     {
       "domain": "Proposal/Review/Arbitration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-09/gate-summary.json"
       ],
       "id": "PR-16",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/proposal_review_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "ca7d5b4f44eee2f2726bc3c55ecbf5e301ceddc8",
+      "notes": [
+        "Review quality validates schema, reason depth, evidence consistency, anomalous score spread and self-review bias; one issue requires second validation and multiple issues require arbitration."
+      ],
+      "status": "PASS_NEW",
       "summary": "评审质量",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_proposal_review_management.ProposalReviewManagementTests.test_pr16_review_quality_validates_schema_reason_evidence_anomalies_and_bias_for_recheck_or_arbitration"
+      ]
     },
     {
       "domain": "Agent Prompts",
