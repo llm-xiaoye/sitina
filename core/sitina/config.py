@@ -17,6 +17,7 @@ from sitina.orchestrator.reviewers import MultiReviewer
 from sitina.orchestrator.schema_registry import SchemaRegistry
 from sitina.orchestrator.team import DynamicTeamBuilder
 from sitina.orchestrator.workflow import WorkflowPolicy
+from sitina.protocols.blackboard_state import BlackboardLimits, BlackboardStateError
 from sitina.runners.profiles import ProfileLoader
 from sitina.legacy.retirement import LegacyRuntimePolicy
 from sitina.schemas.models import AGENT_OUTPUT_MODELS
@@ -84,6 +85,14 @@ class ConfigValidator:
         self._load("config/agent_capabilities.yaml")
         self._load("config/permissions.yaml")
         feature_flags = self._load("config/feature_flags.json")
+        blackboard_limits_path = self.home / "config/blackboard_limits.json"
+        if blackboard_limits_path.exists():
+            try:
+                BlackboardLimits.load(blackboard_limits_path)
+            except BlackboardStateError as exc:
+                self.errors.append(f"config/blackboard_limits.json invalid: {exc}")
+        else:
+            self.warnings.append("config/blackboard_limits.json missing; safe built-in limits apply")
         if sitina and sitina.get("schema_version", "1.0").split(".", 1)[0] != "1":
             self.errors.append("config/sitina.yaml schema_version major mismatch")
         if sitina:

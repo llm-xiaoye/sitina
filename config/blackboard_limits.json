@@ -1,0 +1,7 @@
+{
+  "max_document_bytes": 1048576,
+  "max_field_bytes": 262144,
+  "max_total_bytes": 16777216,
+  "schema": "SITINA_BLACKBOARD_LIMITS_V1",
+  "warning_ratio_millis": 800
+}

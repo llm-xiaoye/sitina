@@ -15,6 +15,7 @@
         "tests/foundation/test_plan_suite_integrity.py",
         "tests/foundation/test_write_sink_inventory.py",
         "tests/optimization/test_ledger_coverage.py",
+        "tests/optimization/test_blackboard_state_management.py",
         "tests/optimization/test_shared_contracts.py",
         "tests/optimization/test_source_manifest_coverage.py"
       ],
