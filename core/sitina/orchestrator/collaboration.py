@@ -422,6 +422,24 @@ class CollaborationRuntime:
         enabled = set(manager.policy.get("enabled_task_types", []))
         live_enabled = set(manager.policy.get("live_enabled_task_types", []))
         should_run = fixture_conflict or task_type in live_enabled
+        if task_type == "chat" and not fixture_conflict:
+            from sitina.orchestrator.proposal_review_management import CompetitionAdmission
+
+            complexity = int(controller_payload.get("complexity_score", controller_payload.get("complexity", 0)) or 0)
+            risk = str(controller_payload.get("risk_level") or "low")
+            if risk not in {"low", "medium", "high", "critical"}:
+                risk = "low"
+            total_budget = int(controller_payload.get("remaining_tokens", controller_payload.get("token_budget", 1_000_000)) or 0)
+            hot_path_safe = bool(controller_payload.get("hot_path_safe", complexity < 25 and risk == "low"))
+            admission = CompetitionAdmission().decide(
+                task_type="chat",
+                complexity=complexity,
+                risk=risk,
+                total_budget=total_budget,
+                minimum_cost=500,
+                hot_path_safe=hot_path_safe,
+            )
+            should_run = admission.action == "compete"
         if not should_run or task_type not in enabled:
             return None
 

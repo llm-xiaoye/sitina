@@ -1,0 +1,36 @@
+{
+  "schema": "SITINA_PROPOSAL_REVIEW_POLICY_V1",
+  "version": "proposal-review-policy-1",
+  "candidate_limits": {
+    "low": {"min": 1, "max": 2},
+    "medium": {"min": 2, "max": 3},
+    "high": {"min": 3, "max": 4},
+    "critical": {"min": 3, "max": 5}
+  },
+  "diversity": {
+    "maximum_similarity_ppm": 700000,
+    "maximum_regenerations": 1
+  },
+  "rubric": {
+    "version": "evaluation-rubric-1",
+    "weights_ppm": {
+      "correctness": 250000,
+      "safety": 200000,
+      "completeness": 150000,
+      "evidence": 150000,
+      "implementability": 100000,
+      "cost": 75000,
+      "latency": 75000
+    },
+    "hard_gates": ["safety", "evidence"]
+  },
+  "arbitration": {
+    "maximum_score_gap_ppm": 50000,
+    "schema_failure_threshold": 2,
+    "risk_disagreement_threshold": 1
+  },
+  "review": {
+    "maximum_concurrency": 3,
+    "minimum_quorum": 2
+  }
+}

@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "proposal_policy": {
-    "enabled_task_types": ["code_change", "high_risk_code_change", "maintenance", "local_file_query"],
-    "live_enabled_task_types": ["code_change", "high_risk_code_change", "maintenance", "local_file_query"],
+    "enabled_task_types": ["chat", "code_change", "high_risk_code_change", "maintenance", "local_file_query"],
+    "live_enabled_task_types": ["chat", "code_change", "high_risk_code_change", "maintenance", "local_file_query"],
     "proposer_agents": ["planner", "architect", "tester", "reviewer", "researcher"],
     "evaluator_agents": ["critic", "reviewer", "security", "arbiter", "architect", "tester", "architecture", "test", "researcher"],
     "high_risk_requires_security": true,
