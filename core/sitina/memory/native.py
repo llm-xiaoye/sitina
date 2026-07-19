@@ -92,6 +92,13 @@ class MemoryDocument(_StrictModel):
     supersedes: tuple[MemoryId, ...] = Field(default=(), max_length=64)
     superseded_by: MemoryId | None = None
     acl: MemoryACL
+    tier: Literal["working", "episodic", "long_term"] = "working"
+    source_agent_ids: tuple[Principal, ...] = ()
+    source_trust: Literal["untrusted", "derived", "verified", "authoritative"] = "untrusted"
+    observed_at: str | None = None
+    conflict_key: Principal | None = None
+    quarantine_status: Literal["active", "quarantined"] = "active"
+    content_trust: Literal["untrusted"] = "untrusted"
 
     @field_validator("memory_id")
     @classmethod
@@ -124,7 +131,12 @@ class MemoryDocument(_StrictModel):
     def _expires_at(cls, value: str | None) -> str | None:
         return validate_timestamp(value) if value is not None else None
 
-    @field_validator("source_event_ids", "source_run_ids", "supersedes")
+    @field_validator("observed_at")
+    @classmethod
+    def _observed_at(cls, value: str | None) -> str | None:
+        return validate_timestamp(value) if value is not None else None
+
+    @field_validator("source_event_ids", "source_run_ids", "source_agent_ids", "supersedes")
     @classmethod
     def _unique_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if tuple(sorted(set(values))) != values:
@@ -161,6 +173,8 @@ class MemoryDocument(_StrictModel):
             raise ValueError("memory cannot supersede itself")
         if self.superseded_by == self.memory_id:
             raise ValueError("memory cannot be superseded by itself")
+        if self.conflict_key is not None and not _PRINCIPAL.fullmatch(self.conflict_key):
+            raise ValueError("invalid memory conflict_key")
         return self
 
     def journal_mapping(self) -> dict[str, Any]:
@@ -308,6 +322,11 @@ class MemoryRepository:
         supersedes: Sequence[str],
         acl: MemoryACL,
         actor: str,
+        tier: Literal["working", "episodic", "long_term"] = "working",
+        source_agent_ids: Sequence[str] = (),
+        source_trust: Literal["untrusted", "derived", "verified", "authoritative"] = "untrusted",
+        observed_at: str | None = None,
+        conflict_key: str | None = None,
     ) -> MemoryDocument:
         activations = self._assert_write_enabled()
         acl.require(actor, "write")
@@ -341,6 +360,11 @@ class MemoryRepository:
             retention_policy=retention_policy,
             supersedes=tuple(sorted(set(supersedes))),
             acl=acl,
+            tier=tier,
+            source_agent_ids=tuple(sorted(set(source_agent_ids))),
+            source_trust=source_trust,
+            observed_at=observed_at or valid_from,
+            conflict_key=conflict_key,
         )
         event = self._append(
             memory_id=memory_id,
@@ -366,6 +390,26 @@ class MemoryRepository:
             raise MemoryStateError("memory stream has no candidate creation event")
         document = MemoryDocument.from_journal_mapping(events[0].payload["memory"])
         for event in events[1:]:
+            if event.event_type == "memory.tier-promoted":
+                from_tier = str(event.payload.get("from_tier", ""))
+                to_tier = str(event.payload.get("to_tier", ""))
+                allowed = {"working": "episodic", "episodic": "long_term"}
+                if document.tier != from_tier or allowed.get(from_tier) != to_tier:
+                    raise MemoryStateError("memory stream contains an invalid tier promotion")
+                document = document.model_copy(update={"tier": to_tier})
+                continue
+            if event.event_type == "memory.quarantined":
+                confidence = event.payload.get("confidence_millionths")
+                if (
+                    document.quarantine_status != "active"
+                    or not isinstance(confidence, int)
+                    or not 0 <= confidence <= 1_000_000
+                ):
+                    raise MemoryStateError("memory stream contains an invalid quarantine transition")
+                document = document.model_copy(
+                    update={"quarantine_status": "quarantined", "confidence": confidence / 1_000_000}
+                )
+                continue
             status = str(event.payload.get("to_status", ""))
             if status not in self._TRANSITIONS.get(document.status, frozenset()):
                 raise MemoryStateError("memory stream contains an invalid state transition")
@@ -435,6 +479,80 @@ class MemoryRepository:
         activations.record_first_write("memory_v1_write", journal_position=event.position)
         return self._raw_get(memory_id)
 
+    def promote(
+        self,
+        memory_id: str,
+        *,
+        to_tier: Literal["episodic", "long_term"],
+        actor: str,
+        occurred_at: str,
+        reason_code: str,
+    ) -> MemoryDocument:
+        activations = self._assert_write_enabled()
+        document = self._raw_get(memory_id)
+        document.acl.require(actor, "review")
+        if document.status != "accepted" or document.quarantine_status != "active":
+            raise MemoryStateError("only accepted active memory can be promoted")
+        allowed = {"working": "episodic", "episodic": "long_term"}
+        if allowed.get(document.tier) != to_tier:
+            raise MemoryStateError("memory tier promotion must be sequential")
+        if not reason_code or not _PRINCIPAL.fullmatch(reason_code):
+            raise MemoryStateError("invalid tier promotion reason")
+        event = self._append(
+            memory_id=memory_id,
+            action="tier-promoted",
+            payload={
+                "schema": "SITINA_MEMORY_TIER_PROMOTED_V1",
+                "memory_id": memory_id,
+                "from_tier": document.tier,
+                "to_tier": to_tier,
+                "actor": actor,
+                "reason_code": reason_code,
+            },
+            occurred_at=occurred_at,
+        )
+        activations.record_first_write("memory_v1_write", journal_position=event.position)
+        return self._raw_get(memory_id)
+
+    def quarantine(
+        self,
+        memory_id: str,
+        *,
+        actor: str,
+        occurred_at: str,
+        reason_code: str,
+        confidence_millionths: int,
+    ) -> MemoryDocument:
+        activations = self._assert_write_enabled()
+        document = self._raw_get(memory_id)
+        document.acl.require(actor, "review")
+        if document.quarantine_status != "active":
+            return document
+        if not reason_code or not _PRINCIPAL.fullmatch(reason_code):
+            raise MemoryStateError("invalid quarantine reason")
+        maximum = int(document.confidence * 1_000_000)
+        if (
+            not isinstance(confidence_millionths, int)
+            or isinstance(confidence_millionths, bool)
+            or not 0 <= confidence_millionths <= maximum
+        ):
+            raise MemoryStateError("quarantine confidence must be non-negative and cannot increase")
+        event = self._append(
+            memory_id=memory_id,
+            action="quarantined",
+            payload={
+                "schema": "SITINA_MEMORY_QUARANTINED_V1",
+                "memory_id": memory_id,
+                "actor": actor,
+                "reason_code": reason_code,
+                "confidence_millionths": confidence_millionths,
+                "content_ref": document.content_ref,
+            },
+            occurred_at=occurred_at,
+        )
+        activations.record_first_write("memory_v1_write", journal_position=event.position)
+        return self._raw_get(memory_id)
+
     def retrieve(
         self,
         *,
@@ -442,6 +560,7 @@ class MemoryRepository:
         scope: str | None = None,
         owner_id: str | None = None,
         namespace_prefix: str | None = None,
+        tier: Literal["working", "episodic", "long_term"] | None = None,
         include_noncurrent: bool = False,
         at: str | None = None,
     ) -> tuple[MemoryDocument, ...]:
@@ -460,8 +579,16 @@ class MemoryRepository:
                 continue
             if namespace_prefix is not None and not document.namespace.startswith(namespace_prefix):
                 continue
-            expired_by_time = document.expires_at is not None and dt.datetime.fromisoformat(document.expires_at.replace("Z", "+00:00")) <= now
-            if not include_noncurrent and (document.status != "accepted" or expired_by_time):
+            if tier is not None and document.tier != tier:
+                continue
+            expired_by_time = (
+                document.retention_policy != "legal-retention"
+                and document.expires_at is not None
+                and dt.datetime.fromisoformat(document.expires_at.replace("Z", "+00:00")) <= now
+            )
+            if not include_noncurrent and (
+                document.status != "accepted" or document.quarantine_status != "active" or expired_by_time
+            ):
                 continue
             visible.append(document)
         return tuple(sorted(visible, key=lambda item: item.memory_id))
@@ -473,8 +600,12 @@ class MemoryRepository:
         for stream_id in stream_ids:
             memory_id = stream_id.removeprefix("memory/")
             document = self._raw_get(memory_id)
-            expired_by_time = document.expires_at is not None and dt.datetime.fromisoformat(document.expires_at.replace("Z", "+00:00")) <= now
-            if document.status == "accepted" and not expired_by_time:
+            expired_by_time = (
+                document.retention_policy != "legal-retention"
+                and document.expires_at is not None
+                and dt.datetime.fromisoformat(document.expires_at.replace("Z", "+00:00")) <= now
+            )
+            if document.status == "accepted" and document.quarantine_status == "active" and not expired_by_time:
                 last_event = self._stream_events(memory_id)[-1]
                 roots.append(
                     {
@@ -487,6 +618,41 @@ class MemoryRepository:
                     }
                 )
         return tuple(roots)
+
+    def verify_provenance(self, memory_id: str) -> dict[str, Any]:
+        document = self._raw_get(memory_id)
+        document, content = self.get(memory_id, actor=document.acl.readers[0])
+        if content is None or hashlib.sha256(content.encode("utf-8")).hexdigest() != document.content_hash:
+            raise MemoryStateError("memory content provenance hash is invalid")
+        journal_events = tuple(self.journal.iter_events(0))
+        known_event_ids = {event.event_id for event in journal_events}
+        known_run_ids = {
+            str(event.payload.get("run_id"))
+            for event in journal_events
+            if isinstance(event.payload, Mapping) and event.payload.get("run_id")
+        }
+        orphan_events = sorted(set(document.source_event_ids) - known_event_ids)
+        orphan_runs = sorted(set(document.source_run_ids) - known_run_ids)
+        orphan_evidence = []
+        for reference in document.evidence_refs:
+            try:
+                self.cas.verify_existing(self.cas.resolve_reference(reference))
+            except Exception:  # collapse CAS errors without exposing local paths or content
+                orphan_evidence.append(reference)
+        if orphan_events or orphan_runs or orphan_evidence:
+            raise MemoryStateError("memory provenance contains orphan references")
+        return {
+            "schema": "SITINA_MEMORY_PROVENANCE_VERIFIED_V1",
+            "memory_id": memory_id,
+            "content_hash": document.content_hash,
+            "source_event_ids": list(document.source_event_ids),
+            "source_run_ids": list(document.source_run_ids),
+            "source_agent_ids": list(document.source_agent_ids),
+            "source_trust": document.source_trust,
+            "observed_at": document.observed_at,
+            "evidence_refs": list(document.evidence_refs),
+            "verified": True,
+        }
 
     def _object_ref(self, document: MemoryDocument) -> ObjectRef:
         creation = self._stream_events(document.memory_id)[0]

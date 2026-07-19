@@ -7,6 +7,17 @@ from .native import (
     MemoryRepository,
     MemoryStateError,
 )
+from .management import (
+    MemoryCapacityPolicy,
+    MemoryCapacityResult,
+    MemoryConflictRecord,
+    MemoryConsolidation,
+    MemoryHit,
+    MemoryManagementError,
+    MemoryManager,
+    NamespaceCapacity,
+    RetrievalBackend,
+)
 
 __all__ = [
     "EpisodeDocument",
@@ -16,4 +27,13 @@ __all__ = [
     "MemoryDocument",
     "MemoryRepository",
     "MemoryStateError",
+    "MemoryCapacityPolicy",
+    "MemoryCapacityResult",
+    "MemoryConflictRecord",
+    "MemoryConsolidation",
+    "MemoryHit",
+    "MemoryManagementError",
+    "MemoryManager",
+    "NamespaceCapacity",
+    "RetrievalBackend",
 ]

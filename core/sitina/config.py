@@ -18,6 +18,7 @@ from sitina.orchestrator.schema_registry import SchemaRegistry
 from sitina.orchestrator.team import DynamicTeamBuilder
 from sitina.orchestrator.workflow import WorkflowPolicy
 from sitina.protocols.blackboard_state import BlackboardLimits, BlackboardStateError
+from sitina.memory.management import MemoryCapacityPolicy, MemoryManagementError
 from sitina.runners.profiles import ProfileLoader
 from sitina.legacy.retirement import LegacyRuntimePolicy
 from sitina.schemas.models import AGENT_OUTPUT_MODELS
@@ -93,6 +94,14 @@ class ConfigValidator:
                 self.errors.append(f"config/blackboard_limits.json invalid: {exc}")
         else:
             self.warnings.append("config/blackboard_limits.json missing; safe built-in limits apply")
+        memory_capacity_path = self.home / "config/memory_capacity.json"
+        if memory_capacity_path.exists():
+            try:
+                MemoryCapacityPolicy.load(memory_capacity_path)
+            except MemoryManagementError as exc:
+                self.errors.append(f"config/memory_capacity.json invalid: {exc}")
+        else:
+            self.warnings.append("config/memory_capacity.json missing; safe built-in limits apply")
         if sitina and sitina.get("schema_version", "1.0").split(".", 1)[0] != "1":
             self.errors.append("config/sitina.yaml schema_version major mismatch")
         if sitina:
