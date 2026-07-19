@@ -74,6 +74,15 @@ class OptimizationLedgerCoverageTests(unittest.TestCase):
             ["E-06", "E-07", "E-08", "E-09", "E-10", "E-11", "第18项"],
         )
 
+    def test_every_domain_declares_shared_contract_dependencies(self) -> None:
+        dependencies = self.value["contract_dependency_by_domain"]
+        self.assertEqual(set(dependencies), {item["domain"] for item in self.requirements})
+        self.assertTrue(all(isinstance(items, list) and items for items in dependencies.values()))
+        registry = self.value["shared_contract_registry"]
+        self.assertEqual(registry["phase"], "01")
+        self.assertEqual(registry["role"], "validation-and-interchange-only")
+        self.assertFalse(registry["write_feature_flag_default"])
+
     def test_phase_lifecycle_is_a_contiguous_single_goal(self) -> None:
         phases = self.value["phases"]
         self.assertEqual([item["id"] for item in phases], [f"{index:02d}" for index in range(16)])

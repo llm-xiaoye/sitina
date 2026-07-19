@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from sitina.constants import AGENTS, REQUIRED_DIRS, SITINA_HOME
+from sitina.contracts.feature_flags import SharedContractFeatureError, shared_contract_writes_enabled
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.parallel import ParallelCoordinator
 from sitina.orchestrator.policy import WorkflowPolicyEngine
@@ -82,6 +83,7 @@ class ConfigValidator:
         self._load("config/proposal_policy.yaml")
         self._load("config/agent_capabilities.yaml")
         self._load("config/permissions.yaml")
+        feature_flags = self._load("config/feature_flags.json")
         if sitina and sitina.get("schema_version", "1.0").split(".", 1)[0] != "1":
             self.errors.append("config/sitina.yaml schema_version major mismatch")
         if sitina:
@@ -101,6 +103,10 @@ class ConfigValidator:
         for agent in AGENTS:
             if agent not in registered:
                 self.errors.append(f"agent not registered in agents.yaml: {agent}")
+        try:
+            shared_contract_writes_enabled(feature_flags)
+        except SharedContractFeatureError as exc:
+            self.errors.append(f"config/feature_flags.json invalid: {exc}")
 
     def _schemas(self) -> None:
         for name in ("common", *AGENTS):
@@ -120,6 +126,19 @@ class ConfigValidator:
                     self.errors.append("common schema must forbid additionalProperties")
                 else:
                     self.warnings.append(f"schema root additionalProperties not explicit for {name}; Pydantic nested defs still forbid extras")
+        contract_path = self.home / "schemas/contracts/shared-contracts-v1.schema.json"
+        if not contract_path.exists():
+            self.errors.append("JSON Schema missing: schemas/contracts/shared-contracts-v1.schema.json")
+        else:
+            try:
+                contract_schema = json.loads(contract_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                self.errors.append(f"invalid shared contract JSON Schema: {exc}")
+            else:
+                if contract_schema.get("x-sitina-unknown-field-strategy") != "reject":
+                    self.errors.append("shared contract schema must reject unknown fields")
+                if contract_schema.get("x-sitina-new-write-default") != "disabled":
+                    self.errors.append("shared contract schema writes must default disabled")
 
     def _prompts(self) -> None:
         for agent in AGENTS:

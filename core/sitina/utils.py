@@ -4,11 +4,12 @@ import datetime as dt
 import hashlib
 import json
 import os
-import re
 import secrets
 import stat
 from pathlib import Path
 from typing import Any
+
+from sitina.security.redaction import isolated_env, is_secret_name, redact_text
 
 
 def utc_now() -> dt.datetime:
@@ -92,29 +93,6 @@ def command_fingerprint(command: str, cwd: str, env_fingerprint: str) -> str:
 def env_fingerprint(env: dict[str, str]) -> str:
     public = {k: v for k, v in sorted(env.items()) if not is_secret_name(k)}
     return sha256_text(stable_json(public))
-
-
-def is_secret_name(name: str) -> bool:
-    upper = name.upper()
-    return any(fragment in upper for fragment in ("TOKEN", "SECRET", "PASSWORD", "PRIVATE_KEY", "API_KEY", "AUTH", "CREDENTIAL", "SSH"))
-
-
-def isolated_env(base: dict[str, str] | None = None) -> dict[str, str]:
-    base = dict(base or os.environ)
-    return {k: v for k, v in base.items() if not is_secret_name(k)}
-
-
-def redact_text(text: str) -> str:
-    patterns = [
-        (r"(?i)(api[_ -]?key|apikey|auth[_ -]?token|token|secret|password)\s*[:=]\s*[\"']?[^\"'\s]+", r"\1=<redacted>"),
-        (r"(?i)sk-[A-Za-z0-9_-]{8,}", "<redacted-key>"),
-        (r"(?i)(bearer\s+)[A-Za-z0-9._\-]+", r"\1<redacted>"),
-        (r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", "<redacted-private-key>"),
-    ]
-    out = text
-    for pattern, repl in patterns:
-        out = re.sub(pattern, repl, out, flags=re.DOTALL)
-    return out
 
 
 def chmod_octal(path: Path) -> str:

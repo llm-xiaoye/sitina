@@ -14,6 +14,84 @@
       "phase": "00"
     }
   ],
+  "contract_dependency_by_domain": {
+    "Agent Prompts": [
+      "task-graph/task/dependency",
+      "failure",
+      "token-budget",
+      "handoff",
+      "evaluation-result"
+    ],
+    "Blackboard": [
+      "blackboard-document",
+      "trace/span"
+    ],
+    "Context/Handoff": [
+      "token-budget",
+      "token-usage",
+      "handoff",
+      "blackboard-document",
+      "memory-record"
+    ],
+    "Evaluation": [
+      "evaluation-result",
+      "trace/span"
+    ],
+    "Memory": [
+      "memory-record",
+      "blackboard-document",
+      "evaluation-result"
+    ],
+    "Orchestration": [
+      "task-graph/task/dependency",
+      "failure",
+      "trace/span",
+      "token-budget",
+      "token-usage",
+      "handoff",
+      "blackboard-document"
+    ],
+    "Performance/Cost": [
+      "token-budget",
+      "token-usage",
+      "trace/span"
+    ],
+    "Proposal/Review/Arbitration": [
+      "task-graph/task/dependency",
+      "handoff",
+      "evaluation-result",
+      "failure",
+      "trace/span"
+    ],
+    "Reliability": [
+      "failure",
+      "trace/span",
+      "token-usage"
+    ],
+    "Routing": [
+      "task-graph/task/dependency",
+      "token-budget",
+      "trace/span",
+      "evaluation-result"
+    ],
+    "Security": [
+      "failure",
+      "trace/span",
+      "handoff",
+      "security-redaction-boundary"
+    ],
+    "Supplemental": [
+      "task-graph/task/dependency",
+      "failure",
+      "token-budget",
+      "evaluation-result"
+    ],
+    "Trace/Replay": [
+      "trace/span",
+      "failure",
+      "token-usage"
+    ]
+  },
   "current_phase": "01",
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -118,6 +196,25 @@
   ],
   "plan_name": "Sitina 149-item optimization",
   "requirement_count": 149,
+  "shared_contract_registry": {
+    "implementation_refs": [
+      "core/sitina/contracts/models.py",
+      "core/sitina/contracts/adapters.py",
+      "core/sitina/contracts/compatibility.py",
+      "core/sitina/contracts/ownership.py",
+      "core/sitina/contracts/transitions.py",
+      "core/sitina/security/redaction.py",
+      "schemas/contracts/shared-contracts-v1.schema.json"
+    ],
+    "phase": "01",
+    "role": "validation-and-interchange-only",
+    "status": "READY_FOR_CONSUMERS",
+    "test_ids": [
+      "tests.optimization.test_shared_contracts"
+    ],
+    "write_feature_flag": "shared_contracts_v1_write",
+    "write_feature_flag_default": false
+  },
   "requirements": [
     {
       "domain": "Blackboard",

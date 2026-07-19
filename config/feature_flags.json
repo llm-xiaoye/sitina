@@ -11,6 +11,7 @@
     "journal_event_v2_write": false,
     "memory_v1_write": false,
     "projection_v2_build": false,
+    "shared_contracts_v1_write": false,
     "trash_bundle_v1_write": false
   },
   "activation_authority": "journal-control-event",
