@@ -60,6 +60,14 @@
       ],
       "name": "phase-06-security",
       "phase": "06"
+    },
+    {
+      "commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
+      "name": "phase-07-routing",
+      "phase": "07"
     }
   ],
   "contract_dependency_by_domain": {
@@ -140,11 +148,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "07",
+  "current_phase": "08",
   "current_status_summary": {
-    "FAIL": 94,
+    "FAIL": 79,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 47
+    "PASS_NEW": 62
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -205,16 +213,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-07/gate-summary.json"
+      ],
       "id": "07",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "08",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -1441,262 +1451,323 @@
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-01",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Complexity Score 1.0 deterministically scores goals, dependencies, risk, tool and side-effect classes, bounded context, ambiguity and expected artifacts; simple, boundary and complex fixtures prove bands without equating keyword count to complexity."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "动态复杂度",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r01_structured_complexity_scores_simple_boundary_and_complex_fixtures"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-02",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "The replaceable classifier is admitted only inside the configured ambiguity interval and when budget/SLA permit; exact schema validation, one repair, deterministic fallback, physical-call count and reported/upper-bound usage are covered. Real Provider usage remains explicitly pending the approval-gated phase 15 live gate."
+      ],
+      "status": "PASS_NEW",
       "summary": "模型意图识别",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r02_classifier_only_runs_in_ambiguity_budget_sla_band_repairs_once_and_falls_back"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-03",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/conversation/runtime.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "FAST escalation supplies run, output hash and evidence reference as sourced candidate evidence to MULTI; the handoff forbids duplicate display and repeated side effects while retaining physical-call and causal-chain fields."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "FAST→MULTI 回放",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r03_fast_to_multi_handoff_preserves_sourced_candidate_causality_without_duplicate_effect_or_display"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-04",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/cli.py",
+        "core/sitina/conversation/models.py",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Every decision records input hash, policy version, evidence, conflicts, component scores, thresholds, budget, SLA, experiment, classifier use, final route and decision path; both a structured explain API and /mode expose it."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "路由可观测",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r04_every_route_observation_and_explanation_contains_required_fields"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-05",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Feedback can only generate offline candidate rules; regression evaluation, exact human approval binding and versioned publication are mandatory, bad rules cannot publish, and online self-modification raises a hard denial."
+      ],
+      "status": "PASS_NEW",
       "summary": "关键词维护",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r05_feedback_rules_are_offline_evaluated_approved_versioned_and_never_self_modify_online"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-06",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "The correction API stores only privacy-safe labels and hashes bound to the original decision, preserves completed side effects without automatic rerun, and supports audited revocation."
+      ],
+      "status": "PASS_NEW",
       "summary": "误判修复",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r06_route_correction_is_privacy_safe_reversible_and_never_replays_successful_effects"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-07",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Configured FAST, MULTI and classifier token upper bounds are admitted against remaining run budget; high-risk work selects reviewed MULTI or blocks rather than taking an unreviewed cheap path."
+      ],
+      "status": "PASS_NEW",
       "summary": "成本意识",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r07_token_upper_bounds_are_budgeted_and_high_risk_never_chooses_cheap_unreviewed_route"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-08",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "tests/fixtures/routing_regression_v1.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The versioned bilingual corpus asserts expected route, allowed set and reason codes; 10 fixtures achieve 1000000 ppm accuracy with zero false upgrades, downgrades, allowed-set violations and reason-code misses, plus an exact policy-difference fixture."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "路由回归",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r08_versioned_bilingual_regression_fixtures_meet_accuracy_and_error_rate_gates"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-09",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Stable decision order is forced mode, safety/high risk, budget/SLA and then complexity with deterministic tie-break; simultaneous FAST/MULTI signals repeat identically and conflicts are retained in observability."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "多标签冲突",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r09_conflict_priority_and_tie_break_are_forced_then_safety_budget_sla_complexity"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-10",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "tests/fixtures/routing_regression_v1.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Bounded Unicode normalization covers simplified/traditional forms, CJK spacing and punctuation, English case and common mixed-language synonyms without an unbounded keyword-count heuristic."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "中文支持",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r10_simplified_traditional_mixed_spacing_punctuation_case_and_synonyms_are_supported"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-11",
       "implementation_refs": [
-        "core/sitina/conversation/router.py"
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py",
+        "core/sitina/conversation/runtime.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Routing consumes bounded prior route, score and unfinished-goal state for follow-ups; runtime /new reset clears that inheritance, and the acceptance test proves both paths."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "对话历史",
       "test_ids": [
-        "tests.test_conversation_router",
-        "tests.test_fast_conversation_runtime"
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r11_followup_inherits_bounded_unfinished_complexity_and_new_context_clears_it"
       ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-12",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Versioned general, code and compliance profiles may adjust thresholds and rubric identity, but validation rejects any profile whose risk floor weakens the global safety floor."
+      ],
+      "status": "PASS_NEW",
       "summary": "领域适配",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r12_versioned_general_code_compliance_profiles_cannot_weaken_global_safety_floor"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-13",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "A stable subject-only hash assigns the versioned experiment bucket; outcomes, route, latency and token usage are attributable, and the kill switch deterministically returns control without persisting raw or sensitive attributes."
+      ],
+      "status": "PASS_NEW",
       "summary": "A/B 测试",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r13_experiment_bucket_is_stable_killable_versioned_and_uses_only_subject_identity"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-14",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "MULTI may degrade to a clearly labeled unreviewed FAST result only when policy allows, risk is below high and no side effect is uncertain; all other combinations fail closed while retaining the original failure."
+      ],
+      "status": "PASS_NEW",
       "summary": "MULTI→FAST 降级",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r14_multi_to_fast_degradation_is_unreviewed_only_when_safe_and_otherwise_fails_closed"
+      ]
     },
     {
       "domain": "Routing",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-07/gate-summary.json"
       ],
       "id": "R-15",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/routing_policy.json",
+        "core/sitina/conversation/router.py",
+        "core/sitina/conversation/routing_policy.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "69d12eed506e6d3d65be25aeece666a88956992f",
+      "notes": [
+        "Interactive, standard and batch latency classes can be declared or inherited; injected virtual time proves explicit normal, fast, partial-result and high-risk fail-closed deadline outcomes."
+      ],
+      "status": "PASS_NEW",
       "summary": "延迟 SLA",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_routing_management.RoutingManagementTests.test_r15_latency_class_inheritance_and_virtual_deadline_select_fast_partial_or_fail_closed"
+      ]
     },
     {
       "domain": "Orchestration",
