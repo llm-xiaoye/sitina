@@ -1,0 +1,133 @@
+{
+  "schema": "SITINA_OPTIMIZATION_PHASE14_GATE_EVIDENCE_V1",
+  "checkpoint": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+  "business_requirement_status_changes": 1,
+  "requirement_results": {
+    "X-19": "PASS_NEW"
+  },
+  "suggestion_boundaries": {
+    "schema": "SITINA_TASK_SUGGESTION_V1",
+    "provider_calls": 0,
+    "network_calls": 0,
+    "state_writes": 0,
+    "risk_override_can_downgrade": false,
+    "required_scenarios": [
+      "simple-question",
+      "code-change",
+      "architecture-review",
+      "high-risk",
+      "mixed-language",
+      "context-follow-up",
+      "budget-limited",
+      "sla-limited",
+      "unknown-domain",
+      "configuration-error"
+    ],
+    "estimate_labels": [
+      "not_provider_usage",
+      "not_precise_work_time"
+    ],
+    "documentation_examples_executed": 3,
+    "documentation_examples_status": "PASS"
+  },
+  "documentation_closure": {
+    "updated": [
+      "README.md",
+      "docs/usage.md",
+      "docs/architecture.md",
+      "docs/conversation-routing.md",
+      "docs/multi_agent_runtime.md",
+      "docs/security.md",
+      "docs/storage-v2-operations.md"
+    ],
+    "fixed_test_count_removed": true,
+    "fixed_character_limit_removed": true,
+    "safe_defaults_documented": true,
+    "migration_and_rollback_documented": true,
+    "feature_flags_documented": true,
+    "estimated_vs_provider_tokens_documented": true,
+    "phase15_billable_gate_documented": true
+  },
+  "full_gate": {
+    "status": "PASS",
+    "source_commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+    "live_provider_enabled": false,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "name": "config_validate",
+        "exit_code": 0,
+        "duration_seconds": 1.432131,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508"
+      },
+      {
+        "name": "initialize_disposable_home",
+        "exit_code": 0,
+        "duration_seconds": 0.460087,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "1cd7c2a6f0fd7bb0c8fa5a28df744e8f3b684727d4683cd387d8872a5ed052db"
+      },
+      {
+        "name": "doctor",
+        "exit_code": 0,
+        "duration_seconds": 0.479939,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "d3dc3c9354dcc529bf4c7753cd2ee724fcfe4e63740d57dd082e1470fd39525f"
+      },
+      {
+        "name": "eval",
+        "exit_code": 0,
+        "duration_seconds": 1.588876,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900"
+      },
+      {
+        "name": "cumulative_tests",
+        "exit_code": 0,
+        "duration_seconds": 121.320323,
+        "test_count": 1096,
+        "skipped_count": 21,
+        "timed_out": false,
+        "stdout_sha256": "28b5e432074204a9e9fde5f468f9bf525f8226111d69a29e15f7cdf62fc24e75"
+      }
+    ]
+  },
+  "targeted_gate": {
+    "status": "PASS",
+    "evidence": "external:output/optimization-bootstrap/phase-14/phase-14-targeted-r4.json",
+    "test_count": 39,
+    "skipped_count": 0,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "stdout_sha256": "e3ca4bd320b56fe11c179db496d585e979705480afb670aa65bd385cf666ff7c"
+  },
+  "ledger_source_and_requirement_map_closure": {
+    "status": "PASS",
+    "evidence": "external:output/optimization-bootstrap/phase-14/phase-14-ledger-source-r1.json",
+    "test_count": 11,
+    "skipped_count": 0,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "stdout_sha256": "4ca0eb79889adeefe7bdcc100877adc9b9dbf54475d87059a587871746fb22d0"
+  },
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-14/phase-14-targeted-r4.json",
+    "external:output/optimization-bootstrap/phase-14/phase-14-full-final-precommit.json",
+    "external:output/optimization-bootstrap/phase-14/phase-14-full-postcommit.json",
+    "external:output/optimization-bootstrap/phase-14/phase-14-ledger-source-r1.json"
+  ],
+  "notes": [
+    "The previous fixed documentation assertion for a 63-test count was intentionally replaced by a generated-suite contract, as required by phase 14.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remained disabled."
+  ]
+}

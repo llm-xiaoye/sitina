@@ -116,6 +116,14 @@
       ],
       "name": "phase-13-evaluation",
       "phase": "13"
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-14/gate-summary.json"
+      ],
+      "name": "phase-14-suggest-docs",
+      "phase": "14"
     }
   ],
   "contract_dependency_by_domain": {
@@ -196,11 +204,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "14",
+  "current_phase": "15",
   "current_status_summary": {
-    "FAIL": 1,
+    "FAIL": 0,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 140
+    "PASS_NEW": 141
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -317,16 +325,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-14/gate-summary.json"
+      ],
       "id": "14",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "15",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     }
   ],
   "plan_name": "Sitina 149-item optimization",
@@ -3297,17 +3307,25 @@
     {
       "domain": "Supplemental",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-14/gate-summary.json"
       ],
       "id": "X-19",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/conversation/suggestion.py",
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/team.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "notes": [
+        "The versioned suggest command reuses the real router, risk, budget, SLA, workflow and team policy; it reports friendly estimates and explicit overrides while performing zero Provider, network or state writes. Risk overrides cannot downgrade detected risk."
+      ],
+      "status": "PASS_NEW",
       "summary": "选型决策工具",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_simple_code_architecture_risk_mixed_followup_budget_sla_unknown_and_policy_alignment",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_cli_is_provider_free_side_effect_free_and_exposes_friendly_versioned_overrides",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_configuration_error_is_diagnostic_and_does_not_fall_back_or_write"
+      ]
     }
   ],
   "schema_version": "1.0",
@@ -3424,6 +3442,22 @@
       "skipped_count": 21,
       "status": "PASS",
       "test_count": 1093
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_ref": "docs/optimization/evidence/phase-14/gate-summary.json",
+      "id": "phase14-suggest-docs-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 39
+    },
+    {
+      "commit": "249e6f3f4f159a858e2bb16099d91b944739ad81",
+      "evidence_ref": "docs/optimization/evidence/phase-14/gate-summary.json",
+      "id": "phase14-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1096
     }
   ]
 }
