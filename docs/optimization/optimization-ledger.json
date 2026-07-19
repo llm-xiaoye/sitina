@@ -4,21 +4,32 @@
     "PARTIAL": 98,
     "PASS_EXISTING": 8
   },
-  "checkpoints": [],
-  "current_phase": "00",
+  "checkpoints": [
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/gate-summary.json"
+      ],
+      "name": "phase-00-baseline-r1",
+      "phase": "00"
+    }
+  ],
+  "current_phase": "01",
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-00/gate-summary.json"
+      ],
       "id": "00",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "01",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -111,13 +122,14 @@
     {
       "domain": "Blackboard",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "B-01",
       "implementation_refs": [
         "core/sitina/protocols/blackboard.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -708,7 +720,8 @@
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "F-05",
       "implementation_refs": [
@@ -716,7 +729,7 @@
         "core/sitina/effects/gateway.py",
         "core/sitina/protocols/runtime.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -750,14 +763,15 @@
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "F-07",
       "implementation_refs": [
         "core/sitina/effects/creation.py",
         "core/sitina/effects/compensation.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -966,14 +980,15 @@
     {
       "domain": "Security",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "S-06",
       "implementation_refs": [
         "core/sitina/effects/approval.py",
         "core/sitina/effects/gateway.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -1047,14 +1062,15 @@
     {
       "domain": "Security",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "S-10",
       "implementation_refs": [
         "core/sitina/effects/gateway.py",
         "core/sitina/orchestrator/replay.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -1488,14 +1504,15 @@
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "O-09",
       "implementation_refs": [
         "core/sitina/protocols/runtime.py",
         "core/sitina/effects/model.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -1509,14 +1526,15 @@
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "O-10",
       "implementation_refs": [
         "core/sitina/protocols/runtime.py",
         "core/sitina/orchestrator/state_machine.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -2459,14 +2477,15 @@
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json"
       ],
       "id": "T-04",
       "implementation_refs": [
         "core/sitina/evidence/replay.py",
         "core/sitina/orchestrator/replay.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
       "notes": [
         "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
       ],
@@ -2889,6 +2908,22 @@
       "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
       "id": "phase00-doctor-initialized",
       "status": "PASS"
+    },
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_ref": "docs/optimization/evidence/phase-00/gate-summary.json",
+      "id": "phase00-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 44
+    },
+    {
+      "commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "evidence_ref": "docs/optimization/evidence/phase-00/gate-summary.json",
+      "id": "phase00-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 930
     }
   ]
 }
