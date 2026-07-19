@@ -1,0 +1,115 @@
+{
+  "business_requirement_status_changes": 10,
+  "checkpoint": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+  "dr_drill": {
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "status": "PASS",
+    "test_count": 20,
+    "writer_activated": false
+  },
+  "fault_injection_coverage": [
+    "timeout",
+    "429",
+    "5xx",
+    "schema-error",
+    "network-disconnect",
+    "crash-after-send",
+    "lost-response",
+    "duplicate-submission",
+    "compensation-failure",
+    "concurrent-half-open-probe"
+  ],
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.564318,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 97.237427,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "9dc056cd496ffb97d13ba02a9c1a68672d504bc821fbf86b2031773cbe377436",
+        "test_count": 985,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+    "status": "PASS",
+    "test_file_count": 162
+  },
+  "notes": [
+    "F-01 through F-04, F-06, and F-08 through F-12 are PASS_NEW with one dedicated acceptance test per ID; F-05 and F-07 remain PASS_EXISTING with new lost-response and partial-settlement acceptance evidence.",
+    "Retry count, taxonomy, exponential delay, deterministic jitter, Retry-After and deadline admission are centralized; Provider call sites record and execute the returned schedule rather than calculating local delays.",
+    "Fallback/degradation and rollback decisions use the shared reliability event contract; Journal remains production event authority and no second durable reliability store was introduced.",
+    "The independent executable DR drill restored and replayed a marked isolated cold copy with writer_activated=false and explicitly rejected the production home target.",
+    "The first targeted run exposed the new provider_retry_denied event missing from the existing Ledger whitelist; the event catalogue and replay projection were updated, and both subsequent targeted gates passed.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled."
+  ],
+  "observed_and_resolved_failures": [
+    {
+      "failure": "provider_retry_denied was absent from LEDGER_EVENT_TYPES",
+      "first_evidence": "external:output/optimization-bootstrap/phase-05-targeted.json",
+      "resolution": "Registered the typed event and included scheduled/denied Provider retry decisions in replay retry_state.",
+      "verification": "external:output/optimization-bootstrap/phase-05-targeted-r2.json"
+    }
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-05-preflight.json",
+    "external:output/optimization-bootstrap/phase-05-targeted.json",
+    "external:output/optimization-bootstrap/phase-05-targeted-r2.json",
+    "external:output/optimization-bootstrap/phase-05-targeted-r3.json",
+    "external:output/optimization-bootstrap/phase-05-dr-drill.json",
+    "external:output/optimization-bootstrap/phase-05-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-05-full-gate.json"
+  ],
+  "requirement_results": {
+    "F-01": "PASS_NEW",
+    "F-02": "PASS_NEW",
+    "F-03": "PASS_NEW",
+    "F-04": "PASS_NEW",
+    "F-05": "PASS_EXISTING",
+    "F-06": "PASS_NEW",
+    "F-07": "PASS_EXISTING",
+    "F-08": "PASS_NEW",
+    "F-09": "PASS_NEW",
+    "F-10": "PASS_NEW",
+    "F-11": "PASS_NEW",
+    "F-12": "PASS_NEW"
+  },
+  "schema": "SITINA_OPTIMIZATION_PHASE05_GATE_EVIDENCE_V1",
+  "targeted_gate": {
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "status": "PASS",
+    "test_count": 140,
+    "test_modules": [
+      "tests.optimization.test_ledger_coverage",
+      "tests.optimization.test_shared_contracts",
+      "tests.optimization.test_blackboard_state_management",
+      "tests.optimization.test_memory_management",
+      "tests.optimization.test_context_handoff_management",
+      "tests.optimization.test_reliability_management",
+      "tests.test_runtime_reliability",
+      "tests.test_effect_attempts",
+      "tests.test_effect_reconciliation",
+      "tests.test_compensation_effects",
+      "tests.test_effect_creation_saga",
+      "tests.test_checkpoint_resume_v1",
+      "tests.test_canonical_backup",
+      "tests.test_restore_drill",
+      "tests.test_provider_health_journal_native",
+      "tests.test_provider_recovery_projection"
+    ]
+  }
+}

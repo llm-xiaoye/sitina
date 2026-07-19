@@ -44,6 +44,14 @@
       ],
       "name": "phase-04-context-handoff",
       "phase": "04"
+    },
+    {
+      "commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "name": "phase-05-reliability",
+      "phase": "05"
     }
   ],
   "contract_dependency_by_domain": {
@@ -124,11 +132,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "05",
+  "current_phase": "06",
   "current_status_summary": {
-    "FAIL": 112,
+    "FAIL": 102,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 29
+    "PASS_NEW": 39
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -173,16 +181,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
       "id": "05",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "06",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -927,83 +937,99 @@
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-01",
       "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
+        "config/sitina.yaml",
+        "core/sitina/orchestrator/timeout_support.py",
+        "core/sitina/reliability.py",
+        "core/sitina/runners/agent_runner.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "One versioned policy now owns retry count, retryable taxonomy, exponential delay, deterministic jitter, Retry-After and deadline admission; Provider call sites execute and journal only the returned schedule, and virtual-clock coverage performs no real sleep."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "重试策略",
       "test_ids": [
         "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
-      ]
-    },
-    {
-      "domain": "Reliability",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "F-02",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
-      ],
-      "status": "FAIL",
-      "summary": "失败分类",
-      "test_ids": []
-    },
-    {
-      "domain": "Reliability",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "F-03",
-      "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "降级策略",
-      "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
-      ]
-    },
-    {
-      "domain": "Reliability",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "F-04",
-      "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "熔断器",
-      "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f01_unified_retry_exponential_jitter_retry_after_classification_and_virtual_clock"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-02",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Failure Taxonomy 1.0 explicitly classifies transient, permanent, auth, quota, schema, safety, cancelled and unknown failures; the cross-boundary envelope retains the bounded redacted causal chain and root cause."
+      ],
+      "status": "PASS_NEW",
+      "summary": "失败分类",
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f02_versioned_failure_taxonomy_has_all_classes_and_preserves_redacted_root_chain"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-03",
+      "implementation_refs": [
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "The event-recorded degradation policy chooses only matrix-approved capability substitutions and fails closed for high/critical risk, missing permission, uncertain side effects or an uncovered capability."
+      ],
+      "status": "PASS_NEW",
+      "summary": "降级策略",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f03_degradation_uses_risk_capability_matrix_and_fails_closed_for_unsafe_conditions"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-04",
+      "implementation_refs": [
+        "core/sitina/effects/breakers.py",
+        "core/sitina/reliability.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Provider/tool/profile circuit scope is isolated, transitions closed/open/half-open by threshold and virtual cooldown, and serializes the single recovery probe under concurrent callers."
+      ],
+      "status": "PASS_NEW",
+      "summary": "熔断器",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f04_circuit_breaker_isolates_provider_tool_profile_and_serializes_half_open_probe"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-05",
       "implementation_refs": [
@@ -1011,153 +1037,179 @@
         "core/sitina/effects/gateway.py",
         "core/sitina/protocols/runtime.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "audit_classification=PASS_EXISTING; the existing Effect identity/idempotency binding and result reuse remain authoritative; phase-05 adds a lost-response acceptance proving the repeated key returns the same result after one remote execution."
       ],
       "status": "PASS_EXISTING",
       "summary": "幂等设计",
       "test_ids": [
         "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send",
-        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event"
-      ]
-    },
-    {
-      "domain": "Reliability",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "F-06",
-      "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "错误传播",
-      "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f05_idempotency_key_reuses_result_after_lost_response_and_executes_side_effect_once"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-05/gate-summary.json"
+      ],
+      "id": "F-06",
+      "implementation_refs": [
+        "core/sitina/reliability.py",
+        "core/sitina/security/redaction.py"
+      ],
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "SITINA_FAILURE_ENVELOPE_V1 propagates type, taxonomy version, stage, full bounded causal chain, retryability, source/destination Agent and boundary-redacted diagnostic across Agent/Handoff boundaries."
+      ],
+      "status": "PASS_NEW",
+      "summary": "错误传播",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f06_cross_agent_failure_envelope_keeps_stage_cause_retryability_and_redacts_diagnostic"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-07",
       "implementation_refs": [
         "core/sitina/effects/creation.py",
-        "core/sitina/effects/compensation.py"
+        "core/sitina/effects/compensation.py",
+        "core/sitina/effects/model.py",
+        "core/sitina/effects/reconcile.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "audit_classification=PASS_EXISTING; the existing Effect creation saga, compensation lineage and outcome/settlement/cardinality state remain authoritative; phase-05 verifies that confirmed partial work with open exposure remains RECONCILING rather than full success."
       ],
       "status": "PASS_EXISTING",
       "summary": "事务边界",
       "test_ids": [
         "tests.test_effect_creation_saga.EffectCreationSagaTests.test_effect_requested_wins_no_stream_and_forces_source_confirmation",
-        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_lost_ack_reuses_stable_process_and_command"
+        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_lost_ack_reuses_stable_process_and_command",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f07_transaction_boundary_never_reports_partial_effect_settlement_as_full_success"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-08",
       "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
+        "core/sitina/effects/compensation.py",
+        "core/sitina/reliability.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "All rollback execution passes through one coordinator that records start/success/failure/dedup facts; an identical rollback ID executes once, compensation failure is retained, and the original outcome is never rewritten."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "回滚测试",
       "test_ids": [
         "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.test_effect_attempts",
+        "tests.test_compensation_effects",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f08_rollback_records_success_failure_and_deduplicates_repeated_compensation"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-09",
       "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
+        "core/sitina/archive/backup.py",
+        "core/sitina/archive/restore.py",
+        "core/sitina/reliability.py",
+        "docs/optimization/reliability.md",
+        "scripts/reliability-drill"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The executable DR runbook creates a marked isolated home, builds a cold backup, restores and replays its event records with writer disabled, rejects the production home as target, and passed its independent 20-test gate with zero production attempts."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "灾难恢复",
       "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.test_canonical_backup",
+        "tests.test_restore_drill",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f09_dr_backup_restore_and_replay_use_only_isolated_copy_with_writer_disabled"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-10",
       "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
+        "core/sitina/reliability.py",
+        "core/sitina/runners/provider.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "One report probes Provider, Journal, CAS, projection, queue and config, separates liveness from readiness, converts probe exceptions to component status and redacts every diagnostic before event publication."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "健康检查",
       "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.test_provider_health_journal_native",
+        "tests.test_provider_recovery_projection",
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f10_health_checks_all_components_separate_liveness_readiness_and_redact_secrets"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-11",
       "implementation_refs": [
-        "core/sitina/orchestrator/retry.py"
+        "core/sitina/reliability.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "SITINA_PARTIAL_SUCCESS_V1 names completed and failed work, missing capabilities and actionable next steps; any incomplete result without a next step is rejected and never labelled full success."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "优雅降级",
       "test_ids": [
-        "tests.test_runtime_reliability",
-        "tests.test_effect_attempts"
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f11_partial_success_names_missing_capability_and_actionable_next_step"
       ]
     },
     {
       "domain": "Reliability",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-05/gate-summary.json"
       ],
       "id": "F-12",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/reliability.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "f58aa74b2517df2544dd067952dd9bedffce00e4",
+      "notes": [
+        "Failure notification provides a category-specific user reason, run ID, retryability and safe advice; stable failure fingerprints deduplicate notifications and raw diagnostics are never copied into the message."
+      ],
+      "status": "PASS_NEW",
       "summary": "失败通知",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_reliability_management.ReliabilityManagementTests.test_f12_failure_notification_is_understandable_deduplicated_and_secret_free"
+      ]
     },
     {
       "domain": "Security",
