@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""Run Sitina optimization gates in an isolated, Provider-free home."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PYTHON = Path(
+    "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+)
+PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+MARKER = ".sitina-bplus-disposable-v1"
+
+
+def _safe_python() -> Path:
+    candidate = Path(os.environ.get("SITINA_PYTHON", str(DEFAULT_PYTHON))).expanduser()
+    resolved = candidate.resolve(strict=True)
+    if not os.access(resolved, os.X_OK):
+        raise RuntimeError(f"Python is not executable: {resolved}")
+    return resolved
+
+
+def _create_home(python: Path, test_root: Path, phase: str) -> dict[str, str]:
+    launcher_home = test_root / ".optimization-launcher"
+    launcher_home.mkdir(parents=True, exist_ok=True)
+    code = r'''
+import importlib.util
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1]).resolve(strict=True)
+production = pathlib.Path(sys.argv[2]).resolve(strict=True)
+test_root = pathlib.Path(sys.argv[3]).resolve(strict=True)
+phase = sys.argv[4]
+sys.path[:0] = [str(root / "core"), str(root / "tests/foundation")]
+from home_factory import DisposableHomeFactory
+
+disposable = DisposableHomeFactory(root, production, test_root).create(
+    prefix=f"optimization-phase{phase}-"
+)
+spec = importlib.util.spec_from_file_location("test_bplus", root / "scripts/test-bplus.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+guard = disposable.path / ".optimization-guard"
+guard.mkdir()
+(guard / "sitecustomize.py").write_text(module.NETWORK_GUARD, encoding="utf-8")
+print(json.dumps({
+    "path": str(disposable.path),
+    "root": str(disposable.root),
+    "marker_nonce": disposable.marker_nonce,
+    "guard": str(guard),
+}, sort_keys=True))
+'''
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "SITINA_HOME": str(launcher_home),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join((str(ROOT / "core"), str(ROOT / "tests/foundation"))),
+        }
+    )
+    process = subprocess.run(
+        [str(python), "-c", code, str(ROOT), str(PRODUCTION_HOME), str(test_root), phase],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=120,
+    )
+    if process.returncode != 0:
+        raise RuntimeError(f"unable to create isolated test home: {process.stderr[-2000:]}")
+    return json.loads(process.stdout)
+
+
+def _environment(python: Path, home: dict[str, str]) -> dict[str, str]:
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "SITINA_HOME": home["path"],
+            "SITINA_PYTHON": str(python),
+            "SITINA_LIVE_TEST": "0",
+            "SITINA_PRODUCTION_HOME": str(PRODUCTION_HOME),
+            "SITINA_EXTERNAL_ATTEMPT_LOG": str(Path(home["path"]) / "external-attempts.jsonl"),
+            "SITINA_PRODUCTION_ATTEMPT_LOG": str(Path(home["path"]) / "production-attempts.jsonl"),
+            "HOME": home["path"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join(
+                (home["guard"], str(Path(home["path"]) / "core"), str(ROOT), str(ROOT / "core"))
+            ),
+            "PATH": os.pathsep.join((str(python.parent), environment.get("PATH", ""))),
+        }
+    )
+    for name in list(environment):
+        if any(fragment in name.upper() for fragment in ("API_KEY", "AUTH_TOKEN", "PASSWORD", "PRIVATE_KEY", "SECRET")):
+            environment.pop(name, None)
+    return environment
+
+
+def _selector(value: str) -> str:
+    return value[:-3].replace("/", ".") if value.endswith(".py") else value
+
+
+def _run(name: str, command: list[str], *, home: Path, environment: dict[str, str], timeout: int, log_dir: Path | None) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        process = subprocess.run(
+            command,
+            cwd=home,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+        output = process.stdout or ""
+        exit_code = process.returncode
+        timed_out = False
+    except subprocess.TimeoutExpired as error:
+        output = (error.stdout or "") + (error.stderr or "")
+        exit_code = 124
+        timed_out = True
+    log_path = None
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        target = log_dir / f"{name}.log"
+        target.write_text(output, encoding="utf-8")
+        log_path = str(target)
+    test_count = re.search(r"Ran\s+(\d+)\s+tests?", output)
+    skipped_count = re.search(r"skipped=(\d+)", output)
+    return {
+        "name": name,
+        "command": command,
+        "exit_code": exit_code,
+        "duration_seconds": round(time.monotonic() - started, 6),
+        "timed_out": timed_out,
+        "test_count": int(test_count.group(1)) if test_count else None,
+        "skipped_count": int(skipped_count.group(1)) if skipped_count else 0,
+        "stdout_sha256": hashlib.sha256(output.encode()).hexdigest(),
+        "stdout_tail": output.splitlines()[-40:],
+        "log_path": log_path,
+    }
+
+
+def _attempt_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
+
+def _cleanup(home: dict[str, str]) -> None:
+    path = Path(home["path"]).resolve(strict=True)
+    root = Path(home["root"]).resolve(strict=True)
+    if path == root or root not in path.parents:
+        raise RuntimeError(f"unsafe cleanup target: {path}")
+    marker = path / MARKER
+    if marker.is_symlink() or marker.read_text(encoding="utf-8").strip() != home["marker_nonce"]:
+        raise RuntimeError(f"invalid disposable marker: {path}")
+    for candidate in path.rglob("*"):
+        if candidate.is_symlink():
+            candidate.unlink()
+    shutil.rmtree(path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", default="00")
+    parser.add_argument("--test", action="append", default=[])
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--keep-home", action="store_true")
+    arguments = parser.parse_args(argv)
+    tests = arguments.test or ["tests.optimization.test_ledger_coverage"]
+    python = _safe_python()
+    test_root = Path(
+        os.environ.get("SITINA_OPTIMIZATION_TEST_ROOT", str(ROOT.parent / "bplus-test-homes"))
+    ).expanduser()
+    test_root.mkdir(parents=True, exist_ok=True)
+    home = _create_home(python, test_root.resolve(strict=True), arguments.phase)
+    environment = _environment(python, home)
+    output_path = arguments.output.expanduser().resolve(strict=False) if arguments.output else None
+    log_dir = output_path.parent / f"{output_path.stem}-logs" if output_path else None
+    home_path = Path(home["path"])
+    config = _run(
+        "config_validate",
+        [str(home_path / "bin/sitina"), "config", "validate"],
+        home=home_path,
+        environment=environment,
+        timeout=arguments.timeout,
+        log_dir=log_dir,
+    )
+    runs = [config]
+    if config["exit_code"] == 0:
+        runs.append(
+            _run(
+                "cumulative_tests",
+                [str(python), "-m", "unittest", *[_selector(value) for value in tests]],
+                home=home_path,
+                environment=environment,
+                timeout=arguments.timeout,
+                log_dir=log_dir,
+            )
+        )
+    external_attempt_count = _attempt_count(home_path / "external-attempts.jsonl")
+    production_attempt_count = _attempt_count(home_path / "production-attempts.jsonl")
+    passed = (
+        len(runs) == 2
+        and all(item["exit_code"] == 0 for item in runs)
+        and external_attempt_count == 0
+        and production_attempt_count == 0
+    )
+    report = {
+        "schema": "SITINA_OPTIMIZATION_GATE_V1",
+        "phase": arguments.phase,
+        "source_commit": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
+        "python": str(python),
+        "tests": tests,
+        "runs": runs,
+        "external_attempt_count": external_attempt_count,
+        "production_attempt_count": production_attempt_count,
+        "live_provider_enabled": False,
+        "status": "PASS" if passed else "FAIL",
+    }
+    if output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    if not arguments.keep_home:
+        _cleanup(home)
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

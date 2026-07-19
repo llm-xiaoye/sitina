@@ -1,0 +1,201 @@
+{
+  "audit_summary": {
+    "MISSING": 43,
+    "PARTIAL": 98,
+    "PASS_EXISTING": 8
+  },
+  "bootstrap_manifests": [
+    {
+      "files": 545,
+      "path": "external:output/optimization-bootstrap/source-content-manifest-current.json",
+      "sha256": "efe4dd498bb19cb45a61fdbe53610f2098975c0ca83c92ed7b7abfbd009f9387"
+    },
+    {
+      "files": 23,
+      "path": "external:output/optimization-bootstrap/source-content-supplement-current.json",
+      "sha256": "7fc1e11ff7703c1bae96fc117d3028b588b08852eb040bfc9485fd5ec70459f6"
+    },
+    {
+      "files": 3,
+      "path": "external:output/optimization-bootstrap/source-safe-config-env-supplement.json",
+      "sha256": "48ecd56574a118a7d1f87d333ce783e109c9f731a879f6d60d1343d40530afda"
+    }
+  ],
+  "branch": "codex/optimization-149",
+  "dependency_lock": "requirements-bplus.lock",
+  "dependency_lock_sha256": "dbc3f95b77ed7034b5a48954abf579f2af77d3d410061482a7062e08d7e8c4bc",
+  "live_provider_executed": false,
+  "live_provider_skip_reason": "Phase 00 forbids billable Provider validation; live gate is reserved for phase 15 approval.",
+  "official_manifest_runner_note": "scripts/test-bplus.py is bound to a historical Goal manifest; full unittest discovery was run directly under equivalent network and Production-mutation guards instead of misrepresenting that manifest.",
+  "python_version": "Python 3.12.13",
+  "runs": [
+    {
+      "external_attempt_count": 0,
+      "id": "attempt-1",
+      "notes": [
+        "Full test failed because the source manifest omitted declared-safe config/*.env mappings; retained as a real baseline failure."
+      ],
+      "overall_status": "FAIL",
+      "production_attempt_count": 0,
+      "results": [
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "config",
+            "validate"
+          ],
+          "duration_seconds": 1.663434,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/config_validate.log",
+          "name": "config_validate",
+          "skipped_count": 0,
+          "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "doctor"
+          ],
+          "duration_seconds": 0.528181,
+          "exit_code": 2,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor.log",
+          "name": "doctor",
+          "skipped_count": 0,
+          "stdout_sha256": "61b7d6268c282b6bea8de253157a70c0bfe43e4a11966d63e5391e570795b062",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "eval"
+          ],
+          "duration_seconds": 1.738574,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/eval.log",
+          "name": "eval",
+          "skipped_count": 0,
+          "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "/Users/moss/Desktop/sitina/source-worktree/tests"
+          ],
+          "duration_seconds": 108.005457,
+          "exit_code": 1,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/unittest_full.log",
+          "name": "unittest_full",
+          "skipped_count": 21,
+          "stdout_sha256": "4884419fac96ac960427863a3025425d8b43493d2ce07a739c80c4e7c82ae30b",
+          "test_count": 922
+        }
+      ],
+      "source_commit": "ccd993e95e7235def677b985f2d4037b6ea9fcd8"
+    },
+    {
+      "external_attempt_count": 0,
+      "id": "attempt-2",
+      "notes": [
+        "922 tests passed with 21 live/environment skips. Doctor returned 2 because an uninitialized disposable home is intentionally a Legacy fixture."
+      ],
+      "overall_status": "FAIL",
+      "production_attempt_count": 0,
+      "results": [
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "config",
+            "validate"
+          ],
+          "duration_seconds": 1.561757,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-config_validate.log",
+          "name": "config_validate",
+          "skipped_count": 0,
+          "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "doctor"
+          ],
+          "duration_seconds": 0.446598,
+          "exit_code": 2,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-doctor.log",
+          "name": "doctor",
+          "skipped_count": 0,
+          "stdout_sha256": "44301fcf508c297ed355ac451bbf0623d6dbef1d81e3a638465284093b05cde5",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "eval"
+          ],
+          "duration_seconds": 1.502448,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-eval.log",
+          "name": "eval",
+          "skipped_count": 0,
+          "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900",
+          "test_count": null
+        },
+        {
+          "command": [
+            "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "/Users/moss/Desktop/sitina/source-worktree/tests"
+          ],
+          "duration_seconds": 102.851772,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-unittest_full.log",
+          "name": "unittest_full",
+          "skipped_count": 21,
+          "stdout_sha256": "053f760ac4b060cfe4679dbaa0789efe2d373b56d9c1aa7e12276e74d55ad44f",
+          "test_count": 922
+        }
+      ],
+      "source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b"
+    },
+    {
+      "external_attempt_count": 0,
+      "id": "doctor-initialized",
+      "notes": [
+        "Doctor rerun after sitina init in a fresh marked disposable home."
+      ],
+      "overall_status": "PASS",
+      "production_attempt_count": 0,
+      "results": [
+        {
+          "duration_seconds": 0.817052,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-init.log",
+          "name": "init",
+          "stdout_sha256": "9abb0638c2fd352bcb36e63ba822a96762b4ccf99376584011e042111e125e40"
+        },
+        {
+          "duration_seconds": 0.474864,
+          "exit_code": 0,
+          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-doctor.log",
+          "name": "doctor",
+          "stdout_sha256": "801ae065298feaf9a5a07d814cd2dbccfb5367cf8de87939e201c0fb37c0848f"
+        }
+      ],
+      "source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b"
+    }
+  ],
+  "schema": "SITINA_OPTIMIZATION_PHASE00_BASELINE_EVIDENCE_V1",
+  "source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+  "source_file_count": 571,
+  "test_file_count": 155
+}

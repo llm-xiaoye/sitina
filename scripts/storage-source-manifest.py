@@ -18,10 +18,28 @@ ROOT_FILES = (
     "pyproject.toml",
     "requirements-bplus.lock",
 )
-ROOT_DIRECTORIES = ("bin", "config", "core", "docs", "examples", "schemas", "scripts", "tests")
+ROOT_DIRECTORIES = (
+    "agents",
+    "benchmarks",
+    "bin",
+    "config",
+    "core",
+    "docs",
+    "examples",
+    "mcp_servers",
+    "prompts",
+    "schemas",
+    "scripts",
+    "tests",
+)
 EXCLUDED_ROOTS = ("artifacts", "backups", "data", "logs", "memory", "outputs", "state", "temp")
+SAFE_ENV_FILES = (
+    "config/permissions.env",
+    "config/roles.env",
+    "config/sitina.env",
+)
 EXCLUDED_PATTERNS = (
-    "**/*.env",
+    "**/*.env (except declared safe config mappings)",
     "**/__pycache__/**",
     "**/.DS_Store",
     "docs/storage-production-closure/sentinel-*.json",
@@ -48,7 +66,7 @@ def _excluded(path: Path, root: Path) -> bool:
     relative = path.relative_to(root)
     return (
         path.name == ".DS_Store"
-        or path.suffix == ".env"
+        or (path.suffix == ".env" and relative.as_posix() not in SAFE_ENV_FILES)
         or "__pycache__" in relative.parts
         or any(part in EXCLUDED_ROOTS for part in relative.parts[:1])
         or (

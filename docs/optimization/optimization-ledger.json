@@ -1,0 +1,2894 @@
+{
+  "audit_summary": {
+    "MISSING": 43,
+    "PARTIAL": 98,
+    "PASS_EXISTING": 8
+  },
+  "checkpoints": [],
+  "current_phase": "00",
+  "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+  "phases": [
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "00",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "01",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "02",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "03",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "04",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "05",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "06",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "07",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "08",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "09",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "10",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "11",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "12",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "13",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "14",
+      "status": "PENDING"
+    },
+    {
+      "checkpoint": null,
+      "gate_evidence": [],
+      "id": "15",
+      "status": "PENDING"
+    }
+  ],
+  "plan_name": "Sitina 149-item optimization",
+  "requirement_count": 149,
+  "requirements": [
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-01",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "状态一致性",
+      "test_ids": [
+        "tests.test_blackboard_mvcc.BlackboardMVCCTests.test_stale_base_returns_conflict_without_document_mutation"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-02",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "状态快照",
+      "test_ids": []
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-03",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "状态 Diff",
+      "test_ids": [
+        "tests.test_blackboard_mvcc",
+        "tests.test_blackboard_native"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-04",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "状态大小",
+      "test_ids": []
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-05",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "状态持久化",
+      "test_ids": [
+        "tests.test_blackboard_mvcc",
+        "tests.test_blackboard_native"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-06",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "状态 Schema",
+      "test_ids": [
+        "tests.test_blackboard_mvcc",
+        "tests.test_blackboard_native"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-07",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "状态查询",
+      "test_ids": []
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-08",
+      "implementation_refs": [
+        "core/sitina/protocols/blackboard.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "状态权限",
+      "test_ids": [
+        "tests.test_blackboard_mvcc",
+        "tests.test_blackboard_native"
+      ]
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-09",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "状态通知",
+      "test_ids": []
+    },
+    {
+      "domain": "Blackboard",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "B-10",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "状态测试",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-01",
+      "implementation_refs": [
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "记忆分层",
+      "test_ids": [
+        "tests.test_memory_native_v1"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-02",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆整合",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-03",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆检索",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-04",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆衰减",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-05",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆冲突",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-06",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆容量",
+      "test_ids": []
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-07",
+      "implementation_refs": [
+        "core/sitina/memory/native.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "记忆溯源",
+      "test_ids": [
+        "tests.test_memory_native_v1"
+      ]
+    },
+    {
+      "domain": "Memory",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "M-08",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "记忆污染",
+      "test_ids": []
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-01",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "上下文限制",
+      "test_ids": []
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-02",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "上下文选择",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-03",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "上下文压缩",
+      "test_ids": []
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-04",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Handoff 完整性",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-05",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Handoff 拒绝",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-06",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Handoff 测试",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-07",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Blackboard 结构",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-08",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Blackboard 冲突",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-09",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Blackboard 清理",
+      "test_ids": []
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-10",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Blackboard 安全",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-11",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "上下文 Token",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "H-12",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "历史回溯",
+      "test_ids": []
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "重试策略",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-02",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "失败分类",
+      "test_ids": []
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "降级策略",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "熔断器",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-05",
+      "implementation_refs": [
+        "core/sitina/effects/model.py",
+        "core/sitina/effects/gateway.py",
+        "core/sitina/protocols/runtime.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "幂等设计",
+      "test_ids": [
+        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send",
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "错误传播",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-07",
+      "implementation_refs": [
+        "core/sitina/effects/creation.py",
+        "core/sitina/effects/compensation.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "事务边界",
+      "test_ids": [
+        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_effect_requested_wins_no_stream_and_forces_source_confirmation",
+        "tests.test_effect_creation_saga.EffectCreationSagaTests.test_lost_ack_reuses_stable_process_and_command"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "回滚测试",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-09",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "灾难恢复",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-10",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "健康检查",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-11",
+      "implementation_refs": [
+        "core/sitina/orchestrator/retry.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "优雅降级",
+      "test_ids": [
+        "tests.test_runtime_reliability",
+        "tests.test_effect_attempts"
+      ]
+    },
+    {
+      "domain": "Reliability",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "F-12",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "失败通知",
+      "test_ids": []
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-01",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "MCP 权限",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-02",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "工具超时",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-03",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "工具重试",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-04",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "工具审计",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-05",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "风险扫描",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-06",
+      "implementation_refs": [
+        "core/sitina/effects/approval.py",
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "审批流程",
+      "test_ids": [
+        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_every_exact_binding_dimension_invalidates_approval",
+        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_attempt_retry_and_expiry_limits_fail_closed"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-07",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "权限最小化",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-08",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Prompt 注入",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-09",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "密钥管理",
+      "test_ids": [
+        "tests.test_effect_approval_credentials",
+        "tests.test_tool_result_quarantine"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "S-10",
+      "implementation_refs": [
+        "core/sitina/effects/gateway.py",
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "副作用隔离",
+      "test_ids": [
+        "tests.test_effect_capability_activation.EffectCapabilityActivationTests.test_disable_new_transmission_preserves_receipt_observation_and_reconciliation",
+        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-01",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "动态复杂度",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-02",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "模型意图识别",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-03",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "FAST→MULTI 回放",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-04",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "路由可观测",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-05",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "关键词维护",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-06",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "误判修复",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-07",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "成本意识",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-08",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "路由回归",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-09",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "多标签冲突",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-10",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "中文支持",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-11",
+      "implementation_refs": [
+        "core/sitina/conversation/router.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "对话历史",
+      "test_ids": [
+        "tests.test_conversation_router",
+        "tests.test_fast_conversation_runtime"
+      ]
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-12",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "领域适配",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-13",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "A/B 测试",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-14",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "MULTI→FAST 降级",
+      "test_ids": []
+    },
+    {
+      "domain": "Routing",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "R-15",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "延迟 SLA",
+      "test_ids": []
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Controller 瓶颈",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-02",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "任务分解",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "并行调度",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "动态团队",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "协作开销",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "失败传播",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-07",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "超时控制",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "取消机制",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-09",
+      "implementation_refs": [
+        "core/sitina/protocols/runtime.py",
+        "core/sitina/effects/model.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "幂等性",
+      "test_ids": [
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event",
+        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-10",
+      "implementation_refs": [
+        "core/sitina/protocols/runtime.py",
+        "core/sitina/orchestrator/state_machine.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "状态机",
+      "test_ids": [
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_allowed_transition_emits_event_and_binds_definition_policy",
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_invalid_terminal_and_timeout_transitions_fail_closed"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-11",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "死锁检测",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-12",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "优先级",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-13",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "资源限制",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-14",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "可观测性",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-15",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "热路径",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-16",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "协作模式",
+      "test_ids": []
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-17",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Agent 复用",
+      "test_ids": []
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "O-18",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "协作测试",
+      "test_ids": [
+        "tests.test_task_graph_protocol",
+        "tests.test_agent_scheduling"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-01",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 多样性",
+      "test_ids": []
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-02",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 数量",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-03",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 竞争",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-04",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Evaluator 独立",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-05",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Evaluation 标准",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-06",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "选择算法",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-07",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "拒绝记录",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-08",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Arbitration 触发",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-09",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Arbiter 模型",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-10",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Block 恢复",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-11",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Ask_user",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-12",
+      "implementation_refs": [
+        "core/sitina/protocols/proposals.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 成本",
+      "test_ids": [
+        "tests.test_proposal_protocol",
+        "tests.test_review_protocol",
+        "tests.test_arbitration_protocol"
+      ]
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-13",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "评审并行",
+      "test_ids": []
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-14",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "评审超时",
+      "test_ids": []
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-15",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 缓存",
+      "test_ids": []
+    },
+    {
+      "domain": "Proposal/Review/Arbitration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PR-16",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "评审质量",
+      "test_ids": []
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-01",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Controller",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-02",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Planner",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-03",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Planner",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-04",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Reviewer",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-05",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Reviewer",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-06",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Tester",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-07",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Tester",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-08",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Arbiter",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-09",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Arbiter",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-10",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "所有 Agent",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-11",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "所有 Agent",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-12",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "所有 Agent",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-13",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "所有 Agent",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-14",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "所有 Agent",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-15",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Proposal 作者",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-16",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Evaluator",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-17",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Security",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-18",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Critic",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-19",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Researcher",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-20",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Memory",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-21",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Summary",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Agent Prompts",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "P-22",
+      "implementation_refs": [
+        "prompts/agents"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "角色重叠",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Trace 完整性",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-02",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Trace 采样",
+      "test_ids": []
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Trace 查询",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-04",
+      "implementation_refs": [
+        "core/sitina/evidence/replay.py",
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+      ],
+      "status": "PASS_EXISTING",
+      "summary": "Replay 边界",
+      "test_ids": [
+        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox",
+        "tests.test_offline_replay.OfflineReplayTests.test_replay_original_stops_at_t_and_does_not_generate_assessment"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Replay 一致性",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "指标收集",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-07",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "告警规则",
+      "test_ids": []
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "日志结构化",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-09",
+      "implementation_refs": [
+        "core/sitina/orchestrator/replay.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "调用链",
+      "test_ids": [
+        "tests.test_offline_replay",
+        "tests.test_evidence_hardening"
+      ]
+    },
+    {
+      "domain": "Trace/Replay",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "T-10",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "性能剖析",
+      "test_ids": []
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "X-17",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "轨迹监控和异常检测",
+      "test_ids": []
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-01",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "Token 预算",
+      "test_ids": [
+        "tests.test_capacity_gates",
+        "tests.test_runtime_reliability"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-02",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "成本归因",
+      "test_ids": [
+        "tests.test_capacity_gates",
+        "tests.test_runtime_reliability"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "并发控制",
+      "test_ids": [
+        "tests.test_capacity_gates",
+        "tests.test_runtime_reliability"
+      ]
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-04",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "Provider 缓存",
+      "test_ids": []
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-05",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "批处理",
+      "test_ids": []
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-06",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "延迟优化",
+      "test_ids": []
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-07",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "资源池化",
+      "test_ids": []
+    },
+    {
+      "domain": "Performance/Cost",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "PC-08",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "成本监控",
+      "test_ids": []
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "E-01",
+      "implementation_refs": [
+        "core/sitina/evals/safety_eval.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "路由测试",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "E-02",
+      "implementation_refs": [
+        "core/sitina/evals/safety_eval.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "协作测试",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "E-03",
+      "implementation_refs": [
+        "core/sitina/evals/safety_eval.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "并发测试",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "E-04",
+      "implementation_refs": [
+        "core/sitina/evals/safety_eval.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "混沌测试",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Evaluation",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "E-05",
+      "implementation_refs": [
+        "core/sitina/evals/safety_eval.py"
+      ],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+      ],
+      "status": "FAIL",
+      "summary": "性能测试",
+      "test_ids": [
+        "tests.test_sitina"
+      ]
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "X-16",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "RunEvaluator",
+      "test_ids": []
+    },
+    {
+      "domain": "Supplemental",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json"
+      ],
+      "id": "X-19",
+      "implementation_refs": [],
+      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "notes": [
+        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      ],
+      "status": "FAIL",
+      "summary": "选型决策工具",
+      "test_ids": []
+    }
+  ],
+  "schema_version": "1.0",
+  "source_not_provided": [
+    "E-06",
+    "E-07",
+    "E-08",
+    "E-09",
+    "E-10",
+    "E-11",
+    "第18项"
+  ],
+  "spec_path": "/Users/moss/Desktop/sitina/Sitina_Codex_优化提示词_顺序执行版.md",
+  "test_runs": [
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-baseline-attempt-1",
+      "status": "FAIL"
+    },
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-baseline-attempt-2",
+      "status": "PARTIAL_PASS_DOCTOR_SETUP_REQUIRED"
+    },
+    {
+      "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",
+      "id": "phase00-doctor-initialized",
+      "status": "PASS"
+    }
+  ]
+}
