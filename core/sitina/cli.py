@@ -43,6 +43,7 @@ from sitina.orchestrator.handoff import HandoffManager
 from sitina.orchestrator.ledger import RunLedger
 from sitina.orchestrator.leases import LeaseManager
 from sitina.orchestrator.maintenance import MaintenanceOps
+from sitina.orchestrator.observability_management import TraceQuery, TraceQueryEngine
 from sitina.orchestrator.parallel import ParallelCoordinator
 from sitina.orchestrator.policy import WorkflowPolicyEngine
 from sitina.orchestrator.proposals import ProposalManager
@@ -1102,12 +1103,27 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_trace(args: argparse.Namespace) -> int:
     if _bplus_installed():
         result = _bplus_context().trace_run(args.run_id)
-        print_json(result)
-        return 0 if result.get("event_count", 0) > 0 else 2
-    SitinaStore(SITINA_HOME).init_db()
-    result = RunLedger(SITINA_HOME).trace_summary(args.run_id)
+    else:
+        SitinaStore(SITINA_HOME).init_db()
+        result = RunLedger(SITINA_HOME).trace_summary(args.run_id)
+    query_requested = bool(getattr(args, "query", False))
+    if query_requested:
+        timeline = result.get("timeline", []) if isinstance(result, dict) else []
+        query = TraceQuery(
+            run_id=args.run_id,
+            agent=getattr(args, "agent", None),
+            tool=getattr(args, "tool", None),
+            status=getattr(args, "status", None),
+            started_at=getattr(args, "started_at", None),
+            ended_at=getattr(args, "ended_at", None),
+            correlation_id=getattr(args, "correlation_id", None),
+            cursor=getattr(args, "cursor", 0),
+            limit=getattr(args, "limit", 100),
+        )
+        result = TraceQueryEngine().query(timeline, query).model_dump(by_alias=True)
     print_json(result)
-    return 0 if result.get("event_count", 0) > 0 else 2
+    count = result.get("total_matches", 0) if query_requested else result.get("event_count", 0)
+    return 0 if count > 0 else 2
 
 
 def cmd_replay(args: argparse.Namespace) -> int:
@@ -1920,6 +1936,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("trace")
     p.add_argument("run_id")
+    p.add_argument("--query", action="store_true", help="return a paginated, read-only structured trace query")
+    p.add_argument("--agent")
+    p.add_argument("--tool")
+    p.add_argument("--status")
+    p.add_argument("--started-at")
+    p.add_argument("--ended-at")
+    p.add_argument("--correlation-id")
+    p.add_argument("--cursor", type=int, default=0)
+    p.add_argument("--limit", type=int, default=100)
     p.set_defaults(func=cmd_trace)
 
     p = sub.add_parser("replay")

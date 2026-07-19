@@ -10,6 +10,7 @@ from sitina.constants import AGENTS, REQUIRED_DIRS, SITINA_HOME
 from sitina.contracts.feature_flags import SharedContractFeatureError, shared_contract_writes_enabled
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.parallel import ParallelCoordinator
+from sitina.orchestrator.observability_management import ObservabilityPolicy, ObservabilityPolicyError
 from sitina.orchestrator.policy import WorkflowPolicyEngine
 from sitina.orchestrator.proposals import ProposalManager
 from sitina.orchestrator.retry import RetryPolicy
@@ -86,6 +87,10 @@ class ConfigValidator:
         self._load("config/proposal_policy.yaml")
         self._load("config/agent_capabilities.yaml")
         self._load("config/agent_prompt_contracts.json")
+        try:
+            ObservabilityPolicy.load(self.home)
+        except ObservabilityPolicyError as exc:
+            self.errors.append(f"config/observability_policy.json invalid: {exc}")
         self._load("config/permissions.yaml")
         feature_flags = self._load("config/feature_flags.json")
         blackboard_limits_path = self.home / "config/blackboard_limits.json"

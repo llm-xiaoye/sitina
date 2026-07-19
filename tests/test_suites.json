@@ -19,6 +19,7 @@
         "tests/optimization/test_context_handoff_management.py",
         "tests/optimization/test_memory_management.py",
         "tests/optimization/test_orchestration_management.py",
+        "tests/optimization/test_observability_management.py",
         "tests/optimization/test_agent_prompt_contracts.py",
         "tests/optimization/test_proposal_review_management.py",
         "tests/optimization/test_reliability_management.py",
