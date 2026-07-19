@@ -92,6 +92,14 @@
       ],
       "name": "phase-10-agent-prompts",
       "phase": "10"
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
+      "name": "phase-11-observability",
+      "phase": "11"
     }
   ],
   "contract_dependency_by_domain": {
@@ -172,11 +180,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "11",
+  "current_phase": "12",
   "current_status_summary": {
-    "FAIL": 25,
+    "FAIL": 15,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 116
+    "PASS_NEW": 126
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -269,16 +277,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-11/gate-summary.json"
+      ],
       "id": "11",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "12",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -2770,204 +2780,223 @@
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-01",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The trace validator proves the versioned run/task/agent/provider-or-tool/state/effect lineage and rejects orphan, layer-break, cycle, identity, terminal metadata, and usage defects."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Trace 完整性",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t01_trace_integrity_run_task_agent_provider_tool_state_effect_versions_usage_and_orphan_detection"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-02",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Sampling is deterministic by trace ID; error, high-risk, approval, over-budget, billing, and audit records are always retained."
+      ],
+      "status": "PASS_NEW",
       "summary": "Trace 采样",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t02_sampling_always_keeps_error_high_risk_approval_overbudget_billing_audit_and_deterministically_samples_success"
+      ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-03",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/observability_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The read-only trace CLI supports run, agent, tool, status, time and correlation filters, cursor pagination, structured output and boundary redaction across legacy and B+ event shapes."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Trace 查询",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t03_trace_query_filters_run_agent_tool_status_time_correlation_paginates_redacts_and_cli_parses"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-04",
       "implementation_refs": [
         "core/sitina/evidence/replay.py",
         "core/sitina/orchestrator/replay.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "audit_classification=PASS_EXISTING; the existing recorded-event replay boundary was reverified with explicit provider, network, and real-effect monkeypatch counters at zero."
       ],
       "status": "PASS_EXISTING",
       "summary": "Replay 边界",
       "test_ids": [
         "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox",
-        "tests.test_offline_replay.OfflineReplayTests.test_replay_original_stops_at_t_and_does_not_generate_assessment"
+        "tests.test_offline_replay.OfflineReplayTests.test_replay_original_stops_at_t_and_does_not_generate_assessment",
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t04_replay_reads_recorded_events_with_zero_provider_network_and_real_effect_calls"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-05",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/orchestrator/replay.py",
+        "core/sitina/orchestrator/observability_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Replay consistency uses a stable normalized state hash, an explicit volatile-time field set, and a bounded v0-to-v1 event upcaster that rejects unsupported generations."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Replay 一致性",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t05_replay_state_hash_is_stable_with_explicit_volatile_normalization_and_version_upcast"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-06",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/orchestrator/observability_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Metrics derive from the run ledger and cover success, routing, rework, handoff, budget, partial success, and recovery with three bounded dimension keys."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "指标收集",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t06_business_metrics_cover_success_routing_rework_handoff_budget_partial_and_recovery_with_bounded_dimensions"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-07",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Versioned alert thresholds cover multi-window SLO burn, repeated failure, queue backlog, token/cost anomaly, deduplication, cooldown, flapping, and recovery."
+      ],
+      "status": "PASS_NEW",
       "summary": "告警规则",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t07_alerts_apply_multiwindow_slo_failures_backlog_token_cost_dedupe_flap_cooldown_and_recovery"
+      ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-08",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/orchestrator/observability_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Structured logs have a versioned JSON schema, levels, event codes, correlation identifiers, structured boundary redaction, and compatible human rendering."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "日志结构化",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t08_structured_logs_are_schema_level_code_correlation_redacted_and_human_readable"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-09",
       "implementation_refs": [
-        "core/sitina/orchestrator/replay.py"
+        "core/sitina/orchestrator/observability_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Trace/span/correlation context is injectable across process boundaries; synchronous children retain parents and asynchronous consumers use causal links."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "调用链",
       "test_ids": [
-        "tests.test_offline_replay",
-        "tests.test_evidence_hardening"
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t09_trace_context_propagates_across_agent_thread_process_and_uses_link_for_async_queue"
       ]
     },
     {
       "domain": "Trace/Replay",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "T-10",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "Profiling defaults off and, when enabled, emits only stage wall time, CPU time, memory delta, and queue wait without payload fields."
+      ],
+      "status": "PASS_NEW",
       "summary": "性能剖析",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_t10_profiler_defaults_off_and_reports_only_stage_wall_cpu_memory_queue_fields_when_enabled"
+      ]
     },
     {
       "domain": "Supplemental",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-11/gate-summary.json"
       ],
       "id": "X-17",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/observability_management.py",
+        "config/observability_policy.json"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "notes": [
+        "RunTrajectoryMonitor detects every specified threshold at the inclusive boundary, returns policy-bound actions, preserves normal negatives, and persists fingerprints for restart deduplication."
+      ],
+      "status": "PASS_NEW",
       "summary": "轨迹监控和异常检测",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_observability_management.ObservabilityManagementTests.test_x17_trajectory_monitor_detects_every_anomaly_boundary_normal_negative_actions_and_restart_dedup"
+      ]
     },
     {
       "domain": "Performance/Cost",
@@ -3288,6 +3317,22 @@
       "skipped_count": 21,
       "status": "PASS",
       "test_count": 1066
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_ref": "docs/optimization/evidence/phase-11/gate-summary.json",
+      "id": "phase11-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 11
+    },
+    {
+      "commit": "3f627df62c48900c96d1906ce21a96fc9311c8ee",
+      "evidence_ref": "docs/optimization/evidence/phase-11/gate-summary.json",
+      "id": "phase11-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1077
     }
   ]
 }
