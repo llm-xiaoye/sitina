@@ -100,6 +100,14 @@
       ],
       "name": "phase-11-observability",
       "phase": "11"
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
+      "name": "phase-12-performance-cost",
+      "phase": "12"
     }
   ],
   "contract_dependency_by_domain": {
@@ -180,11 +188,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "12",
+  "current_phase": "13",
   "current_status_summary": {
-    "FAIL": 15,
+    "FAIL": 7,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 126
+    "PASS_NEW": 134
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -285,16 +293,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-12/gate-summary.json"
+      ],
       "id": "12",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "13",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -3001,137 +3011,160 @@
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-01",
       "implementation_refs": [
-        "core/sitina/orchestrator/accounting.py"
+        "core/sitina/orchestrator/performance_management.py",
+        "config/performance_policy.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Atomic run-stage-agent/tool reservations enforce every ancestor hard limit; settlement/refund reconcile usage and missing usage remains reserved as unsettled until later resolution."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Token 预算",
       "test_ids": [
-        "tests.test_capacity_gates",
-        "tests.test_runtime_reliability"
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc01_hierarchical_budget_reservation_settlement_refund_hard_cap_concurrency_and_missing_usage_unsettled"
       ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-02",
       "implementation_refs": [
-        "core/sitina/orchestrator/accounting.py"
+        "core/sitina/orchestrator/accounting.py",
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Cost attribution distinguishes logical calls, physical attempts, retry, fallback and cache hits, and reconciles input/output/cache/cost/latency totals at run, stage, agent and call dimensions."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "成本归因",
       "test_ids": [
-        "tests.test_capacity_gates",
-        "tests.test_runtime_reliability"
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc02_cost_attribution_run_stage_agent_logical_physical_retry_cache_fallback_and_totals_identity"
       ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-03",
       "implementation_refs": [
-        "core/sitina/orchestrator/accounting.py"
+        "core/sitina/orchestrator/orchestration_management.py",
+        "config/performance_policy.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "O-13's shared hierarchical limiter and aging scheduler were reverified for global/run/Provider quotas, fairness, backpressure and cancellation-safe capacity release."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "并发控制",
       "test_ids": [
-        "tests.test_capacity_gates",
-        "tests.test_runtime_reliability"
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc03_existing_hierarchical_concurrency_enforces_quotas_fairness_backpressure_and_releases_on_cancel"
       ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-04",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py",
+        "config/performance_policy.json"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "AES-GCM cache admission requires deterministic, side-effect-free, complete results and binds model/prompt/tools/policy/permissions/tenant with TTL, invalidation and explicit cache-versus-physical usage."
+      ],
+      "status": "PASS_NEW",
       "summary": "Provider 缓存",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc04_provider_cache_requires_safe_complete_binding_encrypts_ttl_invalidates_and_distinguishes_usage"
+      ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-05",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Batching requires declared Provider support and full compatibility; per-item idempotency, errors, usage and response order remain intact, with individual-call fallback otherwise."
+      ],
+      "status": "PASS_NEW",
       "summary": "批处理",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc05_batch_uses_declared_capability_preserves_item_idempotency_errors_usage_and_falls_back_safely"
+      ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-06",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Dependency-aware critical-path analysis identifies parallelizable/reusable serial waits; repeatable p50/p95 evidence accepts only equivalent zero-error output without increased physical calls."
+      ],
+      "status": "PASS_NEW",
       "summary": "延迟优化",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc06_repeatable_benchmark_records_environment_samples_warmup_quantiles_error_and_proves_equivalent_faster_path"
+      ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-07",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "Thread-safe pooling isolates tenant, Provider profile and credential fingerprint; expiry, failure, concurrent reuse and safe close are verified without persisting credential values."
+      ],
+      "status": "PASS_NEW",
       "summary": "资源池化",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc07_resource_pool_isolates_tenant_credentials_profile_handles_concurrency_expiry_failure_and_close"
+      ]
     },
     {
       "domain": "Performance/Cost",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-12/gate-summary.json"
       ],
       "id": "PC-08",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/cli.py",
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "notes": [
+        "The read-only cost-status CLI reports authoritative ledger source, freshness, used/reserved/remaining tokens, forecast overrun, hard stop and unsettled usage."
+      ],
+      "status": "PASS_NEW",
       "summary": "成本监控",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_performance_cost_management.PerformanceCostManagementTests.test_pc08_runtime_cost_monitor_reports_used_reserved_remaining_forecast_hard_stop_freshness_source_and_cli"
+      ]
     },
     {
       "domain": "Evaluation",
@@ -3333,6 +3366,22 @@
       "skipped_count": 21,
       "status": "PASS",
       "test_count": 1077
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_ref": "docs/optimization/evidence/phase-12/gate-summary.json",
+      "id": "phase12-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 8
+    },
+    {
+      "commit": "7883a5188f4a56fbe20c6d6e86afee1b00a20777",
+      "evidence_ref": "docs/optimization/evidence/phase-12/gate-summary.json",
+      "id": "phase12-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1085
     }
   ]
 }
