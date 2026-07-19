@@ -36,6 +36,14 @@
       ],
       "name": "phase-03-memory",
       "phase": "03"
+    },
+    {
+      "commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "name": "phase-04-context-handoff",
+      "phase": "04"
     }
   ],
   "contract_dependency_by_domain": {
@@ -116,11 +124,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "04",
+  "current_phase": "05",
   "current_status_summary": {
-    "FAIL": 124,
+    "FAIL": 112,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 17
+    "PASS_NEW": 29
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -157,16 +165,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
       "id": "04",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "05",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -641,227 +651,278 @@
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-01",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/conversation/context.py",
+        "core/sitina/conversation/context_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Provider/model tokenizer admission accounts for system, tool schema, history and output reserve against both model capacity and the shared TokenBudget; the conservative fallback is labelled estimate-only and never becomes usage."
+      ],
+      "status": "PASS_NEW",
       "summary": "上下文限制",
-      "test_ids": []
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-02",
-      "implementation_refs": [
-        "core/sitina/conversation/context.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "上下文选择",
       "test_ids": [
-        "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
-      ]
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-03",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
-      ],
-      "status": "FAIL",
-      "summary": "上下文压缩",
-      "test_ids": []
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-04",
-      "implementation_refs": [
-        "core/sitina/conversation/context.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "Handoff 完整性",
-      "test_ids": [
-        "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
-      ]
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-05",
-      "implementation_refs": [
-        "core/sitina/conversation/context.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "Handoff 拒绝",
-      "test_ids": [
-        "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
-      ]
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-06",
-      "implementation_refs": [
-        "core/sitina/conversation/context.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "Handoff 测试",
-      "test_ids": [
-        "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
-      ]
-    },
-    {
-      "domain": "Context/Handoff",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "H-07",
-      "implementation_refs": [
-        "core/sitina/conversation/context.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "Blackboard 结构",
-      "test_ids": [
-        "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h01_provider_tokenizer_accounts_system_tools_history_output_and_fallback"
       ]
     },
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-02/gate-summary.json"
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-02",
+      "implementation_refs": [
+        "core/sitina/conversation/context.py",
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "A deterministic fixed priority makes safety, user constraints and unfinished work mandatory; evidence/history/memory/tool data are admitted in stable order and required overflow fails closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文选择",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h02_deterministic_priority_never_evicts_safety_constraints_or_unfinished_work"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-03",
+      "implementation_refs": [
+        "core/sitina/conversation/context_management.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Structured summaries retain decisions, constraints, unfinished tasks, open questions, evidence and source refs; only expendable detail hashes are dropped and essential overflow is rejected."
+      ],
+      "status": "PASS_NEW",
+      "summary": "上下文压缩",
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h03_structured_compression_preserves_required_fact_set_and_source_evidence"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/true_multi_agent.py",
+        "core/sitina/protocols/handoff_contracts.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "The frozen manifest binds objective, scope, inputs, capabilities, Blackboard documents, output schema, criteria, policy, budget and deadline; a machine acknowledgement accepts only exact complete bindings and lists every missing field."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 完整性",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h04_manifest_acknowledgement_accepts_complete_and_lists_every_missing_binding"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-05",
+      "implementation_refs": [
+        "core/sitina/protocols/handoffs.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Repairable rejection enters bounded rework, permission/safety rejection is terminal fail-closed, cancellation records cleanup references, and the existing generation ceiling prevents infinite loops."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 拒绝",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h05_repairable_rework_is_finite_permission_safety_fail_closed_and_cancel_cleans_up"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-06",
+      "implementation_refs": [
+        "core/sitina/orchestrator/checkpoint_resume.py",
+        "core/sitina/protocols/handoff_contracts.py",
+        "core/sitina/protocols/handoffs.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Dedicated coverage combines success, missing bindings, tamper, expiry, duplicate transition, unknown version, rejection recovery and fact-based restart; existing protocol/checkpoint suites remain cumulative evidence."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Handoff 测试",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.test_checkpoint_resume_v1",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h06_success_missing_tamper_expiry_duplicate_version_rework_and_restart"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
+      ],
+      "id": "H-07",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/true_multi_agent.py",
+        "core/sitina/protocols/handoff_contracts.py"
+      ],
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Production Handoff contracts publish and bind strict shared SITINA_BLACKBOARD_DOCUMENT_V1 records with version, hashes, policies and CAS body reference; unknown free-form fields are rejected."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Blackboard 结构",
+      "test_ids": [
+        "tests.test_session_context_v1",
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h07_handoff_binds_shared_versioned_blackboard_document_not_free_text"
+      ]
+    },
+    {
+      "domain": "Context/Handoff",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-02/gate-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-08",
       "implementation_refs": [
         "core/sitina/conversation/context.py",
+        "core/sitina/orchestrator/checkpoint_resume.py",
+        "core/sitina/orchestrator/true_multi_agent.py",
         "core/sitina/protocols/blackboard.py",
-        "core/sitina/protocols/blackboard_state.py"
+        "core/sitina/protocols/blackboard_state.py",
+        "core/sitina/protocols/handoffs.py"
       ],
-      "last_verified_commit": "4c2944e47d5376dcd4a9a1c5955833b327976d07",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
       "notes": [
-        "Phase 02 supplies the shared MVCC/conflict and deterministic stress evidence. H-08 remains FAIL until phase 05 proves Handoff interleaving and generation fencing against this same owner; no second MVCC implementation is permitted."
+        "Phase 02 remains the shared MVCC owner. Phase 04 proves an old Task attempt/fence cannot write Blackboard or submit Handoff after reclamation, while the current generation succeeds; production and restart paths call fenced submission."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Blackboard 冲突",
       "test_ids": [
         "tests.test_session_context_v1",
         "tests.test_handoff_protocol",
         "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b01_two_agents_same_version_only_one_commits_and_conflict_is_retryable",
-        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable"
+        "tests.optimization.test_blackboard_state_management.BlackboardStateManagementTests.test_b10_seeded_interleaving_crash_recovery_and_high_concurrency_are_repeatable",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h08_blackboard_interleaving_and_handoff_submission_reject_stale_task_fence"
       ]
     },
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-09",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/protocols/context_retention.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "Fact-reconstructable retention requires terminal run, elapsed frozen boundary, no legal/audit hold and no active reference before emitting exact CAS GC eligibility."
+      ],
+      "status": "PASS_NEW",
       "summary": "Blackboard 清理",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h09_terminal_retention_holds_references_gc_boundary_and_restart"
+      ]
     },
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-10",
       "implementation_refs": [
-        "core/sitina/conversation/context.py"
+        "core/sitina/protocols/handoff_contracts.py",
+        "core/sitina/security/redaction.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The shared redaction owner covers write/read/log/Handoff boundaries, Unicode-normalized nested fields, encoded/split secrets, email/phone PII and exact allowlists; sensitive Handoff persistence fails closed."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Blackboard 安全",
       "test_ids": [
         "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h10_write_read_log_handoff_redaction_handles_encoding_nesting_fragments_unicode_and_allowlist"
       ]
     },
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-11",
       "implementation_refs": [
-        "core/sitina/conversation/context.py"
+        "core/sitina/contracts/models.py",
+        "core/sitina/conversation/context_management.py",
+        "core/sitina/effects/budgets.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Controller/agent/tool/candidate/summary allocation is a pure derived plan over shared TokenBudget and the existing BudgetBundle owner; reclamation increases capacity without crossing the run ceiling."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "上下文 Token",
       "test_ids": [
         "tests.test_session_context_v1",
-        "tests.test_handoff_protocol"
+        "tests.test_handoff_protocol",
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h11_controller_agent_tool_candidate_summary_allocations_reclaim_without_ceiling_overrun"
       ]
     },
     {
       "domain": "Context/Handoff",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-04/gate-summary.json"
       ],
       "id": "H-12",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/conversation/context_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "f650ac7780d3e9d3eb3c6eff4a899a4d43179f99",
+      "notes": [
+        "A read-only rebuildable history index supports ACL-filtered cursor pagination and evidence targeting; it returns CAS references and explicitly never auto-injects retrieved history."
+      ],
+      "status": "PASS_NEW",
       "summary": "历史回溯",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_context_handoff_management.ContextHandoffManagementTests.test_h12_authorized_paginated_evidence_history_finds_early_context_without_auto_injection"
+      ]
     },
     {
       "domain": "Reliability",
