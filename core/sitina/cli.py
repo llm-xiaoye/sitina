@@ -16,6 +16,8 @@ from sitina.conversation import (
     route_decision_from_mapping,
     route_description,
 )
+from sitina.conversation.routing_policy import LatencyClass
+from sitina.conversation.suggestion import SuggestionEngine, SuggestionError
 from sitina.constants import REQUIRED_DIRS, SITINA_HOME
 from sitina.compatibility.feature_flags import FeatureActivationRegistry
 from sitina.evals import run_safety_eval
@@ -46,7 +48,7 @@ from sitina.orchestrator.maintenance import MaintenanceOps
 from sitina.orchestrator.observability_management import TraceQuery, TraceQueryEngine
 from sitina.orchestrator.parallel import ParallelCoordinator
 from sitina.orchestrator.performance_management import RuntimeCostMonitor
-from sitina.orchestrator.policy import WorkflowPolicyEngine
+from sitina.orchestrator.policy import TASK_TYPES, WorkflowPolicyEngine
 from sitina.orchestrator.proposals import ProposalManager
 from sitina.orchestrator.replay import ReplayEngine
 from sitina.orchestrator.retry import RetryPolicy
@@ -1179,6 +1181,37 @@ def cmd_cost_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_suggest(args: argparse.Namespace) -> int:
+    try:
+        result = SuggestionEngine(SITINA_HOME).suggest(
+            " ".join(args.description),
+            mode=args.mode,
+            budget_tokens=args.budget_tokens,
+            sla_class=args.sla_class,
+            sla_remaining_ms=args.sla_remaining_ms,
+            context=args.context or "",
+            prior_mode=args.prior_mode,
+            prior_complexity=args.prior_complexity,
+            unfinished_goal=bool(args.unfinished_goal),
+            task_type_override=args.task_type,
+            risk_override=args.risk,
+            topology_override=args.topology,
+        )
+    except (SuggestionError, ValueError) as error:
+        print_json(
+            {
+                "schema": SuggestionEngine.SCHEMA,
+                "version": SuggestionEngine.VERSION,
+                "status": "configuration_error",
+                "reason": str(error),
+                "side_effects": {"provider_calls": 0, "network_calls": 0, "state_writes": 0},
+            }
+        )
+        return 2
+    print_json(result)
+    return 0
+
+
 def cmd_replay_diff(args: argparse.Namespace) -> int:
     replay = ReplayEngine(SITINA_HOME).replay(args.run_id, record=False)
     graph = TaskGraphRuntime(SITINA_HOME).load(args.run_id)
@@ -1975,6 +2008,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hard-limit-tokens", type=int, default=100000)
     p.add_argument("--forecast-additional-tokens", type=int, default=0)
     p.set_defaults(func=cmd_cost_status)
+
+    p = sub.add_parser("suggest", help="preview routing and team policy without Provider calls or side effects")
+    p.add_argument("description", nargs="+")
+    p.add_argument("--mode", choices=[item.value for item in ChatMode], default=ChatMode.AUTO.value)
+    p.add_argument("--budget-tokens", type=int)
+    p.add_argument("--sla-class", choices=[item.value for item in LatencyClass], default=LatencyClass.STANDARD.value)
+    p.add_argument("--sla-remaining-ms", type=int)
+    p.add_argument("--context")
+    p.add_argument("--prior-mode", choices=[ChatMode.FAST.value, ChatMode.MULTI.value])
+    p.add_argument("--prior-complexity", type=int, default=0)
+    p.add_argument("--unfinished-goal", action="store_true")
+    p.add_argument("--task-type", choices=sorted(TASK_TYPES))
+    p.add_argument("--risk", choices=["low", "medium", "high", "critical"])
+    p.add_argument("--topology", choices=["pipeline", "supervisor", "network", "hierarchy"])
+    p.set_defaults(func=cmd_suggest)
 
     p = sub.add_parser("goal")
     goal_sub = p.add_subparsers(dest="goal_cmd", required=True)

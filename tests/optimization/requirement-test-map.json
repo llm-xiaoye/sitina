@@ -1039,10 +1039,12 @@
       ]
     },
     "X-19": {
-      "assertion": "选型决策工具: exact requirement inventory.",
+      "assertion": "选型决策工具: the versioned suggest command reuses router, risk, budget, SLA and workflow/team policy across required scenarios, exposes estimates and overrides, and performs no Provider calls or state writes while failing diagnostically on invalid configuration.",
       "evidence_kind": "behavior",
       "test_ids": [
-        "tests.optimization.test_ledger_coverage.OptimizationLedgerCoverageTests.test_exact_requirement_inventory"
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_simple_code_architecture_risk_mixed_followup_budget_sla_unknown_and_policy_alignment",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_cli_is_provider_free_side_effect_free_and_exposes_friendly_versioned_overrides",
+        "tests.optimization.test_suggestion_management.SuggestionManagementTests.test_x19_configuration_error_is_diagnostic_and_does_not_fall_back_or_write"
       ]
     }
   },

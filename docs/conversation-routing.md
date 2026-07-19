@@ -45,8 +45,9 @@ session is in MULTI.
 `/mode` shows the current session mode and the previous actual route with its
 reasons. `/retry` is available only after the last turn failed or was cancelled;
 a successful turn clears it. `/new` clears successful history and retry state
-while preserving the mode. Context is process-local and bounded to six
-successful turns and 12,000 characters.
+while preserving the mode. Context is process-local and bounded only by the
+token-aware limits in
+`config/context_policy.json`; no separate character constant is authoritative.
 
 Provider failures never trigger a hidden retry or Provider switch. The UI
 reports authentication, Keychain, network, quota/rate-limit, schema, and
@@ -62,3 +63,20 @@ Runtime activation binds all conversation source files and the router config by
 hash. Chat never uses Claude Code, Legacy SQLite, conversation JSON/log files,
 shell/Git mutation, remote MCP, publication, Memory acceptance, or other
 external business effects.
+
+## Suggestion preview
+
+`sitina suggest <task description>` runs this same local `ConversationRouter`
+with its versioned complexity, domain, risk, budget, SLA, and history policy,
+then previews the actual workflow/team policy. It does not use the optional
+model classifier: `side_effects.provider_calls`, `network_calls`, and
+`state_writes` remain zero. The reported route and decision path must therefore
+match a direct router decision for the same description, context, overrides,
+budget, and SLA.
+
+The command also reports task type, proposal-round/worktree decisions,
+team/topology, confidence, assumptions, risks, and override parameters. Its
+token/time intervals are explicitly versioned estimates. Provider response
+usage is authoritative only after a real call and is never synthesized from
+these ranges. Budget or SLA constraints are returned as a diagnostic
+`constraint_blocked` result rather than weakened safety policy.

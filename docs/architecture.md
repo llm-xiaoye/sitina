@@ -44,6 +44,11 @@ core/sitina/
 
 ## State Model
 
+In an activated B+ runtime, the Canonical Journal is the event authority,
+encrypted CAS is the durable body store, and Projection SQLite is a disposable
+query view. The Legacy snapshot description below applies only to isolated
+compatibility fixtures; it is not permission to restore a Legacy writer.
+
 `run_state.json` is the current state snapshot. Harness-owned fields include:
 
 - `phase`
@@ -58,6 +63,25 @@ core/sitina/
 
 Agent outputs are advisory; the harness decides state transitions and final
 verification.
+
+## Read-only decision preview
+
+`SuggestionEngine` composes the production `ConversationRouter`, structured
+complexity/risk signals, routing budget/SLA policy, `WorkflowPolicyEngine`, and
+`DynamicTeamBuilder.preview_team`. The preview method shares the real
+capability and workflow selection logic but deliberately omits Journal, audit,
+SQLite, Provider, network, tool, and filesystem writes. Configuration errors
+fail closed. Its versioned result includes a human-readable explanation and
+labels token/time intervals as estimates; Provider-originated usage remains a
+separate post-call accounting fact.
+
+Storage-format migration, rollback, and writer feature activation are not
+routing decisions. Requested feature flags become authority only after the
+compatible-lease and Journal activation protocol described in
+`docs/storage-v2-operations.md`; rollback cannot cross an activated first-write
+floor. The phase-15 live acceptance is similarly separate: no Provider call is
+allowed until an isolated no-paid gate passes and the exact physical-call,
+token, output, and cost envelope receives explicit approval.
 
 ## Logging Model
 

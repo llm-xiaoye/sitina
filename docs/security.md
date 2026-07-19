@@ -103,6 +103,20 @@ reported as a real MCP execution result.
 Mock mode is deterministic and local. Live mode is opt-in and depends on local
 provider profiles and credentials.
 
+`sitina suggest` is stricter than mock execution: it performs no Provider,
+network, tool, Journal, audit, SQLite, or filesystem write at all. It reads the
+versioned routing/workflow/team policies and returns `configuration_error` when
+they cannot be validated. Suggested token/time ranges are estimates and must
+never be copied into fields that claim Provider-reported usage.
+
+The optimization live-acceptance default is deny. `SITINA_LIVE_TEST=1` alone
+does not authorize the phase-15 billable gate. Before a call, the isolated
+preflight must disclose the exact prompt, profile/model, maximum physical
+calls, per-call output-token ceiling, total-token ceiling, and total-cost
+ceiling. Only explicit approval for that envelope, or a complete one-time
+`SITINA_LIVE_ACCEPTANCE_APPROVED=1` envelope, authorizes sending. Missing or
+unreconciled Provider usage is `FAIL/UNSETTLED`, never estimated into success.
+
 Provider health can mark profiles temporarily unavailable. Agent routing should
 prefer healthy profiles. Coder fallback is more restrictive than controller,
 planner, tester, or reviewer fallback because coder can create file-write

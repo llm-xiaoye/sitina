@@ -31,9 +31,9 @@ one logical Provider call, and one physical send. `MULTI` performs goal
 analysis, at least two independent candidate Proposals, and independent
 review before displaying the winner. Once a global Sitina Skill or Plugin is
 active, chat uses Sitina's autonomous multi-turn tool loop; read-only tools run
-automatically and risky tools request approval. Context is limited to six
-successful turns and 12,000 characters and exists only in the current terminal
-process.
+automatically and risky tools request approval. Context is bounded by the
+token and recent-turn limits in `config/context_policy.json`; it exists only in
+the current terminal process.
 
 Detailed docs:
 
@@ -56,6 +56,7 @@ Useful operational commands:
 ```bash
 sitina provider status
 sitina provider status --check
+sitina suggest "review this architecture and recommend a safe implementation plan"
 sitina obsidian index
 sitina obsidian search "query"
 sitina worktree prepare --repo <repo> --run-id <run_id>
@@ -103,3 +104,18 @@ sitina approve-run <run_id>
 Production chat does not retry automatically or fall back to another Provider.
 Authentication, Keychain, network, quota, schema, and terminal failures remain
 failed turns and can be retried explicitly with `/retry`.
+
+`sitina suggest <task>` is a read-only, Provider-free preview of the real
+router plus workflow/team policy. It reports the recommended task type, route,
+proposal round, worktree, team/topology, and explicit token/time *estimates*;
+those estimates are never Provider usage or precise work-time promises. Use
+`--budget-tokens`, `--sla-class`, `--sla-remaining-ms`, `--risk`,
+`--task-type`, or `--topology` to make assumptions explicit.
+
+Safe defaults keep live Provider tests off, external side effects denied,
+format write feature flags disabled until Journal activation, and storage
+migration/rollback behind their runbooks and approvals. The phase-15 billable
+gate must first pass the no-paid cumulative gate and publish its physical-call,
+token, and cost ceilings; only an explicit approval for that exact run (or a
+complete one-time `SITINA_LIVE_ACCEPTANCE_APPROVED=1` budget envelope) may
+enable live calls. See `docs/usage.md` and `docs/storage-v2-operations.md`.

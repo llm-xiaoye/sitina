@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -16,6 +17,7 @@ from sitina.conversation.routing_policy import (
     LatencyClass,
     LatencyPolicy,
     ReplaceableIntentClassifier,
+    RISK_ORDER,
     RouteObservation,
     RoutingBudgetPlanner,
     RoutingHistoryState,
@@ -186,6 +188,7 @@ class ConversationRouter:
         message: str,
         context: ConversationContextSnapshot,
         history: RoutingHistoryState | None,
+        risk_override: str | None,
     ) -> str:
         return hashlib.sha256(
             json.dumps(
@@ -195,6 +198,7 @@ class ConversationRouter:
                     "routing_policy_version": self.routing_policy_version,
                     "requested_mode": mode.value,
                     "message": message.strip(),
+                    "risk_override": risk_override,
                     "bounded_context_hash": context.context_hash,
                     "history": (
                         {
@@ -223,11 +227,14 @@ class ConversationRouter:
         inherited_latency_class: LatencyClass | None = None,
         latency_started_at: float | None = None,
         subject_id: str | None = None,
+        risk_override: str | None = None,
     ) -> RouteDecision:
         requested = mode_from_value(mode)
         if not isinstance(message, str) or not message.strip():
             raise ConversationRouterError("conversation routing requires a non-empty message")
-        input_hash = self._input_hash(requested, message, context, history)
+        if risk_override is not None and risk_override not in {"low", "medium", "high", "critical"}:
+            raise ConversationRouterError("routing risk override is invalid")
+        input_hash = self._input_hash(requested, message, context, history, risk_override)
         text = normalize_intent_text(message)
         profile = self.domains.select(message)
         signals = RoutingSignals.infer(
@@ -236,6 +243,8 @@ class ConversationRouter:
             prior_complexity_score=history.prior_complexity_score if history else 0,
             inherit_history=history.can_inherit if history else False,
         )
+        if risk_override is not None and RISK_ORDER[risk_override] > RISK_ORDER[signals.risk]:
+            signals = replace(signals, risk=risk_override)
         complexity = self.complexity.assess(signals)
         threshold = profile.multi_threshold / 100
         threshold_ppm = profile.multi_threshold * 10_000

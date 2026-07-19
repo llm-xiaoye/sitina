@@ -58,6 +58,14 @@ secret scan verifier reports counts plus path/field metadata only.
 `WorkflowPolicyEngine` owns the allowed task types and mandatory gates.
 It compiles controller output into an `ExecutionPlan`.
 
+`sitina suggest` is the read-only preview entrypoint for that same policy. It
+uses `DynamicTeamBuilder.preview_team`, which shares capability, risk-ceiling,
+required/optional/forbidden-agent, reviewer, tester, proposer, and evaluator
+selection with live execution but records no event or audit. The suggested
+topology comes from `config/orchestration_policy.json`; proposal-round and
+worktree booleans come from proposal/workflow policy. Overrides are reported in
+the result and never silently weaken a high-risk gate.
+
 `TaskGraphRuntime` owns graph creation, graph transitions, contract reference
 attachment, handoff requirement checks, dynamic arbitration nodes, and blocked
 lease-holder nodes.

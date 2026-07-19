@@ -120,6 +120,57 @@ class DynamicTeamBuilder:
         required_gates: list[str] | None = None,
         requested_agents: list[str] | None = None,
     ) -> TeamSelection:
+        selection = self.preview_team(
+            run_id=run_id,
+            task_id=task_id,
+            task_type=task_type,
+            risk_level=risk_level,
+            requested_tools=requested_tools,
+            target_paths=target_paths,
+            required_gates=required_gates,
+            requested_agents=requested_agents,
+            created_at=iso_now(),
+        )
+        registry = self.registry.entries
+        requested_tools = requested_tools or []
+        required_gates = required_gates or list(self.policy.task_policies.get(task_type, {}).get("mandatory_gates", []))
+        registry_payload = {"registry_hash": sha256_text(stable_json({k: v.model_dump() for k, v in registry.items()})), "agent_count": len(registry)}
+        self.ledger.record("agent_capability_registered", run_id=run_id, task_id=task_id, task_type=task_type, status="ok", reason="agent capability registry loaded", payload=registry_payload)
+        self.ledger.record(
+            "agent_team_candidate_selected",
+            run_id=run_id,
+            task_id=task_id,
+            task_type=task_type,
+            agent_id="controller",
+            status="ok",
+            reason="dynamic team selected from capability registry",
+            payload=selection.model_dump() | {"requested_tools": requested_tools, "target_paths": target_paths or [], "required_gates": required_gates},
+        )
+        self.store.record_audit(
+            "agent_team_candidate_selected",
+            selection.model_dump(),
+            run_id=run_id,
+            trace_id=f"{run_id}:team:{task_id}",
+            agent="controller",
+            exit_status="ok",
+            output_hash=sha256_text(stable_json(selection.model_dump())),
+        )
+        return selection
+
+    def preview_team(
+        self,
+        *,
+        run_id: str,
+        task_id: str,
+        task_type: str,
+        risk_level: str,
+        requested_tools: list[str] | None = None,
+        target_paths: list[str] | None = None,
+        required_gates: list[str] | None = None,
+        requested_agents: list[str] | None = None,
+        created_at: str = "estimate",
+    ) -> TeamSelection:
+        """Resolve the real team policy without recording events or audits."""
         risk: CapabilityRisk = risk_level if risk_level in RISK_ORDER else "low"  # type: ignore[assignment]
         policy = self.policy.task_policies.get(task_type, {})
         registry = self.registry.entries
@@ -182,28 +233,7 @@ class DynamicTeamBuilder:
             evaluator_set=sorted(set(evaluator_set)),
             excluded=excluded,
             selected_agents=sorted(set(selected)),
-            created_at=iso_now(),
-        )
-        registry_payload = {"registry_hash": sha256_text(stable_json({k: v.model_dump() for k, v in registry.items()})), "agent_count": len(registry)}
-        self.ledger.record("agent_capability_registered", run_id=run_id, task_id=task_id, task_type=task_type, status="ok", reason="agent capability registry loaded", payload=registry_payload)
-        self.ledger.record(
-            "agent_team_candidate_selected",
-            run_id=run_id,
-            task_id=task_id,
-            task_type=task_type,
-            agent_id="controller",
-            status="ok",
-            reason="dynamic team selected from capability registry",
-            payload=selection.model_dump() | {"requested_tools": requested_tools, "target_paths": target_paths or [], "required_gates": required_gates},
-        )
-        self.store.record_audit(
-            "agent_team_candidate_selected",
-            selection.model_dump(),
-            run_id=run_id,
-            trace_id=f"{run_id}:team:{task_id}",
-            agent="controller",
-            exit_status="ok",
-            output_hash=sha256_text(stable_json(selection.model_dump())),
+            created_at=created_at,
         )
         return selection
 

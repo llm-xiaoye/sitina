@@ -38,6 +38,27 @@ Pure upcasters are registered for Journal Event V1, Run Checkpoint V1, Run
 Evidence V1, and Agent Context Manifest V1. They use no clock, filesystem,
 network, Projection, or Provider state and never rewrite stored bytes.
 
+Operationally, keep migration and disaster recovery distinct:
+
+- `sitina storage migration-plan` is a read-only plan; it does not migrate.
+- Writer feature flags in `config/feature_flags.json` are requests, not
+  authority. Compatible runtime leases plus committed prepare/activate events
+  are required before first write.
+- `sitina backup`/the canonical backup tooling captures the authenticated
+  frontier and reachable CAS closure. Restore always targets an isolated root
+  first and verifies Journal, CAS, checkpoint, and Projection rebuild before a
+  separately approved cutover.
+- Rollback may select a compatible prior runtime or Projection generation but
+  may not cross a committed format first-write floor or re-enable Legacy
+  writers. Destructive repair, GC, archive, and cutover remain approval-gated.
+
+The phase-15 Provider acceptance does not activate features, migrate storage,
+or exercise recovery side effects. Run its no-paid cumulative command from
+`docs/usage.md` first; the later billable gate uses a separate isolated home,
+read-only prompts, explicit physical-call/token/cost ceilings, and one-time
+approval. Suggested token ranges are estimates; only usage parsed from raw
+Provider responses is live accounting evidence.
+
 ## Journal fast start
 
 Rollover produces an immutable sealed segment, signed certificate, Merkle block

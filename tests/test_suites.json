@@ -29,7 +29,8 @@
         "tests/optimization/test_security_management.py",
         "tests/optimization/test_shared_contracts.py",
         "tests/optimization/test_source_manifest_coverage.py",
-        "tests/optimization/test_system_evaluation.py"
+        "tests/optimization/test_system_evaluation.py",
+        "tests/optimization/test_suggestion_management.py"
       ],
       "timeout_seconds": 300,
       "expected_duration": "fast",
