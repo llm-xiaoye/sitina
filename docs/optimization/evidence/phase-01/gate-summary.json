@@ -1,0 +1,53 @@
+{
+  "business_requirement_status_changes": 0,
+  "checkpoint": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+  "contract_acceptance": {
+    "contract_model_count": 13,
+    "dedicated_test_count": 12,
+    "feature_flag": "shared_contracts_v1_write",
+    "feature_flag_default": false,
+    "migration_policy": "deterministic-v0-to-v1",
+    "ownership_role": "validation-and-interchange-only",
+    "unknown_field_strategy": "reject"
+  },
+  "full_gate": {
+    "external_attempt_count": 0,
+    "live_provider_enabled": false,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "duration_seconds": 1.435059,
+        "exit_code": 0,
+        "name": "config_validate",
+        "skipped_count": 0,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
+        "test_count": null,
+        "timed_out": false
+      },
+      {
+        "duration_seconds": 109.646733,
+        "exit_code": 0,
+        "name": "cumulative_tests",
+        "skipped_count": 21,
+        "stdout_sha256": "d04195cedb53f6286237caef1f5326b9d3641a28910b365a2ca026ba12b1c607",
+        "test_count": 943,
+        "timed_out": false
+      }
+    ],
+    "source_commit": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+    "status": "PASS",
+    "test_file_count": 158
+  },
+  "notes": [
+    "The complete checked-in test inventory was discovered by scripts/optimization-gate --all-tests.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remains disabled.",
+    "No business optimization ID was promoted in phase 01; the contracts are dependencies for owning phases 02 through 14."
+  ],
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-01-preflight.json",
+    "external:output/optimization-bootstrap/phase-01-targeted.json",
+    "external:output/optimization-bootstrap/phase-01-full-precheckpoint.json",
+    "external:output/optimization-bootstrap/phase-01-full-gate.json"
+  ],
+  "schema": "SITINA_OPTIMIZATION_PHASE01_GATE_EVIDENCE_V1"
+}

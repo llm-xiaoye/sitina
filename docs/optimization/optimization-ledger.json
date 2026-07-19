@@ -12,6 +12,14 @@
       ],
       "name": "phase-00-baseline-r1",
       "phase": "00"
+    },
+    {
+      "commit": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-01/gate-summary.json"
+      ],
+      "name": "phase-01-contracts",
+      "phase": "01"
     }
   ],
   "contract_dependency_by_domain": {
@@ -92,7 +100,7 @@
       "token-usage"
     ]
   },
-  "current_phase": "01",
+  "current_phase": "02",
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
     {
@@ -104,16 +112,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-01/gate-summary.json"
+      ],
       "id": "01",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "02",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -209,6 +219,10 @@
     "phase": "01",
     "role": "validation-and-interchange-only",
     "status": "READY_FOR_CONSUMERS",
+    "last_verified_commit": "834502aadfbbff15f413f65859b1e2f22eaa74e9",
+    "evidence_refs": [
+      "docs/optimization/evidence/phase-01/gate-summary.json"
+    ],
     "test_ids": [
       "tests.optimization.test_shared_contracts"
     ],
