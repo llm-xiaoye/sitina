@@ -377,7 +377,7 @@ class CacheBinding(StrictModel):
 class CacheLookup(StrictModel):
     hit: bool
     response: dict[str, Any] | None = None
-    usage_source: Literal["cache_hit", "new_physical_call_required"]
+    usage_source: Literal["cache_hit", "new_physical_call", "new_physical_call_required"]
     cache_hit_count: int
     new_physical_call_count: int
 
@@ -397,7 +397,7 @@ class SecureProviderCache:
         self._cipher = AESGCM(encryption_key)
         self.default_ttl_seconds = default_ttl_seconds
         self._entries: dict[str, _EncryptedCacheEntry] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     @staticmethod
     def _key(binding: CacheBinding) -> str:
@@ -458,6 +458,38 @@ class SecureProviderCache:
             for key in selected:
                 self._entries.pop(key, None)
             return len(selected)
+
+    def get_or_compute(
+        self,
+        binding: CacheBinding,
+        producer: Callable[[], Mapping[str, Any]],
+        *,
+        deterministic: bool,
+        side_effect_free: bool,
+        now_epoch: int,
+    ) -> CacheLookup:
+        if not deterministic or not side_effect_free:
+            raise ValueError("concurrent cache fill requires a deterministic side-effect-free request")
+        with self._lock:
+            existing = self.get(binding, now_epoch=now_epoch)
+            if existing.hit:
+                return existing
+            response = dict(producer())
+            self.put(
+                binding,
+                response,
+                deterministic=True,
+                side_effect_free=True,
+                response_complete=True,
+                now_epoch=now_epoch,
+            )
+            return CacheLookup(
+                hit=False,
+                response=response,
+                usage_source="new_physical_call",
+                cache_hit_count=0,
+                new_physical_call_count=1,
+            )
 
     def encrypted_fingerprints(self) -> tuple[str, ...]:
         with self._lock:
@@ -598,6 +630,7 @@ class CriticalPathAnalyzer:
 class BenchmarkObservation(StrictModel):
     duration_ns: int = Field(ge=0)
     physical_calls: int = Field(ge=0)
+    resource_units: int = Field(ge=0)
     output_hash: str
     error_code: str | None = None
 
@@ -611,16 +644,21 @@ class BenchmarkReport(StrictModel):
     sample_count: int
     p50_duration_ns: int
     p95_duration_ns: int
+    total_duration_ns: int
+    throughput_per_second_milli: int
     error_count: int
     error_rate_ppm: int
     physical_call_count: int
+    peak_resource_units: int
     output_hashes: tuple[str, ...]
 
 
 class BenchmarkComparison(StrictModel):
     output_equivalent: bool
     latency_improved: bool
+    throughput_improved: bool
     physical_calls_not_increased: bool
+    resources_not_increased: bool
     accepted: bool
 
 
@@ -644,7 +682,7 @@ class RepeatableBenchmark:
     def measure(
         self,
         label: str,
-        operation: Callable[[], tuple[Any, int]],
+        operation: Callable[[], tuple[Any, int] | tuple[Any, int, int]],
         *,
         warmup_iterations: int,
         measurement_iterations: int,
@@ -659,22 +697,30 @@ class RepeatableBenchmark:
         for _ in range(measurement_iterations):
             started = clock_ns()
             try:
-                output, physical_calls = operation()
+                operation_result = operation()
+                if len(operation_result) == 2:
+                    output, physical_calls = operation_result
+                    resource_units = physical_calls
+                else:
+                    output, physical_calls, resource_units = operation_result
                 error_code = None
                 output_hash = sha256_text(stable_json(output))
             except Exception as exc:  # noqa: BLE001 - benchmark records controlled operation failure
                 physical_calls = int(getattr(exc, "physical_calls", 0))
+                resource_units = int(getattr(exc, "resource_units", 0))
                 error_code = type(exc).__name__
                 output_hash = sha256_text(stable_json({"error_code": error_code}))
             observations.append(
                 BenchmarkObservation(
                     duration_ns=max(0, clock_ns() - started),
                     physical_calls=physical_calls,
+                    resource_units=resource_units,
                     output_hash=output_hash,
                     error_code=error_code,
                 )
             )
         durations = [item.duration_ns for item in observations]
+        total_duration = sum(durations)
         errors = sum(item.error_code is not None for item in observations)
         return BenchmarkReport(
             label=label,
@@ -684,9 +730,12 @@ class RepeatableBenchmark:
             sample_count=len(observations),
             p50_duration_ns=self._quantile(durations, 50),
             p95_duration_ns=self._quantile(durations, 95),
+            total_duration_ns=total_duration,
+            throughput_per_second_milli=(len(observations) * 1_000_000_000_000 // total_duration) if total_duration else 0,
             error_count=errors,
             error_rate_ppm=errors * 1_000_000 // len(observations),
             physical_call_count=sum(item.physical_calls for item in observations),
+            peak_resource_units=max((item.resource_units for item in observations), default=0),
             output_hashes=tuple(sorted(set(item.output_hash for item in observations))),
         )
 
@@ -698,11 +747,15 @@ class RepeatableBenchmark:
             and candidate.p95_duration_ns < baseline.p95_duration_ns
         )
         calls = candidate.physical_call_count <= baseline.physical_call_count
+        throughput = candidate.throughput_per_second_milli > baseline.throughput_per_second_milli
+        resources = candidate.peak_resource_units <= baseline.peak_resource_units
         return BenchmarkComparison(
             output_equivalent=equivalent,
             latency_improved=latency,
+            throughput_improved=throughput,
             physical_calls_not_increased=calls,
-            accepted=equivalent and latency and calls,
+            resources_not_increased=resources,
+            accepted=equivalent and latency and throughput and calls and resources,
         )
 
 

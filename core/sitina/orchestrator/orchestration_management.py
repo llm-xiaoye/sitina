@@ -756,6 +756,9 @@ class CollaborationScenarioHarness:
         "timeout": ("timed_out", "TASK_DEADLINE"),
         "cancellation": ("cancelled", "USER_CANCELLED"),
         "recovery": ("completed", "CHECKPOINT_RECOVERED"),
+        "restart": ("completed", "RESTART_RECOVERED"),
+        "ask-user": ("blocked", "ASK_USER_REQUIRED"),
+        "partial-success": ("completed", "PARTIAL_SUCCESS"),
         "concurrent-write": ("blocked", "WRITE_CONFLICT"),
         "resource-exhaustion": ("blocked", "RESOURCE_EXHAUSTED"),
     }

@@ -6,6 +6,8 @@
     {
       "id": "zh-simple-greeting",
       "language": "zh-Hans",
+      "domain": "general",
+      "risk": "low",
       "message": "你好",
       "expected_route": "FAST",
       "allowed_routes": ["FAST"],
@@ -14,6 +16,8 @@
     {
       "id": "zh-simple-definition",
       "language": "zh-Hans",
+      "domain": "software",
+      "risk": "low",
       "message": "什么是 MVCC？",
       "expected_route": "FAST",
       "allowed_routes": ["FAST"],
@@ -22,6 +26,8 @@
     {
       "id": "zh-comparison",
       "language": "zh-Hans",
+      "domain": "architecture",
+      "risk": "medium",
       "message": "比较三种事件存储方案并给出迁移建议",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -30,6 +36,8 @@
     {
       "id": "zh-traditional-review",
       "language": "zh-Hant",
+      "domain": "architecture",
+      "risk": "medium",
       "message": "請對這個架構做獨立審閱與交叉驗證",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -38,6 +46,8 @@
     {
       "id": "zh-spaced-punctuation",
       "language": "zh-Hans",
+      "domain": "security",
+      "risk": "high",
       "message": "请 做 安 全 审 计！！！",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -46,6 +56,8 @@
     {
       "id": "mixed-case-comparison",
       "language": "mixed",
+      "domain": "software",
+      "risk": "medium",
       "message": "PLEASE 比較 API v1 VS v2，并给出 trade-off",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -54,6 +66,8 @@
     {
       "id": "en-simple-definition",
       "language": "en",
+      "domain": "software",
+      "risk": "low",
       "message": "Define MVCC in one paragraph.",
       "expected_route": "FAST",
       "allowed_routes": ["FAST"],
@@ -62,6 +76,8 @@
     {
       "id": "en-security-audit",
       "language": "en",
+      "domain": "security",
+      "risk": "high",
       "message": "Perform a SECURITY AUDIT and cross-check the evidence.",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -70,6 +86,8 @@
     {
       "id": "en-planning",
       "language": "en",
+      "domain": "migration",
+      "risk": "medium",
       "message": "Create a complete migration plan with tests and rollback documentation.",
       "expected_route": "MULTI",
       "allowed_routes": ["MULTI"],
@@ -78,6 +96,8 @@
     {
       "id": "zh-boundary-policy-diff",
       "language": "zh-Hans",
+      "domain": "software",
+      "risk": "medium",
       "message": "不确定，请修改文件",
       "expected_route": "FAST",
       "allowed_routes": ["FAST", "MULTI"],

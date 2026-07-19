@@ -24,10 +24,12 @@
         "tests/optimization/test_agent_prompt_contracts.py",
         "tests/optimization/test_proposal_review_management.py",
         "tests/optimization/test_reliability_management.py",
+        "tests/optimization/test_requirement_test_map.py",
         "tests/optimization/test_routing_management.py",
         "tests/optimization/test_security_management.py",
         "tests/optimization/test_shared_contracts.py",
-        "tests/optimization/test_source_manifest_coverage.py"
+        "tests/optimization/test_source_manifest_coverage.py",
+        "tests/optimization/test_system_evaluation.py"
       ],
       "timeout_seconds": 300,
       "expected_duration": "fast",
@@ -343,6 +345,15 @@
       ],
       "timeout_seconds": 1800,
       "expected_duration": "medium",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "DISPOSABLE_HOME_ONLY"
+    },
+    "optimization_performance": {
+      "selectors": [
+        "tests/benchmarks/test_system_performance_benchmarks.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "benchmark",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY"
     },
