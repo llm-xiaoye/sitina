@@ -79,6 +79,15 @@ class TaskGraphNode(StrictModel):
     mandatory: bool = True
     status: TaskGraphStatus = "pending"
     input_refs: list[str] = Field(default_factory=list)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    owner_capability: str | None = None
+    risk_level: Literal["low", "medium", "high", "critical"] = "low"
+    token_budget: int | None = Field(default=None, gt=0)
+    deadline: str | None = None
+    completion_criteria: list[str] = Field(default_factory=list)
+    resource_claims: list[str] = Field(default_factory=list)
+    dependency_kinds: dict[str, Literal["required", "optional", "compensatable"]] = Field(default_factory=dict)
+    priority: int = 0
     artifact_refs: list[str] = Field(default_factory=list)
     approved_scope_hash: str | None = None
     patch_id: str | None = None

@@ -18,6 +18,7 @@
         "tests/optimization/test_blackboard_state_management.py",
         "tests/optimization/test_context_handoff_management.py",
         "tests/optimization/test_memory_management.py",
+        "tests/optimization/test_orchestration_management.py",
         "tests/optimization/test_reliability_management.py",
         "tests/optimization/test_routing_management.py",
         "tests/optimization/test_security_management.py",
