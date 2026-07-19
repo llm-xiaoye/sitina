@@ -24,6 +24,8 @@ class ProviderTimeoutConfig:
     read_timeout: float = 120.0
     total_request_timeout: float = 120.0
     retry_backoff_seconds: float = 1.0
+    retry_max_backoff_seconds: float = 60.0
+    retry_jitter_ratio: float = 0.2
     max_retries: int = 1
     run_deadline: float = 600.0
 
@@ -42,12 +44,21 @@ class ProviderTimeoutConfig:
             except (TypeError, ValueError):
                 return default
 
+        def bounded_ratio(key: str, default: float) -> float:
+            try:
+                value = float(config.get(key, default))
+            except (TypeError, ValueError):
+                return default
+            return value if 0.0 <= value <= 1.0 else default
+
         read_timeout = positive_float("read_timeout_seconds", 120.0)
         return cls(
             connect_timeout=positive_float("connect_timeout_seconds", 10.0),
             read_timeout=read_timeout,
             total_request_timeout=positive_float("total_request_timeout_seconds", read_timeout),
             retry_backoff_seconds=positive_float("retry_backoff_seconds", 1.0),
+            retry_max_backoff_seconds=positive_float("retry_max_backoff_seconds", 60.0),
+            retry_jitter_ratio=bounded_ratio("retry_jitter_ratio", 0.2),
             max_retries=non_negative_int("max_provider_retries", 1),
             run_deadline=positive_float("run_deadline_seconds", 600.0),
         )

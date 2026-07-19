@@ -74,6 +74,8 @@
     "total_request_timeout_seconds": 120,
     "run_deadline_seconds": 900,
     "retry_backoff_seconds": 1,
+    "retry_max_backoff_seconds": 60,
+    "retry_jitter_ratio": 0.2,
     "max_provider_retries": 1,
     "max_live_agents_per_run": 24,
     "max_live_agents_per_round": 8,

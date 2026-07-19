@@ -9,11 +9,11 @@ from typing import Any
 from sitina.constants import SITINA_HOME
 from sitina.orchestrator.ledger import RunLedger
 from sitina.orchestrator.timeout_support import ProviderTimeoutConfig, RunCancelledError, RunControlStore, RunDeadline, TimeoutError
+from sitina.reliability import RetrySchedule, RetryScheduler, RetrySettings
 from sitina.runners.agent_parser import AgentOutputParser, AgentParseError
 from sitina.runners.provider import (
     AnthropicCompatibleClient,
     ProviderAuthError,
-    ProviderCancelledError,
     ProviderCompletion,
     ProviderConnectTimeout,
     ProviderDeadlineExceeded,
@@ -22,7 +22,6 @@ from sitina.runners.provider import (
     ProviderPermissionError,
     ProviderRateLimitError,
     ProviderReadTimeout,
-    ProviderHTTPError,
     RoleProfileResolver,
     provider_identity_summary,
 )
@@ -631,6 +630,15 @@ class AgentRunner:
             raise AgentRunnerError(f"unknown provider_mode: {provider_mode}")
 
         config = ProviderTimeoutConfig.from_config(self.resolver.provider_config())
+        retry_scheduler = RetryScheduler(
+            RetrySettings(
+                max_retries=config.max_retries,
+                base_delay_seconds=config.retry_backoff_seconds,
+                max_delay_seconds=config.retry_max_backoff_seconds,
+                jitter_ratio=config.retry_jitter_ratio,
+            ),
+            sleep=time.sleep,
+        )
         deadline = run_deadline or (RunControlStore(self.home).deadline(run_id) if run_id else None)
         try:
             self._preflight_live_call(run_id=run_id, deadline=deadline)
@@ -727,22 +735,30 @@ class AgentRunner:
                     self.client.health.mark_unavailable(profile_name, str(exc), model=profile.model)
                 except Exception:
                     pass
-                if attempt >= config.max_retries:
-                    error = self._as_runner_error(agent, exc, retry_count=attempt)
-                    self._record_failure(run_id, task_id, task_type, agent, error)
-                    raise error from exc
-                retry_after = exc.retry_after_seconds if exc.retry_after_seconds is not None else config.retry_backoff_seconds * (attempt + 1)
-                remaining = deadline.remaining_seconds() if deadline else retry_after + 0.001
-                if retry_after >= remaining:
+                remaining = deadline.remaining_seconds() if deadline else config.total_request_timeout
+                schedule = retry_scheduler.plan(
+                    failure_type=exc.error_type,
+                    failed_attempt=attempt + 1,
+                    remaining_seconds=remaining,
+                    retry_after_seconds=exc.retry_after_seconds,
+                    status_code=exc.status_code,
+                    jitter_seed=logical_call_id,
+                )
+                self._record_retry(run_id, task_id, task_type, agent, schedule)
+                if schedule.blocked_by_deadline:
                     error = AgentRunnerError(
                         f"{agent} rate-limit retry would exceed run deadline",
                         error_type="run_deadline_exceeded",
-                        details={"retry_count": attempt + 1, "retry_after_seconds": retry_after},
+                        details={"retry_count": attempt + 1, "retry_after_seconds": schedule.delay_seconds},
                     )
                     self._record_failure(run_id, task_id, task_type, agent, error)
                     raise error from exc
-                self._record_retry(run_id, task_id, task_type, agent, attempt + 1, retry_after)
-                time.sleep(min(retry_after, max(0.0, remaining)))
+                if not schedule.should_retry:
+                    error = self._as_runner_error(agent, exc, retry_count=attempt)
+                    self._record_failure(run_id, task_id, task_type, agent, error)
+                    raise error from exc
+                retry_scheduler.wait(schedule)
+                continue
             except ProviderError as exc:
                 self._record_failed_http_attempt(run_id, task_id, task_type, agent, logical_call_id, attempt_id, attempt + 1, attempt_started_at, attempt_started_monotonic, exc, profile_name, profile.model if profile else None)
                 try:
@@ -751,17 +767,19 @@ class AgentRunner:
                     pass
                 if isinstance(exc, ProviderReadTimeout) and deadline and deadline.is_exceeded():
                     exc = ProviderDeadlineExceeded("run deadline exceeded during provider request")
-                retryable_transport = (
-                    not isinstance(exc, (ProviderAuthError, ProviderPermissionError, ProviderMalformedResponse, ProviderCancelledError, ProviderDeadlineExceeded))
-                    and (not isinstance(exc, ProviderHTTPError) or exc.status_code >= 500)
+                remaining = deadline.remaining_seconds() if deadline else config.total_request_timeout
+                schedule = retry_scheduler.plan(
+                    failure_type=getattr(exc, "error_type", type(exc).__name__),
+                    failed_attempt=attempt + 1,
+                    remaining_seconds=remaining,
+                    retry_after_seconds=getattr(exc, "retry_after_seconds", None),
+                    status_code=getattr(exc, "status_code", None),
+                    jitter_seed=logical_call_id,
                 )
-                if retryable_transport and attempt < config.max_retries:
-                    retry_after = config.retry_backoff_seconds * (attempt + 1)
-                    remaining = deadline.remaining_seconds() if deadline else retry_after + 0.001
-                    if retry_after < remaining:
-                        self._record_retry(run_id, task_id, task_type, agent, attempt + 1, retry_after)
-                        time.sleep(min(retry_after, max(0.0, remaining)))
-                        continue
+                self._record_retry(run_id, task_id, task_type, agent, schedule)
+                if schedule.should_retry:
+                    retry_scheduler.wait(schedule)
+                    continue
                 error = self._as_runner_error(agent, exc)
                 self._record_failure(run_id, task_id, task_type, agent, error)
                 raise error from exc
@@ -772,11 +790,16 @@ class AgentRunner:
                 raise error from exc
             except Exception as exc:  # noqa: BLE001
                 self._record_failed_http_attempt(run_id, task_id, task_type, agent, logical_call_id, attempt_id, attempt + 1, attempt_started_at, attempt_started_monotonic, exc, profile_name, profile.model if profile else None)
-                retry_after = config.retry_backoff_seconds * (attempt + 1)
-                remaining = deadline.remaining_seconds() if deadline else retry_after + 0.001
-                if attempt < config.max_retries and retry_after < remaining:
-                    self._record_retry(run_id, task_id, task_type, agent, attempt + 1, retry_after)
-                    time.sleep(min(retry_after, max(0.0, remaining)))
+                remaining = deadline.remaining_seconds() if deadline else config.total_request_timeout
+                schedule = retry_scheduler.plan(
+                    failure_type=type(exc).__name__,
+                    failed_attempt=attempt + 1,
+                    remaining_seconds=remaining,
+                    jitter_seed=logical_call_id,
+                )
+                self._record_retry(run_id, task_id, task_type, agent, schedule)
+                if schedule.should_retry:
+                    retry_scheduler.wait(schedule)
                     continue
                 error = AgentRunnerError(
                     f"{agent} live provider transport failure: {redact_text(str(exc))[:500]}",
@@ -1094,18 +1117,24 @@ class AgentRunner:
             details["retry_after_seconds"] = exc.retry_after_seconds
         return AgentRunnerError(f"{agent} live provider failure: {redact_text(str(exc))[:500]}", error_type=error_type, details=details)
 
-    def _record_retry(self, run_id: str | None, task_id: str, task_type: str, agent: str, retry_count: int, retry_after_seconds: float) -> None:
+    def _record_retry(self, run_id: str | None, task_id: str, task_type: str, agent: str, schedule: RetrySchedule) -> None:
         if not run_id:
             return
         RunLedger(self.home).record(
-            "provider_retry_scheduled",
+            "provider_retry_scheduled" if schedule.should_retry else "provider_retry_denied",
             run_id=run_id,
             task_id=task_id,
             task_type=task_type,
             agent_id=agent,
-            status="warning",
-            reason="provider rate limited; bounded retry scheduled",
-            payload={"retry_count": retry_count, "retry_after_seconds": retry_after_seconds, "provider_mode": "live", "fallback_used": False},
+            status="warning" if schedule.should_retry else "blocked",
+            reason=schedule.reason,
+            payload=schedule.mapping()
+            | {
+                "retry_count": schedule.failed_attempt,
+                "retry_after_seconds": schedule.delay_seconds,
+                "provider_mode": "live",
+                "fallback_used": False,
+            },
         )
 
     def _record_failed_http_attempt(

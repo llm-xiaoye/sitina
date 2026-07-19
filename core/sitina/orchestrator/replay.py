@@ -301,7 +301,12 @@ class ReplayEngine:
                 rework_lifecycle.append({"event_type": event_type, **payload})
             elif event_type == "typed_failure_recorded":
                 typed_failures.append(payload)
-            elif event_type in {"retry_scheduled", "retry_exhausted"}:
+            elif event_type in {
+                "retry_scheduled",
+                "retry_exhausted",
+                "provider_retry_scheduled",
+                "provider_retry_denied",
+            }:
                 retry_state.append({"event_type": event_type, "task_id": task_id, **payload})
             elif event_type == "reviewer_decision":
                 reviewer_merges.append(payload)

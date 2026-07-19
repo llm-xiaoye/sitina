@@ -121,6 +121,7 @@ LEDGER_EVENT_TYPES = {
     "provider_permission_denied",
     "provider_rate_limited",
     "provider_retry_scheduled",
+    "provider_retry_denied",
     "provider_http_attempt_started",
     "provider_http_attempt_completed",
     "provider_http_attempt_failed",
