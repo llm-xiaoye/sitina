@@ -25,6 +25,7 @@ from sitina.runners.provider import (
     ProviderToolTurn,
     RoleProfileResolver,
 )
+from sitina.security.tool_security import summarize_tool_arguments, summarize_tool_result
 from sitina.legacy.fence import issue_frozen_network_egress_capability
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 from sitina.utils import iso_now, redact_text, stable_json
@@ -487,7 +488,28 @@ class AutonomousRuntime:
                         "is_error": result.status != "ok",
                     }
                 )
-                self._audit(run_id, "tool_completed", record)
+                definition = self.catalog.get(call.name)
+                self._audit(
+                    run_id,
+                    "tool_completed",
+                    {
+                        "call_id": call.call_id,
+                        "argument_summary": summarize_tool_arguments(
+                            definition.origin,
+                            call.name,
+                            call.arguments,
+                        ),
+                        "permission": result.permission,
+                        "result_summary": summarize_tool_result(
+                            definition.origin,
+                            call.name,
+                            status=result.status,
+                            value=result.value,
+                            duration_ms=result.duration_ms,
+                            permission_decision=result.permission_decision,
+                        ),
+                    },
+                )
 
     def _execute_calls(self, run_id: str, calls: Sequence[ProviderToolCall]) -> dict[str, ToolResult]:
         read_calls: list[ProviderToolCall] = []
@@ -517,7 +539,11 @@ class AutonomousRuntime:
             {
                 "call_id": call.call_id,
                 "name": call.name,
-                "arguments": dict(call.arguments),
+                "argument_summary": summarize_tool_arguments(
+                    definition.origin,
+                    call.name,
+                    call.arguments,
+                ),
                 "permission": definition.permission,
             },
         )
@@ -529,7 +555,15 @@ class AutonomousRuntime:
             result = self.catalog.execute(call.name, call.arguments)
         except (ToolApprovalDenied, ToolRuntimeError) as exc:
             now = iso_now()
-            result = ToolResult(call.name, definition.permission, "error", f"{type(exc).__name__}: {exc}", now, now)
+            result = ToolResult(
+                call.name,
+                definition.permission,
+                "error",
+                f"{type(exc).__name__}: {exc}",
+                now,
+                now,
+                permission_decision="denied",
+            )
         self.hooks.run(
             "after_tool",
             {

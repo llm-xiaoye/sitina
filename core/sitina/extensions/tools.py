@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import subprocess
+import time
 import urllib.request
 import uuid
 from dataclasses import dataclass
@@ -23,6 +24,12 @@ from sitina.extensions.spec import (
 )
 from sitina.runners.mcp_adapter import StdioMcpClient, validate_json_schema
 from sitina.legacy.fence import authorized_extension_effect
+from sitina.security.tool_security import (
+    PromptIsolationPolicy,
+    ToolAccessPolicy,
+    ToolAccessRequest,
+    ToolPermissionRule,
+)
 from sitina.utils import isolated_env, iso_now, redact_text, stable_json
 
 
@@ -68,6 +75,8 @@ class ToolDefinition:
     permission: str
     origin: str
     handler: ToolHandler
+    security_server: str | None = None
+    security_tool: str | None = None
 
     def provider_schema(self) -> dict[str, Any]:
         return {
@@ -85,13 +94,14 @@ class ToolResult:
     value: Any
     started_at: str
     completed_at: str
+    duration_ms: int = 0
+    permission_decision: str = "allowed"
 
     def content(self) -> str:
-        return json.dumps(
-            {"status": self.status, "tool": self.tool_name, "result": self.value},
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
+        return PromptIsolationPolicy().wrap_tool_result(
+            tool_name=self.tool_name,
+            status=self.status,
+            value=self.value,
         )
 
 
@@ -119,8 +129,10 @@ class ToolCatalog:
         self.workspace = Path(workspace or manager.sitina_home).expanduser().resolve(strict=False)
         self._tools: dict[str, ToolDefinition] = {}
         self._skill_roots: dict[str, Path] = {}
+        self._mcp_rules: list[ToolPermissionRule] = []
         self._register_builtins()
         self._register_extensions()
+        self._mcp_policy = ToolAccessPolicy(self._mcp_rules)
 
     def definitions(self) -> list[ToolDefinition]:
         return [self._tools[name] for name in sorted(self._tools)]
@@ -143,6 +155,7 @@ class ToolCatalog:
             raise ToolRuntimeError(f"tool input failed schema validation for {name}: {exc}") from exc
         self._authorize(definition, payload)
         started_at = iso_now()
+        started_monotonic = time.monotonic()
         try:
             scope = (
                 contextlib.nullcontext()
@@ -157,22 +170,70 @@ class ToolCatalog:
                 value = definition.handler(payload)
         except Exception as exc:  # noqa: BLE001
             completed_at = iso_now()
-            return ToolResult(name, definition.permission, "error", f"{type(exc).__name__}: {redact_text(str(exc))}", started_at, completed_at)
-        return ToolResult(name, definition.permission, "ok", value, started_at, iso_now())
+            return ToolResult(
+                name,
+                definition.permission,
+                "error",
+                f"{type(exc).__name__}: {redact_text(str(exc))}",
+                started_at,
+                completed_at,
+                max(0, int((time.monotonic() - started_monotonic) * 1000)),
+            )
+        return ToolResult(
+            name,
+            definition.permission,
+            "ok",
+            value,
+            started_at,
+            iso_now(),
+            max(0, int((time.monotonic() - started_monotonic) * 1000)),
+        )
 
     def _authorize(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> None:
-        if definition.permission == "read":
+        approval_granted = definition.permission == "read"
+        if not approval_granted:
+            request = ApprovalRequest(
+                "approval-" + uuid.uuid4().hex,
+                definition.name,
+                definition.permission,
+                RISK_BY_PERMISSION[definition.permission],
+                definition.origin,
+                dict(arguments),
+                f"tool requires {definition.permission} permission",
+            )
+            approval_granted = self.approval_callback is not None and self.approval_callback(request)
+        if definition.security_server is not None and definition.security_tool is not None:
+            action = str(arguments.get("action") or "call")
+            tool = str(arguments.get("name") or ("list_tools" if action == "list_tools" else definition.security_tool))
+            nested = arguments.get("arguments")
+            resource_arguments = dict(nested) if isinstance(nested, Mapping) else dict(arguments)
+            resource = next(
+                (
+                    str(resource_arguments[key])
+                    for key in ("resource", "path", "url", "target", "destination")
+                    if key in resource_arguments
+                ),
+                "*",
+            )
+            decision = self._mcp_policy.decide(
+                ToolAccessRequest(
+                    principal="autonomous_tool_runtime",
+                    server=definition.security_server,
+                    tool=tool,
+                    action=action,
+                    resource=resource,
+                    arguments=dict(arguments),
+                    risk=RISK_BY_PERMISSION.get(definition.permission, "unknown"),
+                    approval_granted=approval_granted,
+                    argument_aliases={"file": "path", "file_path": "path"},
+                )
+            )
+            if not decision.allowed:
+                raise ToolApprovalDenied(
+                    f"MCP security policy {decision.disposition} for {definition.name}: {decision.reason}"
+                )
             return
-        request = ApprovalRequest(
-            "approval-" + uuid.uuid4().hex,
-            definition.name,
-            definition.permission,
-            RISK_BY_PERMISSION[definition.permission],
-            definition.origin,
-            dict(arguments),
-            f"tool requires {definition.permission} permission",
-        )
-        if self.approval_callback is None or not self.approval_callback(request):
+        if not approval_granted:
             raise ToolApprovalDenied(
                 f"approval denied or unavailable for {definition.name} ({definition.permission})"
             )
@@ -389,6 +450,21 @@ class ToolCatalog:
                         permission,
                         f"plugin:{manifest.name}:mcp:{server_name}",
                         self._mcp_handler(manifest, server, None if generic else tool_name),
+                        f"{manifest.name}:{server_name}",
+                        "*" if generic else tool_name,
+                    )
+                )
+                self._mcp_rules.append(
+                    ToolPermissionRule(
+                        rule_id=f"plugin:{manifest.name}:mcp:{server_name}:{tool_name}",
+                        principals=("autonomous_tool_runtime",),
+                        server_pattern=f"{manifest.name}:{server_name}",
+                        tool_pattern="*" if generic else tool_name,
+                        actions=("list_tools", "call") if generic else ("call",),
+                        effect="allow" if permission == "read" else "approval",
+                        resource_patterns=("*",),
+                        allowed_arguments=frozenset(str(key).casefold() for key in dict(schema.get("properties") or {})),
+                        max_risk=RISK_BY_PERMISSION.get(permission, "critical"),
                     )
                 )
 

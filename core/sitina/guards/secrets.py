@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
 import re
 import sqlite3
+import unicodedata
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +24,14 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("authorization", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{12,})")),
     ("openai_style_key", re.compile(r"\b(sk-[A-Za-z0-9_-]{16,})\b")),
+    ("aws_access_key", re.compile(r"\b(AKIA[0-9A-Z]{16})\b")),
+    ("github_token", re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{24,})\b")),
+    ("slack_token", re.compile(r"\b(xox[baprs]-[A-Za-z0-9-]{20,})\b")),
     ("private_key", re.compile(r"(-----BEGIN [A-Z ]*PRIVATE KEY-----)")),
+)
+
+HIGH_ENTROPY_CANDIDATE = re.compile(
+    r"(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/=_-]{24,256})(?![A-Za-z0-9+/=_-])"
 )
 
 SENSITIVE_FIELD = re.compile(r"(?i)(^|[._-])(api[_-]?key|auth(orization)?|access[_-]?token|token|password|private[_-]?key|secret)($|[._-])")
@@ -80,22 +89,38 @@ def scan_text_for_secrets(
     row_id: str | None = None,
 ) -> list[SecretFinding]:
     findings: list[SecretFinding] = []
-    for pattern_name, pattern in SECRET_PATTERNS:
-        for match in pattern.finditer(text):
-            candidate = match.group(match.lastindex or 0) if match.lastindex else match.group(0)
-            if _is_placeholder(candidate):
-                continue
-            field = match.group(1).lower() if pattern_name == "named_secret_assignment" and match.lastindex and match.lastindex >= 2 else field_path
-            findings.append(
-                SecretFinding(
-                    scope=scope,
-                    path=path,
-                    table=table,
-                    row_id=row_id,
-                    field_path=field_path if field_path != "<text>" else field,
-                    pattern_type=pattern_name,
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = "".join(character for character in normalized if unicodedata.category(character) != "Cf")
+    variants = tuple(dict.fromkeys((normalized, urllib.parse.unquote(normalized))))
+    for variant in variants:
+        for pattern_name, pattern in SECRET_PATTERNS:
+            for match in pattern.finditer(variant):
+                candidate = match.group(match.lastindex or 0) if match.lastindex else match.group(0)
+                if _is_placeholder(candidate):
+                    continue
+                field = match.group(1).lower() if pattern_name == "named_secret_assignment" and match.lastindex and match.lastindex >= 2 else field_path
+                findings.append(
+                    SecretFinding(
+                        scope=scope,
+                        path=path,
+                        table=table,
+                        row_id=row_id,
+                        field_path=field_path if field_path != "<text>" else field,
+                        pattern_type=pattern_name,
+                    )
                 )
-            )
+        for match in HIGH_ENTROPY_CANDIDATE.finditer(variant):
+            if _looks_like_high_entropy_secret(match.group(1)):
+                findings.append(
+                    SecretFinding(
+                        scope=scope,
+                        path=path,
+                        table=table,
+                        row_id=row_id,
+                        field_path=field_path,
+                        pattern_type="high_entropy_token",
+                    )
+                )
     return _dedupe(findings)
 
 
@@ -138,6 +163,18 @@ def scan_json_for_secrets(
                 )
             )
     elif isinstance(value, list):
+        fragments = [nested for nested in value if isinstance(nested, str)]
+        if len(fragments) > 1:
+            findings.extend(
+                scan_text_for_secrets(
+                    "".join(fragments),
+                    path=path,
+                    scope=scope,
+                    field_path=f"{field_path}.$joined",
+                    table=table,
+                    row_id=row_id,
+                )
+            )
         for index, nested in enumerate(value):
             findings.extend(
                 scan_json_for_secrets(
@@ -348,7 +385,7 @@ def _decoded_candidates(value: str, field_path: str) -> list[str]:
     unquoted = urllib.parse.unquote(stripped)
     if unquoted != stripped:
         candidates.append(unquoted)
-    if any(marker in field_path.lower() for marker in ("encoded", "header", "authorization")) and 16 <= len(stripped) <= 1_000_000:
+    if 16 <= len(stripped) <= 1_000_000:
         try:
             decoded = base64.b64decode(stripped, validate=True).decode("utf-8")
         except (ValueError, UnicodeDecodeError, binascii.Error):
@@ -356,6 +393,28 @@ def _decoded_candidates(value: str, field_path: str) -> list[str]:
         else:
             candidates.append(decoded)
     return list(dict.fromkeys(candidates))
+
+
+def _looks_like_high_entropy_secret(value: str) -> bool:
+    candidate = value.strip("=_'\"")
+    if len(candidate) < 24 or _is_placeholder(candidate) or not _looks_like_secret_value(candidate):
+        return False
+    # Generic entropy detection is deliberately narrower than the prefix and
+    # sensitive-field detectors.  Requiring mixed-case letters plus digits
+    # avoids treating hashes, request IDs, filesystem paths, and prose-like
+    # identifiers as credentials while still catching opaque random tokens.
+    if not all(re.search(pattern, candidate) for pattern in (r"[a-z]", r"[A-Z]", r"[0-9]")):
+        return False
+    if candidate.count("/") > 1 or "\\" in candidate:
+        return False
+    if re.search(r"\d{8}T\d{6,12}Z$", candidate):
+        return False
+    counts = {character: candidate.count(character) for character in set(candidate)}
+    entropy = -sum(
+        (count / len(candidate)) * math.log2(count / len(candidate))
+        for count in counts.values()
+    )
+    return entropy >= 4.0
 
 
 def _looks_like_secret_value(value: str) -> bool:
@@ -379,7 +438,10 @@ def _looks_like_secret_value(value: str) -> bool:
 
 
 def _is_sensitive_field_name(value: str) -> bool:
-    lowered = value.lower()
+    normalized = unicodedata.normalize("NFKC", value)
+    lowered = "".join(
+        character for character in normalized if unicodedata.category(character) != "Cf"
+    ).lower()
     benign = (
         "token_budget",
         "token_usage",

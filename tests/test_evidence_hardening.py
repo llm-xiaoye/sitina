@@ -231,6 +231,7 @@ class EvidenceHardeningTests(unittest.TestCase):
             "token_budget=4096",
             "token_hash=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "provider_request_id=provider_1234567890abcdef",
+            "decision_id=dispatch_20260719T171435638629Z",
         )
         for sample in samples:
             with self.subTest(sample=sample):
