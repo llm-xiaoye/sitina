@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "agents": {
+    "controller": {"prompt": "prompts/agents/controller.md", "tools": ["read"], "output_schema": "schemas/controller.schema.json"},
+    "planner": {"prompt": "prompts/agents/planner.md", "tools": ["read"], "output_schema": "schemas/planner.schema.json"},
+    "architect": {"prompt": "prompts/agents/architect.md", "tools": ["read"], "output_schema": "schemas/architect.schema.json"},
+    "coder": {"prompt": "prompts/agents/coder.md", "tools": ["read", "write"], "output_schema": "schemas/coder.schema.json"},
+    "tester": {"prompt": "prompts/agents/tester.md", "tools": ["read", "shell_allowlist"], "output_schema": "schemas/tester.schema.json"},
+    "reviewer": {"prompt": "prompts/agents/reviewer.md", "tools": ["read"], "output_schema": "schemas/reviewer.schema.json"},
+    "security": {"prompt": "prompts/agents/security.md", "tools": ["read"], "output_schema": "schemas/security.schema.json"},
+    "arbiter": {"prompt": "prompts/agents/arbiter.md", "tools": ["read"], "output_schema": "schemas/arbiter.schema.json"},
+    "critic": {"prompt": "prompts/agents/critic.md", "tools": ["read"], "output_schema": "schemas/critic.schema.json"},
+    "researcher": {"prompt": "prompts/agents/researcher.md", "tools": ["read", "mcp_read"], "output_schema": "schemas/researcher.schema.json"},
+    "memory": {"prompt": "prompts/agents/memory.md", "tools": ["read"], "output_schema": "schemas/memory.schema.json"},
+    "summary": {"prompt": "prompts/agents/summary.md", "tools": ["read"], "output_schema": "schemas/summary.schema.json"}
+  }
+}

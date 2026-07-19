@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_AGENT_CONTEXT_MANIFEST_V2",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "casRef": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+    "nullableCasRef": {"anyOf": [{"$ref": "#/$defs/casRef"}, {"type": "null"}]}
+  },
+  "properties": {
+    "schema": {"const": "SITINA_AGENT_CONTEXT_MANIFEST_V2"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "call_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "agent_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "prompt_template_ref": {"$ref": "#/$defs/casRef"},
+    "base_project_context_ref": {"$ref": "#/$defs/nullableCasRef"},
+    "conversation_state_ref": {"$ref": "#/$defs/nullableCasRef"},
+    "rolling_summary_ref": {"$ref": "#/$defs/nullableCasRef"},
+    "retrieved_memory_refs": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/casRef"}},
+    "blackboard_base_ref": {"$ref": "#/$defs/nullableCasRef"},
+    "delta_refs": {"type": "array", "maxItems": 512, "uniqueItems": true, "items": {"$ref": "#/$defs/casRef"}},
+    "renderer_version": {"const": "context-renderer-v2"},
+    "rendered_input_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["schema", "run_id", "call_id", "agent_id", "prompt_template_ref", "base_project_context_ref", "conversation_state_ref", "rolling_summary_ref", "retrieved_memory_refs", "blackboard_base_ref", "delta_refs", "renderer_version", "rendered_input_hash"]
+}

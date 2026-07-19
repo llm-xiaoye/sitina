@@ -1,0 +1,41 @@
+{
+  "schema": "SITINA_TRUE_MULTI_AGENT_POLICY_V1",
+  "generation": 1,
+  "provider_profile": "deepseek",
+  "provider_model_allowlist": ["deepseek-v4-pro"],
+  "allowed_protocols": [
+    "proposal",
+    "review",
+    "debate",
+    "rework",
+    "handoff",
+    "blackboard",
+    "arbitration",
+    "lease",
+    "checkpoint"
+  ],
+  "max_agents_per_run": 4,
+  "max_proposals_per_round": 3,
+  "max_negotiation_rounds": 2,
+  "max_rework_rounds": 2,
+  "max_provider_requests_per_run": 32,
+  "max_output_tokens_per_request": 1400,
+  "max_total_tokens_per_run": 48000,
+  "max_total_cost_micro_usd_per_run": 12000000,
+  "request_timeout_seconds": 90,
+  "transport_retries": 0,
+  "sdk_retries": 0,
+  "fallbacks": 0,
+  "tool_calls_allowed": false,
+  "external_mutation_allowed": false,
+  "proposal_minimum_score": 70,
+  "reviewer_author_conflict_forbidden": true,
+  "high_risk_requires_security_review": true,
+  "terminal_requires_all_obligations": true,
+  "pricing": {
+    "currency": "USD",
+    "source": "internal conservative acceptance ceiling",
+    "input_micro_usd_per_million_tokens": 1000000,
+    "output_micro_usd_per_million_tokens": 3000000
+  }
+}

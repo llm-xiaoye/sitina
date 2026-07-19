@@ -1,0 +1,70 @@
+{
+  "schema": "SITINA_TRUE_MULTI_AGENT_REGISTRY_V1",
+  "generation": 1,
+  "agents": [
+    {
+      "agent_id": "agent-atlas",
+      "role": "goal-analyst",
+      "capabilities": ["goal-analysis", "task-decomposition", "proposal", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 1,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-borealis",
+      "role": "systems-architect",
+      "capabilities": ["architecture", "proposal", "debate", "handoff-send", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 2,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-cirrus",
+      "role": "evidence-researcher",
+      "capabilities": ["evidence-analysis", "proposal", "debate", "blackboard-write", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 1,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-delta",
+      "role": "independent-reviewer",
+      "capabilities": ["review", "evaluation", "verification", "debate", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 1,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-ember",
+      "role": "security-reviewer",
+      "capabilities": ["review", "security-review", "evaluation", "arbitration", "verification", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 3,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-forge",
+      "role": "synthesis-worker",
+      "capabilities": ["proposal", "synthesis", "rework", "handoff-receive", "blackboard-write", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 2,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-gavel",
+      "role": "independent-arbiter",
+      "capabilities": ["arbitration", "review", "evaluation", "verification", "blackboard-write", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 3,
+      "safety_classes": ["read-only", "provider-text-only"]
+    },
+    {
+      "agent_id": "agent-horizon",
+      "role": "test-verifier",
+      "capabilities": ["review", "evaluation", "verification", "testing", "handoff-receive", "read-only"],
+      "provider_profile": "deepseek",
+      "cost_weight": 2,
+      "safety_classes": ["read-only", "provider-text-only"]
+    }
+  ]
+}

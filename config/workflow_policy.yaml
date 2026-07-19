@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "safe_unknown_task_type": "blocked",
+  "task_types": {
+    "chat": {
+      "optional_agents": ["controller", "summary", "memory"],
+      "mandatory_gates": ["summary"],
+      "forbidden_agents": ["coder", "tester", "reviewer", "git_worktree_manager", "maintenance_ops"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": [],
+      "worktree_required_when": [],
+      "memory_check": "on_summary",
+      "allowed_tools": ["read"],
+      "allow_parallel": false,
+      "requires_patch_hash": false
+    },
+    "local_file_query": {
+      "optional_agents": ["controller", "filesystem", "researcher", "summary", "memory"],
+      "mandatory_gates": ["summary"],
+      "forbidden_agents": ["coder", "tester", "reviewer", "git_worktree_manager", "maintenance_ops"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "tool_invocation", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": ["write_requested"],
+      "worktree_required_when": [],
+      "memory_check": "on_summary",
+      "allowed_tools": ["filesystem:list_dir", "filesystem:read_file", "filesystem:stat_path"],
+      "tool_mode": "readonly",
+      "allow_parallel": false,
+      "requires_patch_hash": false
+    },
+    "code_change": {
+      "optional_agents": ["architect", "security", "critic", "arbiter", "git_worktree_manager"],
+      "mandatory_gates": ["planner", "coder", "tester", "reviewer", "summary", "memory"],
+      "forbidden_agents": ["maintenance_ops"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "approval_required", "agent_handoff", "gate_passed", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": ["write_requested", "coder_requested", "touched_files"],
+      "worktree_required_when": ["risk_level_high_or_critical"],
+      "memory_check": "on_summary",
+      "allowed_tools": ["read", "write_with_approval", "shell_allowlist"],
+      "allow_parallel": true,
+      "parallel_allowed_agents": ["tester", "reviewer"],
+      "requires_patch_hash": false
+    },
+    "high_risk_code_change": {
+      "optional_agents": ["architect", "critic", "arbiter"],
+      "mandatory_gates": ["planner", "git_worktree_manager", "approval", "coder", "tester", "reviewer", "patch_apply", "summary", "memory"],
+      "forbidden_agents": ["maintenance_ops"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "git_worktree_prepare", "git_patch_generate", "reviewer_decision", "approval_required", "git_patch_apply", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": ["always"],
+      "worktree_required_when": ["always"],
+      "memory_check": "on_summary",
+      "allowed_tools": ["read", "write_with_approval", "shell_allowlist", "git_worktree"],
+      "allow_parallel": true,
+      "parallel_allowed_agents": ["tester", "reviewer"],
+      "requires_patch_hash": true
+    },
+    "maintenance": {
+      "optional_agents": ["controller", "reviewer", "security", "critic", "arbiter", "summary", "memory"],
+      "mandatory_gates": ["approval", "maintenance_ops", "audit", "summary"],
+      "forbidden_agents": ["coder", "tester", "git_worktree_manager"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "approval_required", "maintenance_result", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": ["always"],
+      "worktree_required_when": [],
+      "memory_check": "on_summary",
+      "allowed_tools": ["maintenance_guarded"],
+      "allow_parallel": false,
+      "requires_patch_hash": false
+    },
+    "memory_review": {
+      "optional_agents": ["controller", "summary"],
+      "mandatory_gates": ["audit"],
+      "forbidden_agents": ["coder", "tester", "reviewer", "git_worktree_manager", "maintenance_ops"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "memory_checked", "run_completed"],
+      "approval_required_when": ["explicit_memory_accept_or_reject"],
+      "worktree_required_when": [],
+      "memory_check": "never",
+      "allowed_tools": ["read"],
+      "allow_parallel": false,
+      "requires_patch_hash": false
+    },
+    "mcp_tool_task": {
+      "optional_agents": ["controller", "researcher", "filesystem", "git", "sqlite", "obsidian", "tester", "reviewer", "arbiter", "summary", "memory"],
+      "mandatory_gates": ["summary"],
+      "forbidden_agents": ["coder", "maintenance_ops", "git_worktree_manager"],
+      "required_audit_events": ["run_started", "controller_decision", "policy_execution_plan", "tool_invocation", "summary_created", "memory_checked", "run_completed"],
+      "approval_required_when": ["mcp_write_requested"],
+      "worktree_required_when": [],
+      "memory_check": "on_summary",
+      "allowed_tools": ["filesystem:list_dir", "filesystem:read_file", "filesystem:stat_path", "git:status", "git:log", "git:show", "sqlite:query", "obsidian:search", "obsidian:index"],
+      "tool_mode": "readonly",
+      "allow_parallel": true,
+      "parallel_allowed_agents": ["tester", "reviewer"],
+      "requires_patch_hash": false
+    }
+  }
+}

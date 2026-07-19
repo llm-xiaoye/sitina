@@ -1,0 +1,13 @@
+{
+  "schema": "SITINA_PLUGIN_V1",
+  "name": "computer_use",
+  "version": "0.2.0",
+  "description": "Sitina-native adapter for the open-computer-use 0.2.0 local MCP server.",
+  "permissions": [
+    "shell"
+  ],
+  "components": {
+    "skills": "skills",
+    "mcp": ".sitina-plugin/mcp.json"
+  }
+}

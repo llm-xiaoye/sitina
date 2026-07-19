@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_WORKTREE_STATE_V1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_WORKTREE_STATE_V1"},
+    "base_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "temporary_branch": {"type": "string", "minLength": 1, "maxLength": 255},
+    "diff_ref": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+    "untracked_files_manifest_ref": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+    "git_status_ref": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+    "reconstruction_verified": {"const": true}
+  },
+  "required": ["schema", "base_commit", "temporary_branch", "diff_ref", "untracked_files_manifest_ref", "git_status_ref", "reconstruction_verified"]
+}

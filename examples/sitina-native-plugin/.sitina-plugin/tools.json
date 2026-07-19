@@ -1,0 +1,27 @@
+{
+  "schema": "SITINA_TOOLS_V1",
+  "tools": [
+    {
+      "name": "echo_evidence",
+      "description": "Return the supplied text as structured subprocess evidence.",
+      "permission": "shell",
+      "command": [
+        "python3",
+        "scripts/echo_evidence.py"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "output_json": true
+    }
+  ]
+}

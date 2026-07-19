@@ -1,0 +1,19 @@
+{
+  "schema": "SITINA_MOCK_TOOL_SCRIPT_V1",
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "id": "mock-read-1",
+          "name": "sitina_read_file",
+          "arguments": {
+            "path": "/Users/moss/SitinaHub/README.md"
+          }
+        }
+      ]
+    },
+    {
+      "text": "The scripted mock received the README tool result and completed its second model turn."
+    }
+  ]
+}

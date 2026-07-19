@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ref": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ref",
+          "type": "array"
+        },
+        "label": {
+          "enum": [
+            "confirmed",
+            "inferred",
+            "suggested",
+            "unverified",
+            "unable_to_verify"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "label"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "default": "artifact",
+          "enum": [
+            "artifact",
+            "file",
+            "url",
+            "obsidian",
+            "audit",
+            "event"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "trust_level": {
+          "default": "untrusted",
+          "enum": [
+            "trusted",
+            "local_note",
+            "official",
+            "general_web",
+            "untrusted"
+          ],
+          "title": "Trust Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "const": "critic",
+      "default": "critic",
+      "title": "Agent",
+      "type": "string"
+    },
+    "agent_status": {
+      "enum": [
+        "ok",
+        "need_more_input",
+        "cannot_complete"
+      ],
+      "title": "Agent Status",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "decision": {
+      "default": "counterargument",
+      "enum": [
+        "counterargument",
+        "no_objection",
+        "cannot_complete"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "extensions": {
+      "additionalProperties": true,
+      "title": "Extensions",
+      "type": "object"
+    },
+    "objections": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Objections",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "verification_status": {
+      "default": "not_verified",
+      "enum": [
+        "not_verified",
+        "partially_verified",
+        "verified",
+        "unable_to_verify"
+      ],
+      "title": "Verification Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "agent_status"
+  ],
+  "title": "CriticOutput",
+  "type": "object"
+}

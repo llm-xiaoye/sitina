@@ -1,0 +1,32 @@
+{
+  "schema": "SITINA_MOCK_TOOL_SCRIPT_V1",
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "id": "computer-use-discovery",
+          "name": "computer_use__desktop_call",
+          "arguments": {
+            "action": "list_tools"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "computer-use-list-apps",
+          "name": "computer_use__desktop_call",
+          "arguments": {
+            "action": "call",
+            "name": "list_apps",
+            "arguments": {}
+          }
+        }
+      ]
+    },
+    {
+      "text": "The Sitina-native Computer Use adapter completed MCP discovery and a live list_apps call."
+    }
+  ]
+}

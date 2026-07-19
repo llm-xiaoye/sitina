@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "default_policy": "deny_by_default_for_commands",
+  "tool_permissions": {
+    "read": {"allowed_agents": ["controller", "planner", "architect", "coder", "tester", "reviewer", "critic", "researcher", "memory", "summary"], "approval": false, "audit": true},
+    "write": {"allowed_agents": ["coder"], "approval": true, "audit": true},
+    "delete": {"allowed_agents": ["coder"], "approval": true, "audit": true},
+    "move": {"allowed_agents": ["coder"], "approval": true, "audit": true},
+    "overwrite": {"allowed_agents": ["coder"], "approval": true, "audit": true},
+    "shell": {"allowed_agents": ["tester"], "approval": "risk_based", "audit": true},
+    "mcp_read": {"allowed_agents": ["researcher"], "approval": false, "audit": true},
+    "mcp_write": {"allowed_agents": [], "approval": true, "audit": true},
+    "web": {"allowed_agents": ["researcher"], "approval": true, "audit": true},
+    "restore": {"allowed_agents": [], "approval": true, "audit": true},
+    "rollback": {"allowed_agents": [], "approval": true, "audit": true},
+    "prune": {"allowed_agents": [], "approval": true, "audit": true},
+    "doctor_fix": {"allowed_agents": [], "approval": true, "audit": true}
+  },
+  "risk_rules": [
+    {"id": "env_files", "operations": ["read", "write", "overwrite", "delete", "move"], "path_patterns": ["(^|/)\\.env$", "(^|/)\\.env\\.", "(^|/)profiles/.*\\.env$"], "risk_level": "critical", "action": "block", "reason": ".env and profiles env files are secret-sensitive"},
+    {"id": "secrets_paths", "operations": ["read", "write", "overwrite", "delete", "move"], "path_patterns": ["secret", "secrets", "credential", "credentials"], "risk_level": "critical", "action": "block", "reason": "secret or credential path"},
+    {"id": "ssh_paths", "operations": ["read", "write", "overwrite", "delete", "move"], "path_patterns": ["(^|/)\\.ssh(/|$)", "id_rsa", "id_ed25519"], "risk_level": "critical", "action": "block", "reason": "ssh material"},
+    {"id": "private_key_paths", "operations": ["read", "write", "overwrite", "delete", "move"], "path_patterns": ["private[_-]?key", "\\.pem$", "\\.key$"], "risk_level": "critical", "action": "block", "reason": "private key material"},
+    {"id": "shell_rc", "operations": ["write", "overwrite", "delete", "move"], "path_patterns": ["(^|/)\\.(zshrc|bashrc|bash_profile|profile)$"], "risk_level": "high", "action": "approval", "reason": "shell rc modification"},
+    {"id": "settings_json", "operations": ["write", "overwrite", "delete", "move"], "path_patterns": ["settings\\.json$"], "risk_level": "high", "action": "approval", "reason": "settings.json modification"},
+    {"id": "sudo_command", "operations": ["shell"], "command_patterns": ["(^|\\s)sudo(\\s|$)"], "risk_level": "critical", "action": "block", "reason": "sudo is forbidden"},
+    {"id": "curl_pipe_sh", "operations": ["shell"], "command_patterns": ["curl\\b.*\\|\\s*(sh|bash)"], "risk_level": "critical", "action": "block", "reason": "curl | sh is forbidden"},
+    {"id": "wget_pipe_sh", "operations": ["shell"], "command_patterns": ["wget\\b.*\\|\\s*(sh|bash)"], "risk_level": "critical", "action": "block", "reason": "wget | sh is forbidden"},
+    {"id": "bash_process_substitution", "operations": ["shell"], "command_patterns": ["bash\\s+<\\("], "risk_level": "critical", "action": "block", "reason": "bash process substitution from external source is forbidden"},
+    {"id": "delete_file", "operations": ["delete"], "risk_level": "high", "action": "approval", "reason": "delete requires approval"},
+    {"id": "overwrite_file", "operations": ["overwrite", "write"], "risk_level": "medium", "action": "approval", "reason": "write/overwrite requires scoped approval"},
+    {"id": "move_file", "operations": ["move"], "risk_level": "high", "action": "approval", "reason": "move requires approval"},
+    {"id": "write_project_outside_path", "operations": ["write", "overwrite", "delete", "move"], "path_patterns": ["^/(?!Users/moss/SitinaHub)"], "risk_level": "high", "action": "approval", "reason": "write outside SitinaHub"},
+    {"id": "git_reset_hard", "operations": ["shell"], "command_patterns": ["git\\s+reset\\s+--hard"], "risk_level": "critical", "action": "block", "reason": "git reset --hard forbidden"},
+    {"id": "git_clean", "operations": ["shell"], "command_patterns": ["git\\s+clean\\b"], "risk_level": "critical", "action": "block", "reason": "git clean forbidden"},
+    {"id": "restore_command", "operations": ["restore"], "risk_level": "high", "action": "approval", "reason": "restore is high risk"},
+    {"id": "rollback_command", "operations": ["rollback"], "risk_level": "high", "action": "approval", "reason": "rollback is high risk"},
+    {"id": "prune_command", "operations": ["prune"], "risk_level": "high", "action": "approval", "reason": "prune is high risk"},
+    {"id": "doctor_fix_command", "operations": ["doctor_fix"], "risk_level": "high", "action": "approval", "reason": "doctor --fix is high risk"},
+    {"id": "mcp_write", "operations": ["mcp_write"], "tool_types": ["write"], "risk_level": "high", "action": "approval", "reason": "MCP write requires approval"},
+    {"id": "external_network", "operations": ["web", "mcp_read", "mcp_write", "shell"], "command_patterns": ["\\b(curl|wget|ssh|scp|rsync)\\b"], "risk_level": "high", "action": "approval", "reason": "external network operation"},
+    {"id": "secret_sensitive_tool", "operations": ["mcp_read", "mcp_write"], "tool_types": ["secret_sensitive"], "risk_level": "critical", "action": "block", "reason": "secret-sensitive MCP tool blocked"}
+  ],
+  "tester_allowed_commands": [
+    "sitina config validate",
+    "sitina doctor",
+    "sitina eval",
+    "python -m unittest"
+  ]
+}

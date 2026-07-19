@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "default_policy": "deny",
+  "local_stdio_allowlist": {
+    "filesystem": ["list_dir", "read_file", "stat_path"],
+    "git": ["status", "diff", "log", "show"],
+    "sqlite": ["query"],
+    "obsidian": ["search"]
+  },
+  "remote_placeholders_disabled": ["fetch", "web_search", "browser", "github", "notion", "google_drive"]
+}

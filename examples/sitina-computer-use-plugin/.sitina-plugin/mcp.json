@@ -1,0 +1,15 @@
+{
+  "schema": "SITINA_MCP_V1",
+  "servers": [
+    {
+      "name": "desktop",
+      "transport": "stdio",
+      "permission": "shell",
+      "command": [
+        "/Users/moss/.local/node-v24.18.0-darwin-arm64/bin/open-computer-use",
+        "mcp"
+      ],
+      "timeout_seconds": 60
+    }
+  ]
+}

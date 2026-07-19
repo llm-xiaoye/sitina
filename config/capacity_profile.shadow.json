@@ -1,0 +1,21 @@
+{
+  "schema": "SITINA_CAPACITY_PROFILE_V1",
+  "profile_id": "SITINA_SHADOW_CAPACITY_NOT_YET_QUALIFIED_V1",
+  "qualification_status": "NOT_YET_QUALIFIED",
+  "parser_limits": {
+    "max_command_bytes": 1048576,
+    "max_event_bytes": 4194304,
+    "max_frame_bytes": 16777216,
+    "max_events_per_frame": 4096,
+    "max_object_references": 4096
+  },
+  "disk_gate": {
+    "min_free_percent": 5.0,
+    "emergency_reserve_bytes": 1073741824,
+    "recovery_reserve_bytes": 536870912,
+    "emergency_reserve_inodes": 10000,
+    "rollover_headroom_bytes": 33554432,
+    "staging_headroom_bytes": 67108864
+  },
+  "measured_slos": {}
+}

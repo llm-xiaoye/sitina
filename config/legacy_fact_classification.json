@@ -1,0 +1,35 @@
+{
+  "schema": "LEGACY_FACT_CLASSIFICATION_V1",
+  "rules": {
+    "run_ledger": {
+      "fact_kind": "coordination_fact_candidate",
+      "authority_weight": "legacy_coordination_candidate",
+      "migration_event_type": "MigratedFactRecorded"
+    },
+    "event_jsonl": {
+      "fact_kind": "supplementary_legacy_fact",
+      "authority_weight": "supplementary",
+      "migration_event_type": "ImportedLegacyFact"
+    },
+    "audit_jsonl": {
+      "fact_kind": "audit_representation",
+      "authority_weight": "audit_only",
+      "migration_event_type": "ImportedLegacyFact"
+    },
+    "mutable_snapshot": {
+      "fact_kind": "state_assertion",
+      "authority_weight": "snapshot_assertion",
+      "migration_event_type": "ImportedLegacyFact"
+    },
+    "legacy_evidence_artifact": {
+      "fact_kind": "legacy_evidence_artifact",
+      "authority_weight": "evidence_only",
+      "migration_event_type": "ImportedLegacyArtifact"
+    },
+    "artifact": {
+      "fact_kind": "preserved_artifact",
+      "authority_weight": "artifact_only",
+      "migration_event_type": "ImportedLegacyArtifact"
+    }
+  }
+}

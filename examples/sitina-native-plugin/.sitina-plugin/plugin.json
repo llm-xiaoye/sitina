@@ -1,0 +1,13 @@
+{
+  "schema": "SITINA_PLUGIN_V1",
+  "name": "example_native",
+  "version": "1.0.0",
+  "description": "Minimal standalone example of the Sitina plugin format.",
+  "permissions": [
+    "shell"
+  ],
+  "components": {
+    "skills": "skills",
+    "tools": ".sitina-plugin/tools.json"
+  }
+}

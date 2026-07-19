@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": ["schema_version", "agent", "agent_status", "decision", "verification_status", "security_findings", "severity"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "agent": {"const": "security"},
+    "agent_status": {"enum": ["ok", "need_more_input", "cannot_complete"]},
+    "decision": {"enum": ["support", "needs_changes", "block", "cannot_complete"]},
+    "evidence": {"type": "array"},
+    "claims": {"type": "array"},
+    "verification_status": {"enum": ["not_verified", "partially_verified", "verified", "unable_to_verify"]},
+    "warnings": {"type": "array"},
+    "extensions": {"type": "object"},
+    "security_findings": {"type": "array", "items": {"type": "string"}},
+    "severity": {"enum": ["none", "minor", "major", "critical"]}
+  },
+  "additionalProperties": false
+}

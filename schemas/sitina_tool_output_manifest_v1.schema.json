@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SITINA_TOOL_OUTPUT_MANIFEST_V1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "SITINA_TOOL_OUTPUT_MANIFEST_V1"},
+    "tool_call_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 255},
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 0},
+          "channel": {"enum": ["stdout", "stderr"]},
+          "content_ref": {"type": "string", "pattern": "^cas:[0-9a-f]{64}$"},
+          "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size": {"type": "integer", "minimum": 0}
+        },
+        "required": ["sequence", "channel", "content_ref", "content_sha256", "size"]
+      }
+    },
+    "captured_bytes": {"type": "integer", "minimum": 0},
+    "dropped_bytes": {"type": "integer", "minimum": 0},
+    "truncated": {"type": "boolean"}
+  },
+  "required": ["schema", "tool_call_id", "run_id", "chunks", "captured_bytes", "dropped_bytes", "truncated"]
+}

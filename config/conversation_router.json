@@ -1,0 +1,47 @@
+{
+  "schema": "SITINA_CONVERSATION_ROUTER_V1",
+  "policy_version": "conversation-router-2026-07-18-v1",
+  "multi_confidence_threshold": 0.65,
+  "direct_multi_base_score": 0.70,
+  "direct_multi_reason_increment": 0.10,
+  "fast_route_confidence": 0.90,
+  "multi_markers": [
+    "多 agent", "多agent", "multi-agent", "multi agent", "独立审阅", "独立评审",
+    "交叉审阅", "论证", "代码审查", "code review", "完整实施计划"
+  ],
+  "high_risk_markers": [
+    "医疗", "诊断用药", "法律意见", "诉讼", "合同责任", "投资建议", "财务建议",
+    "medical advice", "legal advice", "financial advice"
+  ],
+  "comparison_markers": [
+    "比较", "对比", "权衡", "取舍", "优缺点并推荐", "哪个更好", "方案并推荐",
+    "compare", "versus", " vs ", "trade-off", "tradeoff"
+  ],
+  "verification_markers": [
+    "安全审计", "审计", "交叉验证", "独立验证", "证据核查", "验证这些证据",
+    "security audit", "cross-check", "cross check", "verify the evidence"
+  ],
+  "planning_markers": [
+    "架构设计", "系统架构", "迁移建议", "迁移计划", "实施方案", "完整规划",
+    "architecture design", "migration plan", "implementation plan"
+  ],
+  "conflicting_constraint_markers": [
+    "冲突约束", "互相冲突", "既要", "同时满足", "conflicting constraints"
+  ],
+  "diagnosis_markers": [
+    "故障", "报错", "失败原因", "诊断", "排查", "debug", "diagnose", "root cause"
+  ],
+  "uncertainty_markers": [
+    "多个原因", "可能原因", "不确定", "偶发", "间歇性", "several causes", "multiple causes", "intermittent"
+  ],
+  "synthesis_markers": [
+    "综合以上", "结合前文", "总结并建议", "synthesize", "based on our conversation"
+  ],
+  "deliverable_markers": [
+    "代码", "测试", "文档", "架构图", "迁移计划", "回滚方案", "风险清单", "实施步骤", "验收标准",
+    "code", "tests", "documentation", "migration plan", "rollback plan", "risk register"
+  ],
+  "dependency_markers": [
+    "并", "同时", "以及", "还要", "and", "together with"
+  ]
+}

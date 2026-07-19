@@ -1,0 +1,18 @@
+{
+  "schema": "SITINA_STORAGE_FEATURE_FLAGS_V1",
+  "policy": "dual-read-old-write",
+  "features": {
+    "agent_context_v2_write": false,
+    "alias_pack_v1_write": false,
+    "authority_checkpoint_v1_write": false,
+    "cas_zstd_write": false,
+    "checkpoint_v2_write": false,
+    "evidence_v2_write": false,
+    "journal_event_v2_write": false,
+    "memory_v1_write": false,
+    "projection_v2_build": false,
+    "trash_bundle_v1_write": false
+  },
+  "activation_authority": "journal-control-event",
+  "require_runtime_compatibility_leases": true
+}

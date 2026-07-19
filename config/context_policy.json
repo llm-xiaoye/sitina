@@ -1,0 +1,8 @@
+{
+  "schema": "SITINA_CONTEXT_POLICY_V1",
+  "token_budget": 16000,
+  "history_token_budget": 9000,
+  "max_recent_turns": 50,
+  "renderer_version": "context-renderer-v2",
+  "long_context_token_threshold": 12000
+}

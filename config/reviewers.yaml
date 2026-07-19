@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "reviewers": {
+    "security": {
+      "scope": ["security"],
+      "required_for_task_types": ["high_risk_code_change"],
+      "blocking_level": "critical",
+      "output_schema": "reviewer_decision",
+      "can_block": true
+    },
+    "code": {
+      "scope": ["code"],
+      "required_for_task_types": ["code_change", "high_risk_code_change"],
+      "blocking_level": "major",
+      "output_schema": "reviewer_decision",
+      "can_block": true
+    },
+    "architecture": {
+      "scope": ["architecture"],
+      "required_for_task_types": ["high_risk_code_change"],
+      "blocking_level": "major",
+      "output_schema": "reviewer_decision",
+      "can_block": true
+    },
+    "test": {
+      "scope": ["test"],
+      "required_for_task_types": ["code_change", "high_risk_code_change"],
+      "blocking_level": "major",
+      "output_schema": "reviewer_decision",
+      "can_block": true
+    },
+    "docs": {
+      "scope": ["docs"],
+      "required_for_task_types": [],
+      "blocking_level": "advisory",
+      "output_schema": "reviewer_decision",
+      "can_block": false
+    }
+  },
+  "review_merge_policy": {
+    "critical_blocks": true,
+    "major_blocks": true,
+    "needs_changes_blocks_apply": true,
+    "advisory_does_not_block": true,
+    "require_security_for_high_risk": true,
+    "require_code_for_code_change": true,
+    "require_test_for_test_failure_or_change": true
+  }
+}
