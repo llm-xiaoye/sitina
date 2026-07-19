@@ -68,6 +68,14 @@
       ],
       "name": "phase-07-routing",
       "phase": "07"
+    },
+    {
+      "commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "name": "phase-08-orchestration",
+      "phase": "08"
     }
   ],
   "contract_dependency_by_domain": {
@@ -148,11 +156,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "08",
+  "current_phase": "09",
   "current_status_summary": {
-    "FAIL": 79,
+    "FAIL": 63,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 62
+    "PASS_NEW": 78
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -221,16 +229,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
       "id": "08",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "09",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -1772,355 +1782,389 @@
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-01",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The Controller supplies a policy authorization reference while a reentrant scheduler computes and executes independent ready queues concurrently; checkpoint reconstruction retains completed state and output after Controller restart."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "Controller 瓶颈",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-02",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "任务分解",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-03",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "并行调度",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-04",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "动态团队",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-05",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "协作开销",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-06",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "失败传播",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-07",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "超时控制",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
-      ]
-    },
-    {
-      "domain": "Orchestration",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "O-08",
-      "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "取消机制",
-      "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o01_reentrant_scheduler_runs_multiple_queues_concurrently_and_recovers_after_controller_restart"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-02",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "SITINA_PLANNER_DAG_V1 validates unique task IDs, dependencies, inputs, output schema, owner capability, risk, shared task TokenBudget, deadline, completion criteria, resources and priority before adapting into the authoritative TaskGraph."
+      ],
+      "status": "PASS_NEW",
+      "summary": "任务分解",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o02_planner_schema_validates_complete_dag_and_rejects_missing_or_invalid_dependencies"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-03",
+      "implementation_refs": [
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Ready nodes execute in a real worker pool; a barrier proves interval overlap, while dependencies and same-resource writes remain blocked from the same ready set."
+      ],
+      "status": "PASS_NEW",
+      "summary": "并行调度",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o03_ready_non_conflicting_nodes_overlap_and_dependencies_or_write_conflicts_block"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-04",
+      "implementation_refs": [
+        "core/sitina/orchestrator/team.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Capability coverage, risk ceiling, load and cost select the minimum sufficient team, record every considered Agent and produce different teams for simple and high-risk multi-capability tasks."
+      ],
+      "status": "PASS_NEW",
+      "summary": "动态团队",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o04_minimum_sufficient_team_changes_with_capability_risk_load_and_cost_evidence"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-05",
+      "implementation_refs": [
+        "core/sitina/orchestrator/accounting.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Agent, handoff and rework records attribute prompt/completion tokens, latency, physical calls and marginal benefit; exact aggregation reconciles to run totals without double counting."
+      ],
+      "status": "PASS_NEW",
+      "summary": "协作开销",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o05_agent_handoff_rework_cost_attribution_sums_exactly_to_run_totals"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-06",
+      "implementation_refs": [
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/orchestration_management.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Shared structured Failure values propagate transitively across required fan-out/fan-in edges, preserve optional partial success warnings and schedule explicit compensation for compensatable edges."
+      ],
+      "status": "PASS_NEW",
+      "summary": "失败传播",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o06_structured_failure_propagates_required_optional_compensatable_fanout_and_fanin"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-07",
+      "implementation_refs": [
+        "core/sitina/orchestrator/checkpoint.py",
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/scheduling/timers.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Per-task timeout sets the shared cancellation signal, saves a recoverable checkpoint, runs resource cleanup and selects a deterministic takeover Agent; the timed-out worker observes cancellation and stops."
+      ],
+      "status": "PASS_NEW",
+      "summary": "超时控制",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o07_worker_timeout_cancels_releases_resources_checkpoints_and_selects_takeover"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
+      ],
+      "id": "O-08",
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/orchestrator/timeout_support.py"
+      ],
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Cancellation and Provider/tool call admission share one lock, so the race cannot start calls after cancellation; cleanup finalizes the journal and releases leases and temporary resources."
+      ],
+      "status": "PASS_NEW",
+      "summary": "取消机制",
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o08_user_cancel_race_stops_new_calls_and_cleans_journal_leases_and_temp_resources"
+      ]
+    },
+    {
+      "domain": "Orchestration",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-09",
       "implementation_refs": [
         "core/sitina/protocols/runtime.py",
-        "core/sitina/effects/model.py"
+        "core/sitina/effects/model.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "PASS_EXISTING is retained for authoritative command/effect idempotency; phase 08 adds stable run/task/attempt/operation keys and a concurrent 32-caller proof that tool effects, proposals and state commits each execute physically once."
       ],
       "status": "PASS_EXISTING",
       "summary": "幂等性",
       "test_ids": [
         "tests.test_protocol_runtime.ProtocolRuntimeTests.test_duplicate_command_is_idempotent_and_emits_no_second_event",
-        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send"
+        "tests.test_effect_attempts.EffectAttemptTests.test_only_one_active_attempt_and_at_most_one_transport_send",
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o09_stable_attempt_idempotency_keys_deduplicate_effect_proposal_and_state_commits"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-10",
       "implementation_refs": [
         "core/sitina/protocols/runtime.py",
-        "core/sitina/orchestrator/state_machine.py"
+        "core/sitina/orchestrator/state_machine.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "PASS_EXISTING is retained for the authoritative runtime state owner; phase 08 adds a centralized orchestration table whose complete state-pair matrix proves every legal and illegal transition and immutable terminal states."
       ],
       "status": "PASS_EXISTING",
       "summary": "状态机",
       "test_ids": [
         "tests.test_protocol_runtime.ProtocolRuntimeTests.test_allowed_transition_emits_event_and_binds_definition_policy",
-        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_invalid_terminal_and_timeout_transitions_fail_closed"
+        "tests.test_protocol_runtime.ProtocolRuntimeTests.test_invalid_terminal_and_timeout_transitions_fail_closed",
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o10_state_machine_table_covers_every_legal_and_illegal_transition_and_terminal_invariants"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-11",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "core/sitina/protocols/tasks.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "DAG validation rejects self and multi-node cycles before enqueue; the runtime wait-graph detector returns an explainable resource/lease cycle path instead of silently stalling."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "死锁检测",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o11_enqueue_and_runtime_deadlock_detection_explains_self_multi_node_and_resource_cycles"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-12",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "config/orchestration_policy.json",
+        "core/sitina/scheduling/scheduler.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Priority, deadline, configurable aging and stable task-ID tie-break produce deterministic order; virtual time proves an old low-priority task overtakes new work rather than starving."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "优先级",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o12_priority_deadline_stable_tie_break_and_aging_prevent_low_priority_starvation"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-13",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Fixed-order global, run, Provider and tool semaphores enforce configured peaks under a 12-task stress test and release every permit after controlled exception/cancellation."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "资源限制",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o13_hierarchical_semaphores_bound_stress_peaks_and_release_on_exception_or_cancel"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-14",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "core/sitina/contracts/models.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The shared TraceContract forms one correlation tree across run, task, attempt, Agent, handoff and tool spans; parent bindings and terminal span invariants validate as one complete trace."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "可观测性",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o14_trace_contract_links_task_attempt_agent_handoff_and_tool_under_one_correlation_id"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-15",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The simple low-risk hot path skips unnecessary planning/review stages but preserves safety, budget and trace, requires policy/result hash equivalence and records lower call and latency benchmarks."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "热路径",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o15_low_risk_hot_path_preserves_safety_budget_trace_with_fewer_calls_and_lower_latency"
       ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-16",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "config/orchestration_policy.json",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Pipeline, Supervisor, Network and Hierarchy are topology strategies over the same terminal, state and global permission boundary; each has a deterministic end-to-end completion fixture."
+      ],
+      "status": "PASS_NEW",
       "summary": "协作模式",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o16_pipeline_supervisor_network_and_hierarchy_share_terminal_permission_and_state_contracts"
+      ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-17",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
+      "notes": [
+        "Safe clients are reused only within tenant and Provider profile while every invocation receives isolated prompt/context and no credential values; cross-tenant resources differ and a failure evicts the pooled client."
+      ],
+      "status": "PASS_NEW",
       "summary": "Agent 复用",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o17_agent_client_reuse_isolates_prompt_credentials_tenant_and_evicts_failed_resources"
+      ]
     },
     {
       "domain": "Orchestration",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-08/gate-summary.json"
       ],
       "id": "O-18",
       "implementation_refs": [
-        "core/sitina/orchestrator/task_graph.py"
+        "core/sitina/orchestrator/task_graph.py",
+        "core/sitina/orchestrator/orchestration_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "75c4a78d1a3043d9aa80b2f9e62cb00be6d7b779",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "End-to-end fixtures cover success, rework, rejection, no consensus, arbitration, timeout, cancellation, checkpoint recovery, concurrent writes and resource exhaustion with legal terminal state, one physical commit and zero post-terminal calls."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "协作测试",
       "test_ids": [
-        "tests.test_task_graph_protocol",
-        "tests.test_agent_scheduling"
+        "tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o18_end_to_end_scenarios_cover_success_rework_rejection_consensus_arbitration_timeout_cancel_recovery_writes_and_exhaustion"
       ]
     },
     {
