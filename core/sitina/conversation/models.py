@@ -25,6 +25,7 @@ class ChatMode(str, Enum):
 class RouteSource(str, Enum):
     USER_FORCED = "user_forced"
     LOCAL_ROUTER = "local_router"
+    MODEL_CLASSIFIER = "model_classifier"
     FAST_RUNTIME_ESCALATION = "fast_runtime_escalation"
 
 
@@ -56,6 +57,7 @@ class RouteDecision:
     upgrade_reason: str | None = None
     initial_fast_decision: Mapping[str, Any] | None = None
     decision_path: str = "UNSPECIFIED"
+    observability: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.resolved_mode is ChatMode.AUTO:
@@ -81,7 +83,7 @@ class RouteDecision:
                 raise ValueError("route decision reasons must be bounded non-empty strings")
 
     def mapping(self) -> dict[str, Any]:
-        return {
+        value = {
             "requested_mode": self.requested_mode.value,
             "resolved_mode": self.resolved_mode.value,
             "source": self.source.value,
@@ -94,6 +96,9 @@ class RouteDecision:
             "initial_fast_decision": dict(self.initial_fast_decision) if self.initial_fast_decision else None,
             "decision_path": self.decision_path,
         }
+        if self.observability is not None:
+            value["observability"] = dict(self.observability)
+        return value
 
     @staticmethod
     def _canonical_score(value: Any) -> str:
@@ -145,6 +150,16 @@ class RouteDecision:
                 "escalation_reasons": list(normalized[:MAX_ROUTE_REASONS]),
             },
             decision_path="AUTO_FAST_RUNTIME_ESCALATION",
+            observability={
+                **dict(prior.observability or {}),
+                "final_route": "MULTI",
+                "decision_path": "AUTO_FAST_RUNTIME_ESCALATION",
+                "fast_runtime_escalation": {
+                    "confidence": fast_confidence,
+                    "needs_multi": needs_multi,
+                    "reason_count": len(normalized),
+                },
+            },
         )
 
 
@@ -242,4 +257,5 @@ def route_decision_from_mapping(value: Mapping[str, Any]) -> RouteDecision:
             else None
         ),
         decision_path=str(value.get("decision_path") or "LEGACY_UNSPECIFIED"),
+        observability=(dict(value["observability"]) if isinstance(value.get("observability"), Mapping) else None),
     )

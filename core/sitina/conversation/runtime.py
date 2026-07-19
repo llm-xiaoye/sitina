@@ -11,6 +11,7 @@ from sitina.conversation.persistence import JournalSessionRepository
 from sitina.conversation.recovery import ConversationReconciler
 from sitina.conversation.state import RollingSummaryRepository, SessionStateError, WorkingStateRepository
 from sitina.conversation.router import ConversationRouter
+from sitina.conversation.routing_policy import RoutingHistoryState
 from sitina.extensions.manager import ExtensionManager
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.extensions.tools import ApprovalCallback
@@ -238,12 +239,18 @@ class ConversationRuntime:
     @staticmethod
     def _safe_fast_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         return {
+            "schema": "SITINA_SOURCED_FAST_CANDIDATE_V1",
             "fast_run_id": result.get("run_id"),
             "fast_output_hash": result.get("response_output_hash"),
+            "candidate_ref": result.get("evidence_package_ref"),
+            "candidate_role": "prior-fast-candidate-evidence",
             "confidence": result.get("confidence"),
             "needs_multi": bool(result.get("needs_multi")),
             "escalation_reasons": list(result.get("escalation_reasons") or ())[:8],
             "provider_physical_send_count": int(result.get("provider_physical_send_count", 0) or 0),
+            "external_mutation_count": int(result.get("external_mutation_count", 0) or 0),
+            "displayed_to_user": False,
+            "repeat_side_effect_allowed": False,
         }
 
     def _multi_goal(
@@ -258,8 +265,10 @@ class ConversationRuntime:
             return goal
         return (
             goal
-            + "\n\nA prior FAST pass requested independent review. Its candidate answer is intentionally not included and must not "
-            "be treated as a Proposal. Use only this safety summary: "
+            + "\n\nA prior FAST pass requested independent review. Treat the following content-addressed record as sourced "
+            "candidate evidence; it must not be treated as a Proposal already accepted by the review pipeline. Preserve "
+            "its causal run/output references, evaluate it independently, do not display it "
+            "as a second answer, and never repeat any side effect. Candidate evidence: "
             + str(dict(safe_fast_summary))
         )
 
@@ -308,7 +317,20 @@ class ConversationRuntime:
             rolling_summary=session.rolling_summary,
         )
         session.begin_turn(message)
-        initial = self.router.decide(session.mode, message, snapshot)
+        prior_observation = dict(session.last_route_decision.observability or {}) if session.last_route_decision else {}
+        prior_scores = dict(prior_observation.get("scores") or {})
+        initial = self.router.decide(
+            session.mode,
+            message,
+            snapshot,
+            history=RoutingHistoryState(
+                prior_mode=session.last_route_decision.resolved_mode if session.last_route_decision else None,
+                prior_complexity_score=int(prior_scores.get("complexity_total", 0) or 0),
+                has_bounded_history=bool(session.history),
+                unfinished_goal=bool(session.working_state),
+            ),
+            subject_id=session.session_id,
+        )
         session.last_route_decision = initial
         self._emit(status_callback, "route", initial.mapping())
         try:
@@ -399,6 +421,9 @@ class ConversationRuntime:
                             "provider_fallback_count": int(fast_result.get("provider_fallback_count", 0) or 0)
                             + int(multi_result.get("provider_fallback_count", 0) or 0),
                             "fast_candidate_displayed": False,
+                            "fast_candidate_evidence": self._safe_fast_summary(fast_result),
+                            "causal_parent_run_id": fast_result.get("run_id"),
+                            "duplicate_side_effect_count": 0,
                         }
                     )
                     final = self._base_result(session, final_decision, aggregate, escalated=True)

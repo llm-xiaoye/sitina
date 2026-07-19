@@ -1,0 +1,87 @@
+{
+  "schema": "SITINA_ROUTING_REGRESSION_FIXTURES_V1",
+  "fixture_version": "routing-fixtures-2026-07-19-v1",
+  "policy_version": "routing-policy-2026-07-19-v2",
+  "fixtures": [
+    {
+      "id": "zh-simple-greeting",
+      "language": "zh-Hans",
+      "message": "你好",
+      "expected_route": "FAST",
+      "allowed_routes": ["FAST"],
+      "reason_code": "simple-single-goal"
+    },
+    {
+      "id": "zh-simple-definition",
+      "language": "zh-Hans",
+      "message": "什么是 MVCC？",
+      "expected_route": "FAST",
+      "allowed_routes": ["FAST"],
+      "reason_code": "simple-single-goal"
+    },
+    {
+      "id": "zh-comparison",
+      "language": "zh-Hans",
+      "message": "比较三种事件存储方案并给出迁移建议",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "comparison_markers"
+    },
+    {
+      "id": "zh-traditional-review",
+      "language": "zh-Hant",
+      "message": "請對這個架構做獨立審閱與交叉驗證",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "multi_markers"
+    },
+    {
+      "id": "zh-spaced-punctuation",
+      "language": "zh-Hans",
+      "message": "请 做 安 全 审 计！！！",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "verification_markers"
+    },
+    {
+      "id": "mixed-case-comparison",
+      "language": "mixed",
+      "message": "PLEASE 比較 API v1 VS v2，并给出 trade-off",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "comparison_markers"
+    },
+    {
+      "id": "en-simple-definition",
+      "language": "en",
+      "message": "Define MVCC in one paragraph.",
+      "expected_route": "FAST",
+      "allowed_routes": ["FAST"],
+      "reason_code": "simple-single-goal"
+    },
+    {
+      "id": "en-security-audit",
+      "language": "en",
+      "message": "Perform a SECURITY AUDIT and cross-check the evidence.",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "verification_markers"
+    },
+    {
+      "id": "en-planning",
+      "language": "en",
+      "message": "Create a complete migration plan with tests and rollback documentation.",
+      "expected_route": "MULTI",
+      "allowed_routes": ["MULTI"],
+      "reason_code": "planning_markers"
+    },
+    {
+      "id": "zh-boundary-policy-diff",
+      "language": "zh-Hans",
+      "message": "不确定，请修改文件",
+      "expected_route": "FAST",
+      "allowed_routes": ["FAST", "MULTI"],
+      "reason_code": "complexity-boundary"
+    }
+  ]
+}

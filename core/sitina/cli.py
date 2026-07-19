@@ -823,6 +823,16 @@ def cmd_chat(_args: argparse.Namespace) -> int:
                 prior = session.last_route_decision
                 print(f"上一轮实际路由：{prior.resolved_mode.value}")
                 print("路由原因：" + "、".join(prior.reasons))
+                observation = dict(prior.observability or {})
+                if observation:
+                    scores = dict(observation.get("scores") or {})
+                    print(
+                        "路由解释："
+                        f"策略 {observation.get('policy_version')}；"
+                        f"复杂度 {scores.get('complexity_total')}；"
+                        f"路径 {observation.get('decision_path')}；"
+                        f"领域 {observation.get('domain_profile')}"
+                    )
             continue
         if command == "/new":
             mode = session.mode
