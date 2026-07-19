@@ -84,6 +84,14 @@
       ],
       "name": "phase-09-proposal-review",
       "phase": "09"
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-10/gate-summary.json"
+      ],
+      "name": "phase-10-agent-prompts",
+      "phase": "10"
     }
   ],
   "contract_dependency_by_domain": {
@@ -164,11 +172,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "10",
+  "current_phase": "11",
   "current_status_summary": {
-    "FAIL": 47,
+    "FAIL": 25,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 94
+    "PASS_NEW": 116
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -253,16 +261,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-10/gate-summary.json"
+      ],
       "id": "10",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "11",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -2517,421 +2527,245 @@
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-01",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/controller.md", "config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Controller prompt and parsed role contract cover goal preservation, routing/team selection, budgets, permissions, terminal outcomes, escalation and prohibited authority."],
+      "status": "PASS_NEW",
       "summary": "Controller",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p01_controller_contract_covers_goal_routing_team_budget_permissions_terminal_escalation_and_no_overreach"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-02",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/planner.md", "schemas/planner.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Planner uses explicit need-input and blocked paths for missing information, cycles, insufficient budget, unavailable capabilities and unsafe high-risk plans."],
+      "status": "PASS_NEW",
       "summary": "Planner",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p02_planner_has_explicit_missing_information_cycle_budget_risk_and_failure_paths"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-03",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["core/sitina/schemas/models.py", "schemas/planner.schema.json", "prompts/agents/planner.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Planner confidence is schema-bounded to 0..1 and assumptions, unknowns and alternatives are typed arrays validated against representative output."],
+      "status": "PASS_NEW",
       "summary": "Planner",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p03_planner_confidence_assumptions_unknowns_and_alternatives_are_schema_validated"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-04",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/reviewer.md", "schemas/reviewer.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Reviewer must form a source-bound original-requirement assessment before viewing candidate conclusions and cannot inherit Planner judgment."],
+      "status": "PASS_NEW",
       "summary": "Reviewer",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p04_reviewer_forms_original_requirement_judgment_before_candidate_review"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-05",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/reviewer.md", "core/sitina/schemas/models.py", "schemas/reviewer.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Accept, rework, reject and block conditions are explicit; every non-accept output requires a typed rejection with reason, requirement/evidence refs and required changes."],
+      "status": "PASS_NEW",
       "summary": "Reviewer",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p05_reviewer_accept_rework_reject_block_conditions_and_structured_rejection"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-06",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/tester.md", "core/sitina/schemas/models.py", "schemas/tester.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Tester output records environment, risk, reproducibility and evidence completeness and forbids treating failed, skipped, unavailable or unrun work as passing."],
+      "status": "PASS_NEW",
       "summary": "Tester",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p06_tester_reports_environment_risk_reproducibility_evidence_and_never_fabricates"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-07",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/tester.md", "schemas/tester.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Risk-based test selection is constrained to unit, contract, integration, E2E, concurrency, fault, security, performance and explicitly approved live categories."],
+      "status": "PASS_NEW",
       "summary": "Tester",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p07_tester_risk_catalog_is_machine_constrained"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-08",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/arbiter.md", "schemas/arbiter.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Arbiter covers safety, contradictory evidence, normalized-score ties and insufficient permission with deterministic or fail-closed outcomes."],
+      "status": "PASS_NEW",
       "summary": "Arbiter",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p08_arbiter_prompt_covers_safety_evidence_tie_and_permission_conflicts"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-09",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["core/sitina/runners/prompt_contracts.py", "schemas/arbiter.schema.json", "prompts/agents/arbiter.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Safety, permission and evidence gates are machine checked; any false or missing value restricts Arbiter to block/ask-user and cannot be offset by score."],
+      "status": "PASS_NEW",
       "summary": "Arbiter",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p09_arbiter_hard_gates_fail_closed_and_cannot_be_averaged"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-10",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "core/sitina/schemas/models.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Every rendered role receives the shared claim contract for trust label, source, evidence and observation time; missing prompts block both mock and live role startup."],
+      "status": "PASS_NEW",
       "summary": "所有 Agent",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p10_all_final_prompts_embed_parsed_fact_source_evidence_trust_time_contract_and_missing_prompt_blocks_start"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-11",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/schemas/models.py", "core/sitina/runners/agent_runner.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["All roles share typed input/output/tool/run token limits and a structured budget report with compress, escalate and block outcomes."],
+      "status": "PASS_NEW",
       "summary": "所有 Agent",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p11_all_roles_share_machine_checked_input_output_tool_and_run_budget_contract"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-12",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "prompts/agents"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["User, tool, web, memory and handoff content are uniformly classified as untrusted data whose embedded instructions cannot alter policy, schema, permissions or budget."],
+      "status": "PASS_NEW",
       "summary": "所有 Agent",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p12_all_roles_treat_user_tool_web_memory_and_handoff_as_untrusted_injection_data"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-13",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "config/agent_ownership.yaml", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Every role contract declares upstream/downstream topology, read/write boundary, completion condition and escalation path and is validated at startup."],
+      "status": "PASS_NEW",
       "summary": "所有 Agent",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p13_every_role_declares_topology_permissions_completion_and_escalation"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-14",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "core/sitina/runners/agent_runner.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Live schema repair is limited to one separately observed physical call, admitted only within output/run token budget, and terminates on repeated failure without mock fallback."],
+      "status": "PASS_NEW",
       "summary": "所有 Agent",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p14_schema_repair_is_single_observable_budgeted_attempt_then_terminal"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-15",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "prompts/agents/planner.md", "prompts/agents/architect.md", "prompts/agents/tester.md", "prompts/agents/reviewer.md", "prompts/agents/researcher.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Proposal authors must declare material candidate diversity across strategy, assumptions and risk focus using the shared proposal field."],
+      "status": "PASS_NEW",
       "summary": "Proposal 作者",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p15_proposal_authors_must_declare_material_strategy_assumption_and_risk_diversity"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-16",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "config/proposal_review_policy.json", "core/sitina/runners/prompt_contracts.py"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Rendered evaluator contract is validated against the exact PR-05 rubric version, seven weights, hard gates, evidence requirement and confidence handling."],
+      "status": "PASS_NEW",
       "summary": "Evaluator",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p16_evaluators_use_exact_pr05_rubric_weights_hard_gates_evidence_and_confidence"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-17",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/security.md", "core/sitina/schemas/models.py", "schemas/security.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Security returns typed threat, permission, secret and side-effect checks, owns a veto, and its schema makes high-risk execution authorization impossible."],
+      "status": "PASS_NEW",
       "summary": "Security",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p17_security_schema_covers_threat_permission_secret_effects_and_forbids_high_risk_execution"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-18",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/critic.md", "config/agent_prompt_contracts.json", "schemas/critic.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Critic owns adversarial problem discovery and counterexamples, routes findings to Reviewer, and is machine-declared unable to make the final gate decision."],
+      "status": "PASS_NEW",
       "summary": "Critic",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p18_critic_owns_adversarial_errors_and_counterexamples_but_not_final_review"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-19",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/researcher.md", "core/sitina/schemas/models.py", "schemas/researcher.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Research output separates facts, inferences and unknowns and schema-validates source provenance, trust and freshness while quarantining external instructions."],
+      "status": "PASS_NEW",
       "summary": "Researcher",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p19_researcher_schema_separates_facts_inferences_unknowns_freshness_and_untrusted_sources"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-20",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/memory.md", "core/sitina/schemas/models.py", "schemas/memory.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Memory candidates expose deduplication, conflicts, privacy, freshness and provenance fields and are schema-locked to pending status without direct promotion."],
+      "status": "PASS_NEW",
       "summary": "Memory",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p20_memory_candidates_are_deduplicated_conflict_privacy_freshness_provenance_pending_only"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-21",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["prompts/agents/summary.md", "core/sitina/schemas/models.py", "schemas/summary.schema.json"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["Summary output structures goal, completed work, decisions, constraints, failures, open items, evidence and budget while deriving verification from supplied evidence."],
+      "status": "PASS_NEW",
       "summary": "Summary",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p21_summary_schema_structures_goal_completion_decisions_constraints_failures_open_evidence_and_budget"]
     },
     {
       "domain": "Agent Prompts",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
+      "evidence_refs": ["docs/optimization/evidence/phase-00/baseline-summary.json", "docs/optimization/evidence/phase-10/gate-summary.json"],
       "id": "P-22",
-      "implementation_refs": [
-        "prompts/agents"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
+      "implementation_refs": ["config/agent_prompt_contracts.json", "core/sitina/runners/prompt_contracts.py", "docs/optimization/agent-prompts.md"],
+      "last_verified_commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "notes": ["The validated responsibility matrix assigns Critic problem discovery, evaluator scoring, Reviewer acceptance and Arbiter conflict resolution to unique owners with explicit routes."],
+      "status": "PASS_NEW",
       "summary": "角色重叠",
-      "test_ids": [
-        "tests.test_sitina"
-      ]
+      "test_ids": ["tests.optimization.test_agent_prompt_contracts.AgentPromptContractTests.test_p22_responsibility_matrix_routes_critic_reviewer_evaluator_and_arbiter_without_dual_ownership"]
     },
     {
       "domain": "Trace/Replay",
@@ -3438,6 +3272,22 @@
       "skipped_count": 21,
       "status": "PASS",
       "test_count": 930
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_ref": "docs/optimization/evidence/phase-10/gate-summary.json",
+      "id": "phase10-targeted-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 22
+    },
+    {
+      "commit": "acf6fbe6a13b8ecc369420af6bfd27d818940d2e",
+      "evidence_ref": "docs/optimization/evidence/phase-10/gate-summary.json",
+      "id": "phase10-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1066
     }
   ]
 }
