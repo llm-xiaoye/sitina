@@ -99,7 +99,13 @@ def _environment(python: Path, home: dict[str, str]) -> dict[str, str]:
             "HOME": home["path"],
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": os.pathsep.join(
-                (home["guard"], str(Path(home["path"]) / "core"), str(ROOT), str(ROOT / "core"))
+                (
+                    home["guard"],
+                    str(Path(home["path"]) / "core"),
+                    str(ROOT),
+                    str(ROOT / "core"),
+                    str(ROOT / "tests/foundation"),
+                )
             ),
             "PATH": os.pathsep.join((str(python.parent), environment.get("PATH", ""))),
         }
