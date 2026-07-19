@@ -108,6 +108,14 @@
       ],
       "name": "phase-12-performance-cost",
       "phase": "12"
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
+      "name": "phase-13-evaluation",
+      "phase": "13"
     }
   ],
   "contract_dependency_by_domain": {
@@ -188,11 +196,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "13",
+  "current_phase": "14",
   "current_status_summary": {
-    "FAIL": 7,
+    "FAIL": 1,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 134
+    "PASS_NEW": 140
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -301,16 +309,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-13/gate-summary.json"
+      ],
       "id": "13",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "14",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -3169,112 +3179,120 @@
     {
       "domain": "Evaluation",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "E-01",
       "implementation_refs": [
-        "core/sitina/evals/safety_eval.py"
+        "core/sitina/evals/system_evaluation.py",
+        "tests/fixtures/routing_regression_v1.json"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "R-08 fixtures now produce versioned overall, dangerous-downgrade, false-upgrade, language-slice, and domain-slice routing metrics in continuous regression tests."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "路由测试",
       "test_ids": [
-        "tests.test_sitina"
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e01_r08_fixtures_report_accuracy_dangerous_downgrade_upgrade_language_domain_and_policy_version"
       ]
     },
     {
       "domain": "Evaluation",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "E-02",
       "implementation_refs": [
-        "core/sitina/evals/safety_eval.py"
+        "core/sitina/orchestrator/orchestration_management.py",
+        "core/sitina/evals/system_evaluation.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "All four collaboration topologies and success, rework, reject, block, ask-user, no-consensus, cancel, restart, and partial-success outcomes are asserted with single finalization and no post-terminal external calls."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "协作测试",
       "test_ids": [
-        "tests.test_sitina"
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e02_all_topologies_and_success_rework_reject_block_ask_user_consensus_cancel_restart_partial_outcomes_finalize_once"
       ]
     },
     {
       "domain": "Evaluation",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "E-03",
       "implementation_refs": [
-        "core/sitina/evals/safety_eval.py"
+        "core/sitina/evals/system_evaluation.py",
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The executable concurrency contract binds Blackboard, budget, lease, scheduler, cache-fill, and terminal races; cache-fill uses barriers at 2/4/8 workers without timing sleeps."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "并发测试",
       "test_ids": [
-        "tests.test_sitina"
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e03_barrier_concurrency_suite_covers_blackboard_budget_lease_scheduler_cache_fill_and_terminal_without_sleep"
       ]
     },
     {
       "domain": "Evaluation",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "E-04",
       "implementation_refs": [
-        "core/sitina/evals/safety_eval.py"
+        "core/sitina/evals/system_evaluation.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "The executable chaos contract resolves real Provider, tool, Journal, CAS, projection, worker, and disk fault tests and requires recovery or fail-closed evidence."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "混沌测试",
       "test_ids": [
-        "tests.test_sitina"
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_e04_chaos_suite_binds_provider_tool_journal_cas_projection_worker_and_disk_faults_to_recovery_fail_closed_tests"
       ]
     },
     {
       "domain": "Evaluation",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "E-05",
       "implementation_refs": [
-        "core/sitina/evals/safety_eval.py"
+        "tests/benchmarks/test_system_performance_benchmarks.py",
+        "core/sitina/orchestrator/performance_management.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Routing, FAST, MULTI, handoff, Blackboard, and replay each have separate deterministic latency, throughput, and resource regression results outside the functional suite."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "性能测试",
       "test_ids": [
-        "tests.test_sitina"
+        "tests.benchmarks.test_system_performance_benchmarks.SystemPerformanceBenchmarkTests.test_e05_routing_fast_multi_handoff_blackboard_replay_have_separate_repeatable_latency_throughput_resource_gates"
       ]
     },
     {
       "domain": "Supplemental",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-13/gate-summary.json"
       ],
       "id": "X-16",
-      "implementation_refs": [],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=MISSING; no implementation and dedicated behavior test satisfying the stated acceptance were found; implement in the owning phase."
+      "implementation_refs": [
+        "core/sitina/evals/system_evaluation.py"
       ],
-      "status": "FAIL",
+      "last_verified_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "notes": [
+        "RunEvaluator emits six versioned dimensions with status, score, reason codes, and evidence refs; read-only replay performs zero Provider, network, effect, or ledger writes and caps tampered or missing evidence."
+      ],
+      "status": "PASS_NEW",
       "summary": "RunEvaluator",
-      "test_ids": []
+      "test_ids": [
+        "tests.optimization.test_system_evaluation.SystemEvaluationTests.test_x16_run_evaluator_is_read_only_replayable_six_dimensional_and_caps_tampered_or_missing_evidence"
+      ]
     },
     {
       "domain": "Supplemental",
@@ -3382,6 +3400,30 @@
       "skipped_count": 21,
       "status": "PASS",
       "test_count": 1085
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-evaluation-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 8
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-integration-chaos-gate-final",
+      "skipped_count": 0,
+      "status": "PASS",
+      "test_count": 120
+    },
+    {
+      "commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+      "evidence_ref": "docs/optimization/evidence/phase-13/gate-summary.json",
+      "id": "phase13-full-gate-final",
+      "skipped_count": 21,
+      "status": "PASS",
+      "test_count": 1093
     }
   ]
 }

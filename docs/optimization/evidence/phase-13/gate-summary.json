@@ -1,0 +1,130 @@
+{
+  "schema": "SITINA_OPTIMIZATION_PHASE13_GATE_EVIDENCE_V1",
+  "checkpoint": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+  "business_requirement_status_changes": 6,
+  "requirement_results": {
+    "E-01": "PASS_NEW",
+    "E-02": "PASS_NEW",
+    "E-03": "PASS_NEW",
+    "E-04": "PASS_NEW",
+    "E-05": "PASS_NEW",
+    "X-16": "PASS_NEW"
+  },
+  "requirement_test_map": {
+    "schema": "SITINA_REQUIREMENT_TEST_MAP_V1",
+    "requirement_count": 149,
+    "empty_mapping_count": 0,
+    "unresolvable_test_count": 0,
+    "pass_new_document_only_count": 0
+  },
+  "evaluation_boundaries": {
+    "routing_fixture_count": 10,
+    "routing_accuracy_ppm": 1000000,
+    "dangerous_false_downgrade_count": 0,
+    "false_upgrade_count": 0,
+    "collaboration_topology_count": 4,
+    "collaboration_outcome_count": 9,
+    "concurrency_components": 6,
+    "chaos_components": 7,
+    "benchmark_workloads": 6,
+    "run_evaluator_dimensions": 6,
+    "run_evaluator_read_only": true,
+    "run_evaluator_replayable": true,
+    "live_usage_claim": false
+  },
+  "full_gate": {
+    "status": "PASS",
+    "source_commit": "0b2a83056094c8e23b01b252178ddb7be3190e5d",
+    "live_provider_enabled": false,
+    "external_attempt_count": 0,
+    "production_attempt_count": 0,
+    "runs": [
+      {
+        "name": "config_validate",
+        "exit_code": 0,
+        "duration_seconds": 1.751798,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508"
+      },
+      {
+        "name": "initialize_disposable_home",
+        "exit_code": 0,
+        "duration_seconds": 0.478163,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "6249ac9a29493cbfb5c18b4a1baa61c2b8aa1f0c43d651264f57e311192f685f"
+      },
+      {
+        "name": "doctor",
+        "exit_code": 0,
+        "duration_seconds": 0.504324,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "dcc8a22651de12ad719ee62dfc0b5e6b5f2023d41bc4a158e409d265fbc440fc"
+      },
+      {
+        "name": "eval",
+        "exit_code": 0,
+        "duration_seconds": 1.635501,
+        "test_count": null,
+        "skipped_count": 0,
+        "timed_out": false,
+        "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900"
+      },
+      {
+        "name": "cumulative_tests",
+        "exit_code": 0,
+        "duration_seconds": 120.519562,
+        "test_count": 1093,
+        "skipped_count": 21,
+        "timed_out": false,
+        "stdout_sha256": "268221fbc13ca50e0adb1da4af716f4a119e7f2ee15d65cdfbdc0aaa0a79aea6"
+      }
+    ]
+  },
+  "targeted_gates": {
+    "evaluation_map_doctor_and_eval": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-13/phase-13-evaluation-r1.json",
+      "test_count": 8,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "2a1d3b66b8a890ff01ff1f5642c2920ad47690524062b41aa42a8439f5e06eb6"
+    },
+    "integration_concurrency_and_chaos": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-13/phase-13-integration-r1.json",
+      "test_count": 120,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "498cf933008afcbd3ec801a34e27017e05d8fc18c9f50399db6d4a8c7d7214aa"
+    },
+    "ledger_source_and_requirement_map_closure": {
+      "status": "PASS",
+      "evidence": "external:output/optimization-bootstrap/phase-13/phase-13-ledger-source-r1.json",
+      "test_count": 11,
+      "skipped_count": 0,
+      "external_attempt_count": 0,
+      "production_attempt_count": 0,
+      "stdout_sha256": "d3185c34efa6e5052142878c40fed16607d240f5d2bc7c25cdc340ff4ef7d92c"
+    }
+  },
+  "raw_evidence_paths": [
+    "external:output/optimization-bootstrap/phase-13/phase-13-evaluation-r1.json",
+    "external:output/optimization-bootstrap/phase-13/phase-13-integration-r1.json",
+    "external:output/optimization-bootstrap/phase-13/phase-13-full-precommit.json",
+    "external:output/optimization-bootstrap/phase-13/phase-13-full-postcommit.json",
+    "external:output/optimization-bootstrap/phase-13/phase-13-ledger-source-r1.json"
+  ],
+  "notes": [
+    "All 149 provided requirement IDs map to importable method-specific executable tests; shared coverage describes the per-ID assertion.",
+    "Performance workloads are deterministic Provider-free regression fixtures and are not represented as live latency, token, or cost evidence.",
+    "The 21 skips are pre-existing live-provider or environment-conditioned tests; live Provider execution remained disabled."
+  ]
+}
