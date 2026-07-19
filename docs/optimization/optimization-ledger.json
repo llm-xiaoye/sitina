@@ -52,6 +52,14 @@
       ],
       "name": "phase-05-reliability",
       "phase": "05"
+    },
+    {
+      "commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "name": "phase-06-security",
+      "phase": "06"
     }
   ],
   "contract_dependency_by_domain": {
@@ -132,11 +140,11 @@
       "token-usage"
     ]
   },
-  "current_phase": "06",
+  "current_phase": "07",
   "current_status_summary": {
-    "FAIL": 102,
+    "FAIL": 94,
     "PASS_EXISTING": 8,
-    "PASS_NEW": 39
+    "PASS_NEW": 47
   },
   "initial_source_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
   "phases": [
@@ -189,16 +197,18 @@
       "status": "COMPLETED"
     },
     {
-      "checkpoint": null,
-      "gate_evidence": [],
+      "checkpoint": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "gate_evidence": [
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
       "id": "06",
-      "status": "IN_PROGRESS"
+      "status": "COMPLETED"
     },
     {
       "checkpoint": null,
       "gate_evidence": [],
       "id": "07",
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     {
       "checkpoint": null,
@@ -1214,205 +1224,218 @@
     {
       "domain": "Security",
       "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
       ],
       "id": "S-01",
       "implementation_refs": [
-        "core/sitina/effects/gateway.py"
+        "core/sitina/extensions/tools.py",
+        "core/sitina/security/tool_security.py"
       ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
       "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
+        "Default-deny MCP policy now evaluates principal inheritance plus server, tool, action, resource, canonical arguments and risk; deny and approval precedence, wildcard matching, encoded traversal and alias conflicts are negative-tested."
       ],
-      "status": "FAIL",
+      "status": "PASS_NEW",
       "summary": "MCP 权限",
       "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-02",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "工具超时",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-03",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "工具重试",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-04",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "工具审计",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-05",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "风险扫描",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s01_mcp_default_deny_wildcards_escape_aliases_and_explicit_inheritance"
       ]
     },
     {
       "domain": "Security",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-02",
+      "implementation_refs": [
+        "core/sitina/runners/mcp_adapter.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "The unified tool timeout contract carries connection, read, total and cleanup-grace limits, propagates cancellation, closes adapters and verifies that a cooperative hanging worker is not left active."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具超时",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s02_tool_timeouts_propagate_cancellation_and_cleanup_without_live_worker"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-03",
+      "implementation_refs": [
+        "core/sitina/reliability.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Tool retries consume Failure Taxonomy 1.0 and the shared retry scheduler; a retryable non-idempotent call without an idempotency key stops after one attempt and enters manual recovery."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具重试",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s03_tool_retry_requires_retryable_taxonomy_and_idempotency_or_key"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-04",
+      "implementation_refs": [
+        "core/sitina/extensions/runtime.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Tool audit persistence now receives only normalized identity, redacted argument summary/hash, exact permission decision, duration, result reference and redacted failure envelope; raw arguments and results are excluded."
+      ],
+      "status": "PASS_NEW",
+      "summary": "工具审计",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s04_tool_audit_persists_only_redacted_summaries_hashes_decisions_refs_and_errors"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-05",
+      "implementation_refs": [
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Versioned risk scoring combines action rules, capability presence, impact scope, untrusted context and external targeting; unknown actions are critical, audited and fail closed."
+      ],
+      "status": "PASS_NEW",
+      "summary": "风险扫描",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s05_contextual_risk_scoring_is_versioned_auditable_and_unknown_high_risk_fails_closed"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
       ],
       "id": "S-06",
       "implementation_refs": [
         "core/sitina/effects/approval.py",
         "core/sitina/effects/gateway.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "PASS_EXISTING is preserved for the exact EffectApproval binding checks; phase 06 adds a thread-safe pending-wait projection with run/effect/hash/expiry binding, one-time consumption and timeout auto-deny cleanup."
       ],
       "status": "PASS_EXISTING",
       "summary": "审批流程",
       "test_ids": [
         "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_every_exact_binding_dimension_invalidates_approval",
-        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_attempt_retry_and_expiry_limits_fail_closed"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-07",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "权限最小化",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-08",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "Prompt 注入",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
-      ]
-    },
-    {
-      "domain": "Security",
-      "evidence_refs": [
-        "docs/optimization/evidence/phase-00/baseline-summary.json"
-      ],
-      "id": "S-09",
-      "implementation_refs": [
-        "core/sitina/effects/gateway.py"
-      ],
-      "last_verified_commit": "b9fca670ecbd63db8cf807296ccab75a6cef3e2b",
-      "notes": [
-        "audit_classification=PARTIAL; related implementation/tests exist but do not prove every stated acceptance condition; preserve the existing owner and close only the audited gaps."
-      ],
-      "status": "FAIL",
-      "summary": "密钥管理",
-      "test_ids": [
-        "tests.test_effect_approval_credentials",
-        "tests.test_tool_result_quarantine"
+        "tests.test_effect_approval_credentials.EffectApprovalCredentialTests.test_attempt_retry_and_expiry_limits_fail_closed",
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s06_approval_wait_binds_run_effect_hash_expires_denies_cleans_and_consumes_once"
       ]
     },
     {
       "domain": "Security",
       "evidence_refs": [
         "docs/optimization/evidence/phase-00/baseline-summary.json",
-        "docs/optimization/evidence/phase-00/gate-summary.json"
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-07",
+      "implementation_refs": [
+        "config/agent_capabilities.yaml",
+        "core/sitina/orchestrator/team.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "All 18 configured roles are pinned to exact minimum capability sets; unknown roles fail closed and forbidden actions override an otherwise present capability."
+      ],
+      "status": "PASS_NEW",
+      "summary": "权限最小化",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s07_every_role_has_exact_minimum_capability_matrix_and_forbidden_actions_override"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-08",
+      "implementation_refs": [
+        "core/sitina/extensions/tools.py",
+        "core/sitina/security/tool_security.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Prompt sources are typed and isolated; prompt text from every source is incapable of granting permissions, and tool/memory data remains non-authoritative even when it carries indirect injection or exfiltration instructions."
+      ],
+      "status": "PASS_NEW",
+      "summary": "Prompt 注入",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s08_prompt_sources_are_isolated_and_tool_memory_injection_cannot_escalate_or_exfiltrate"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
+      ],
+      "id": "S-09",
+      "implementation_refs": [
+        "core/sitina/guards/secrets.py",
+        "core/sitina/security/redaction.py"
+      ],
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
+      "notes": [
+        "Secret detection now combines structured sensitive fields, known credential prefixes, constrained entropy, URL/Unicode normalization, base64 decoding and split-fragment inspection; safe findings never contain the secret value and all named isolated scopes scan clean."
+      ],
+      "status": "PASS_NEW",
+      "summary": "密钥管理",
+      "test_ids": [
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s09_structured_secret_detector_catches_format_entropy_base64_fragments_unicode_url_log_and_export",
+        "tests.test_evidence_hardening.EvidenceHardeningTests.test_secret_scan_placeholders_no_false_positive"
+      ]
+    },
+    {
+      "domain": "Security",
+      "evidence_refs": [
+        "docs/optimization/evidence/phase-00/baseline-summary.json",
+        "docs/optimization/evidence/phase-00/gate-summary.json",
+        "docs/optimization/evidence/phase-06/gate-summary.json"
       ],
       "id": "S-10",
       "implementation_refs": [
         "core/sitina/effects/gateway.py",
         "core/sitina/orchestrator/replay.py"
       ],
-      "last_verified_commit": "65800b97ef53b158f81ae3720b8f98ede8bee332",
+      "last_verified_commit": "f8d4119a164f5951c57ec27e6b28e688dac285ec",
       "notes": [
-        "audit_classification=PASS_EXISTING; direct behavior is implemented and was exercised in the 922-test baseline; phase-00 targeted rerun remains the checkpoint gate."
+        "PASS_EXISTING is preserved for Effect Gateway and offline replay isolation; phase 06 adds an adversarial zero-effect regression proving replay/evaluation receives no live permit or lease and cannot reach network, subprocess or external Effect execution."
       ],
       "status": "PASS_EXISTING",
       "summary": "副作用隔离",
       "test_ids": [
         "tests.test_effect_capability_activation.EffectCapabilityActivationTests.test_disable_new_transmission_preserves_receipt_observation_and_reconciliation",
-        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox"
+        "tests.test_offline_replay.OfflineReplayTests.test_application_guards_deny_adversarial_effects_but_do_not_claim_os_sandbox",
+        "tests.optimization.test_security_management.SecurityManagementTests.test_s10_replay_and_evaluation_guards_never_execute_real_side_effects"
       ]
     },
     {
