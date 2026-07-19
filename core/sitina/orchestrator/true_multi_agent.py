@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import route_decision_from_mapping
+from sitina.contracts.models import BlackboardDocumentRecord, SourceDescriptor
 from sitina.journal.model import FrontierRef, canonical_json_bytes
 from sitina.effects.monitoring import MonitoringTransfer
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
@@ -2821,6 +2822,32 @@ class TrueMultiAgentProductionRuntime:
             or str(downstream.value["read_document_hash"]) != final.document_hash
         ):
             raise DynamicCollaborationError("downstream Agent did not consume the resolved Blackboard version")
+        blackboard_receipt = executor._publish(
+            dict(final.inline_body or {}),
+            purpose="true-multi-agent-blackboard-document",
+        )
+        blackboard_contract = BlackboardDocumentRecord(
+            schema="SITINA_BLACKBOARD_DOCUMENT_V1",
+            schema_version="1.0",
+            correlation_id=evidence.run_id,
+            causation_id=None,
+            created_at=now_rfc3339(),
+            source=SourceDescriptor(
+                component="true-multi-agent-blackboard",
+                actor_id=final.last_writer_id,
+                source_ref=str(downstream_read_refs[-1]["event_id"]),
+            ),
+            trust="verified",
+            document_id=final.document_id,
+            namespace=final.namespace.value,
+            document_version=final.version,
+            document_hash=final.document_hash,
+            content_ref=blackboard_receipt.object_ref.reference_id,
+            classification=final.classification.casefold(),
+            writer_policy_hash=final.writer_policy_hash,
+            merge_policy_hash=final.merge_policy_hash,
+            last_writer_id=final.last_writer_id,
+        )
         close_fact = self._protocol_close(evidence, board_id, obligation, "CONFLICT_RESOLVED_AND_CONSUMED" if conflict_required else "COMMITTED_AND_CONSUMED")
         stream.append(
             "blackboard-closed",
@@ -2837,10 +2864,13 @@ class TrueMultiAgentProductionRuntime:
                     "downstream_output_hash": downstream.output_hash,
                     "downstream_read_event_id": downstream_read_refs[-1]["event_id"],
                     "blocking_conflict_count": len(board.active_conflicts),
+                    "blackboard_document_ref": blackboard_receipt.object_ref.reference_id,
+                    "_object_refs": [blackboard_receipt.object_ref.reference_id],
                 },
                 close_fact,
             ),
             actor="blackboard-terminal-coordinator",
+            proofs=(blackboard_receipt,),
         )
         return {
             "document_id": board_id,
@@ -2855,6 +2885,7 @@ class TrueMultiAgentProductionRuntime:
             "downstream_output_hash": downstream.output_hash,
             "downstream_output_ref": downstream.output_ref,
             "conflict_required": conflict_required,
+            "contract": blackboard_contract.model_dump(mode="json", by_alias=True),
         }
 
     def _handoff(
@@ -2966,15 +2997,9 @@ class TrueMultiAgentProductionRuntime:
                 previous_generation_ref=previous_generation_ref,
                 previous_rejection_event_ref=previous_rejection_event_ref,
                 reject_reason_resolution_map=resolution_map,
-                blackboard_version_refs=(
-                    (
-                        f"{integrated_context['blackboard']['document_id']}@"
-                        f"{integrated_context['blackboard']['version']}:"
-                        f"{integrated_context['blackboard']['document_hash']}"
-                    ),
-                )
-                if integrated_context is not None
-                else (),
+                blackboard_documents=(
+                    BlackboardDocumentRecord.model_validate(integrated_context["blackboard"]["contract"]),
+                ) if integrated_context is not None else (),
                 task_claim_ref=claim_ref,
                 fencing_token=preview_attempt.fencing_token,
                 max_generations=3,
@@ -3194,6 +3219,35 @@ class TrueMultiAgentProductionRuntime:
                     raise DynamicCollaborationError("Handoff generation limit reached")
                 assessment = open_successor(transition_ref, prior_contract_ref, reasons)
 
+            acknowledgement = contract.acknowledge(
+                receiver_id=receiver.agent_id,
+                occurred_at=now_rfc3339(),
+                expected_contract_hash=contract.contract_hash,
+                available_capabilities=receiver.capabilities,
+                available_input_refs=contract.input_refs,
+                available_blackboard_document_ids=tuple(
+                    item.document_id for item in contract.blackboard_documents
+                ),
+                accepted_budget_tokens=contract.budget_tokens,
+                verified_objective_ref=contract.objective_ref,
+                verified_scope_ref=contract.scope_ref,
+                acceptance_criteria_confirmed=bool(contract.acceptance_criteria),
+                verified_policy_hash=self.policy_hash,
+                verified_current_state_ref=contract.current_state_ref,
+                verified_output_schema_hash=contract.output_schema_hash,
+            )
+            if acknowledgement.status != "ACCEPTED":
+                raise DynamicCollaborationError(
+                    "machine-verifiable Handoff acknowledgement rejected the assessed contract"
+                )
+            stream.append(
+                "handoff-contract-acknowledged",
+                ({
+                    "schema": "HANDOFF_CONTRACT_ACKNOWLEDGED_V1",
+                    **dataclasses.asdict(acknowledgement),
+                },),
+                actor=receiver.agent_id,
+            )
             handoff, accepted = handoff.accept(receiver.agent_id, now=now_rfc3339())
             handoff, claim_pending = handoff.mark_claim_pending(
                 receiver.agent_id,
@@ -3419,9 +3473,10 @@ class TrueMultiAgentProductionRuntime:
                     "provider_verdict": provider_accepted,
                     "prepared_event_schema": prepared_fact["schema"],
                 }
-            handoff, submitted_handoff = handoff.submit(
+            handoff, submitted_handoff = handoff.submit_fenced(
                 receiver.agent_id,
                 delivery.output_hash,
+                task=task,
                 output_schema_hash=contract.output_schema_hash,
                 schema_validation_evidence_hash=schema_validation_hash,
             )

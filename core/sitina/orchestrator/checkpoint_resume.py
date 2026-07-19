@@ -322,9 +322,10 @@ def _complete_integrated_handoff(
         raise CheckpointResumeError("restored Handoff fence differs from its Task Claim")
 
     artifact_hash = str(continuation["delivery_output_hash"])
-    handoff, handoff_submitted = handoff.submit(
+    handoff, handoff_submitted = handoff.submit_fenced(
         receiver_id,
         artifact_hash,
+        task=handoff_task,
         output_schema_hash=str(continuation["output_schema_hash"]),
         schema_validation_evidence_hash=str(continuation["schema_validation_evidence_hash"]),
     )

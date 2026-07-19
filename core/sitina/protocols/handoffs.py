@@ -238,6 +238,65 @@ class Handoff:
             "generation_permanently_closed": True,
         }
 
+    def reject_classified(
+        self,
+        actor_id: str,
+        *,
+        reason_code: str,
+        classification: str,
+    ) -> tuple["Handoff", dict[str, Any]]:
+        self._not_terminal()
+        self._actor_receiver(actor_id)
+        validate_identifier(reason_code, field="handoff_rejection_reason_code")
+        if classification not in {"repairable", "permission", "safety", "cancelled"}:
+            raise HandoffError("Handoff rejection classification is invalid")
+        if self.state not in {HandoffState.OFFERED, HandoffState.CLARIFICATION, HandoffState.ACCEPTED}:
+            raise HandoffError("Handoff cannot be classified-rejected from current state")
+        target = {
+            "repairable": HandoffState.REWORK,
+            "permission": HandoffState.FAILED,
+            "safety": HandoffState.FAILED,
+            "cancelled": HandoffState.CANCELLED,
+        }[classification]
+        updated = replace(self, state=target, version=self.version + 1)
+        return updated, {
+            "schema": "HANDOFF_CLASSIFIED_REJECTION_V1",
+            "handoff_id": self.handoff_id,
+            "generation": self.generation,
+            "actor_id": actor_id,
+            "reason_code": reason_code,
+            "classification": classification,
+            "to_state": target.value,
+            "fail_closed": classification in {"permission", "safety"},
+            "rework_allowed": classification == "repairable" and self.generation < self.max_generations,
+            "generation_permanently_closed": target in {HandoffState.FAILED, HandoffState.CANCELLED},
+        }
+
+    def cancel(
+        self,
+        actor_id: str,
+        *,
+        reason_code: str,
+        cleanup_refs: tuple[str, ...] = (),
+    ) -> tuple["Handoff", dict[str, Any]]:
+        self._not_terminal()
+        if actor_id not in {self.sender_id, self.receiver_id}:
+            raise HandoffError("only a Handoff party may cancel it")
+        validate_identifier(reason_code, field="handoff_cancel_reason_code")
+        if any(not item.startswith("cas:") for item in cleanup_refs):
+            raise HandoffError("Handoff cancellation cleanup refs must be CAS references")
+        updated = replace(self, state=HandoffState.CANCELLED, version=self.version + 1)
+        return updated, {
+            "schema": "HANDOFF_CANCELLED_V1",
+            "handoff_id": self.handoff_id,
+            "generation": self.generation,
+            "actor_id": actor_id,
+            "reason_code": reason_code,
+            "cleanup_refs": list(sorted(set(cleanup_refs))),
+            "cleanup_required": bool(cleanup_refs),
+            "generation_permanently_closed": True,
+        }
+
     def close_for_new_generation(
         self, actor_id: str, *, reason_ref: str
     ) -> tuple["Handoff", dict[str, Any]]:
@@ -351,6 +410,37 @@ class Handoff:
             "output_schema_hash": output_schema_hash,
             "schema_validation_evidence_hash": schema_validation_evidence_hash,
             "schema_validation_passed": True,
+        }
+
+    def submit_fenced(
+        self,
+        actor_id: str,
+        artifact_hash: str,
+        *,
+        task: TaskAggregate,
+        output_schema_hash: str,
+        schema_validation_evidence_hash: str,
+    ) -> tuple["Handoff", dict[str, Any]]:
+        attempt = task.active_attempt
+        if (
+            task.task_id != self.task_id
+            or attempt is None
+            or self.task_attempt_id != attempt.task_attempt_id
+            or self.claim_generation != attempt.claim_generation
+            or self.fencing_token != attempt.fencing_token
+        ):
+            raise HandoffError("Handoff submission requires the current Task generation and fencing token")
+        updated, fact = self.submit(
+            actor_id,
+            artifact_hash,
+            output_schema_hash=output_schema_hash,
+            schema_validation_evidence_hash=schema_validation_evidence_hash,
+        )
+        return updated, {
+            **fact,
+            "task_attempt_id": attempt.task_attempt_id,
+            "claim_generation": attempt.claim_generation,
+            "current_fencing_token_verified": True,
         }
 
     def verify(
@@ -478,6 +568,14 @@ class Handoff:
                 current = replace(current, state=HandoffState.CLARIFICATION, version=current.version + 1)
             elif schema == "HANDOFF_REJECTED_V1":
                 current = replace(current, state=HandoffState.REJECTED, version=current.version + 1)
+            elif schema == "HANDOFF_CLASSIFIED_REJECTION_V1":
+                current = replace(
+                    current,
+                    state=HandoffState(str(fact["to_state"])),
+                    version=current.version + 1,
+                )
+            elif schema == "HANDOFF_CANCELLED_V1":
+                current = replace(current, state=HandoffState.CANCELLED, version=current.version + 1)
             elif schema == "HANDOFF_GENERATION_CLOSED_V1":
                 current = replace(current, state=HandoffState.SUPERSEDED, version=current.version + 1)
             elif schema == "HANDOFF_ACCEPTED_V1":

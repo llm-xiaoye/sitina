@@ -4,10 +4,34 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from sitina.journal.model import canonical_json_bytes, domain_hash, validate_identifier, validate_timestamp
+from sitina.contracts.models import BlackboardDocumentRecord
+from sitina.security.redaction import redact_boundary_value
 
 
 class HandoffContractError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class HandoffAcknowledgement:
+    handoff_id: str
+    generation: int
+    receiver_id: str
+    contract_hash: str
+    status: str
+    missing_fields: tuple[str, ...]
+    occurred_at: str
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.handoff_id, field="handoff_ack_id")
+        validate_identifier(self.receiver_id, field="handoff_ack_receiver")
+        validate_timestamp(self.occurred_at)
+        if self.generation < 1 or len(self.contract_hash) != 64 or self.status not in {"ACCEPTED", "REJECTED"}:
+            raise HandoffContractError("Handoff acknowledgement identity or status is invalid")
+        if tuple(sorted(set(self.missing_fields))) != self.missing_fields:
+            raise HandoffContractError("Handoff acknowledgement missing fields must be unique and sorted")
+        if (self.status == "ACCEPTED") == bool(self.missing_fields):
+            raise HandoffContractError("Handoff acknowledgement status conflicts with missing fields")
 
 
 @dataclass(frozen=True)
@@ -38,6 +62,7 @@ class HandoffContract:
     task_claim_ref: str | None = None
     fencing_token: str | None = None
     max_generations: int = 3
+    blackboard_documents: tuple[BlackboardDocumentRecord, ...] = ()
 
     def __post_init__(self) -> None:
         for value, field in (
@@ -75,6 +100,9 @@ class HandoffContract:
                 raise HandoffContractError("new Handoff generation requires its reserved fencing token")
         if any(not isinstance(item, str) or not item for item in self.blackboard_version_refs):
             raise HandoffContractError("Blackboard version refs must be non-empty strings")
+        document_ids = [item.document_id for item in self.blackboard_documents]
+        if len(document_ids) != len(set(document_ids)):
+            raise HandoffContractError("Handoff BlackboardDocument bindings contain duplicate document IDs")
         canonical_json_bytes(dict(self.output_schema))
 
     @property
@@ -123,6 +151,9 @@ class HandoffContract:
             "open_questions": list(self.open_questions),
             "reject_reason_resolution_map": dict(self.reject_reason_resolution_map),
             "blackboard_version_refs": list(self.blackboard_version_refs),
+            "blackboard_documents": [
+                item.model_dump(mode="json", by_alias=True) for item in self.blackboard_documents
+            ],
             "budget": self.budget_tokens,
             "output_schema_hash": self.output_schema_hash,
             "input_freeze_hash": self.input_freeze_hash,
@@ -135,6 +166,9 @@ class HandoffContract:
     def offered_fact(self, *, contract_object_ref: str) -> dict[str, Any]:
         if not contract_object_ref.startswith("cas:"):
             raise HandoffContractError("Handoff contract must be published to CAS")
+        boundary = redact_boundary_value(self.mapping(), boundary="handoff")
+        if boundary.redacted_paths:
+            raise HandoffContractError("Handoff contract contains sensitive content at the persistence boundary")
         return {
             "schema": "HANDOFF_CONTRACT_FROZEN_V1",
             **self.mapping(),
@@ -142,3 +176,67 @@ class HandoffContract:
             "contract_object_ref": contract_object_ref,
             "_object_refs": [contract_object_ref],
         }
+
+    def acknowledge(
+        self,
+        *,
+        receiver_id: str,
+        occurred_at: str,
+        expected_contract_hash: str,
+        available_capabilities: tuple[str, ...],
+        available_input_refs: tuple[str, ...],
+        available_blackboard_document_ids: tuple[str, ...],
+        accepted_budget_tokens: int,
+        verified_objective_ref: str,
+        verified_scope_ref: str,
+        acceptance_criteria_confirmed: bool,
+        verified_policy_hash: str,
+        verified_current_state_ref: str,
+        verified_output_schema_hash: str,
+    ) -> HandoffAcknowledgement:
+        validate_identifier(receiver_id, field="handoff_ack_receiver")
+        validate_timestamp(occurred_at)
+        if receiver_id != self.receiver_id:
+            raise HandoffContractError("only the frozen receiver may acknowledge a Handoff")
+        missing = []
+        if expected_contract_hash != self.contract_hash:
+            missing.append("contract_hash")
+        missing.extend(
+            f"capability:{item}"
+            for item in sorted(set(self.required_capabilities) - set(available_capabilities))
+        )
+        missing.extend(
+            f"input_ref:{item}"
+            for item in sorted(set(self.input_refs) - set(available_input_refs))
+        )
+        missing.extend(
+            f"blackboard_document:{item}"
+            for item in sorted(
+                {document.document_id for document in self.blackboard_documents}
+                - set(available_blackboard_document_ids)
+            )
+        )
+        if accepted_budget_tokens < self.budget_tokens:
+            missing.append("budget_tokens")
+        if verified_objective_ref != self.objective_ref:
+            missing.append("objective_ref")
+        if verified_scope_ref != self.scope_ref:
+            missing.append("scope_ref")
+        if not acceptance_criteria_confirmed:
+            missing.append("acceptance_criteria")
+        if verified_policy_hash != self.policy_hash:
+            missing.append("policy_hash")
+        if verified_current_state_ref != self.current_state_ref:
+            missing.append("current_state_ref")
+        if verified_output_schema_hash != self.output_schema_hash:
+            missing.append("output_schema_hash")
+        fields = tuple(sorted(set(missing)))
+        return HandoffAcknowledgement(
+            self.handoff_id,
+            self.generation,
+            receiver_id,
+            self.contract_hash,
+            "REJECTED" if fields else "ACCEPTED",
+            fields,
+            occurred_at,
+        )
