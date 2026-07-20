@@ -36,13 +36,13 @@ from sitina.orchestrator.cli_evidence import CliEvidenceRecorder
 from sitina.orchestrator.blackboard import Blackboard
 from sitina.orchestrator.checkpoint import CheckpointManager
 from sitina.orchestrator.context import ContextBuilder
-from sitina.orchestrator.engine import SitinaEngine
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 from sitina.orchestrator.clean_acceptance import CleanAcceptanceContext
 from sitina.orchestrator.evidence_bundle import EvidenceBundleManager
 from sitina.orchestrator.git_ops import GitWorktreeManager
 from sitina.orchestrator.handoff import HandoffManager
 from sitina.orchestrator.ledger import RunLedger
+from sitina.orchestrator.local_runtime import JournalNativeLocalRuntime
 from sitina.orchestrator.leases import LeaseManager
 from sitina.orchestrator.maintenance import MaintenanceOps
 from sitina.orchestrator.observability_management import TraceQuery, TraceQueryEngine
@@ -111,21 +111,20 @@ def print_json(value) -> None:
 
 def cmd_init(args: argparse.Namespace) -> int:
     policy = LegacyRuntimePolicy.load(SITINA_HOME)
-    if policy.fully_disabled:
-        # A clean B+ root must not recreate retired Legacy runtime directories.
-        # Existing source/config directories are validated, while the only
-        # creatable operational roots are already inside the B+ fence plane.
-        clean_acceptance = not _is_production_home() and (SITINA_HOME / ".sitina-clean-acceptance-v1").is_file()
-        runtime_dirs = ("journal", "cas", "projections") + (("state/locks",) if clean_acceptance else ())
-        for rel in runtime_dirs:
-            path = SITINA_HOME / rel
-            if not path.exists():
-                ensure_dir(path)
-    else:
-        for rel in REQUIRED_DIRS:
-            ensure_dir(SITINA_HOME / rel)
-        SitinaStore(SITINA_HOME).init_db()
-        SitinaEngine(SITINA_HOME).initialize()
+    if not policy.fully_disabled:
+        print_json({
+            "status": "blocked",
+            "reason": "Legacy initialization was retired; initialize a Journal-native B+ home instead",
+            "legacy_database_created": False,
+        })
+        return 3
+    # A clean B+ root must not recreate retired Legacy runtime directories.
+    clean_acceptance = not _is_production_home() and (SITINA_HOME / ".sitina-clean-acceptance-v1").is_file()
+    runtime_dirs = ("journal", "cas", "projections") + (("state/locks",) if clean_acceptance else ())
+    for rel in runtime_dirs:
+        path = SITINA_HOME / rel
+        if not path.exists():
+            ensure_dir(path)
     print_json({
         "status": "ok",
         "home": str(SITINA_HOME),
@@ -335,7 +334,15 @@ def cmd_storage_diagnostics(args: argparse.Namespace) -> int:
         historical_references: tuple[str, ...]
         if fast_report is not None and fast_report.active_roots_snapshot:
             roots = SemanticRootIndex.from_fast_start(fast_report)
-            historical_references = tuple(reference for event in fast_report.active_tail_events for reference in event.object_refs)
+            verified_reader = context.open_verified_journal_reader()
+            try:
+                historical_references = tuple(
+                    reference
+                    for event in verified_reader.iter_events(0)
+                    for reference in event.object_refs
+                )
+            finally:
+                verified_reader.close()
         else:
             if fast_report is not None:
                 FullJournalVerifier(
@@ -631,7 +638,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     extensions_enabled = any(
         not item.get("disabled") for item in extension_registry["plugins"].values()
     ) or any(not item.get("disabled") for item in extension_registry["skills"].values())
-    if extensions_enabled and args.provider_mode in {"auto", "live"}:
+    if not _bplus_installed() and extensions_enabled and args.provider_mode in {"auto", "live"}:
         if getattr(args, "approve_risky", False):
             approval_callback = lambda _request: True
         elif sys.stdin.isatty() and sys.stdout.isatty():
@@ -692,17 +699,19 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "fallback_attempted": False,
             })
             return 3
-    if args.provider_mode == "auto":
-        args.provider_mode = "mock"
-    result = SitinaEngine(SITINA_HOME).run(
-        " ".join(args.goal),
-        provider_mode=args.provider_mode,
-        profile_overrides=parse_profile_overrides(args.profile_override),
-        parent_goal_id=args.goal_id,
-        backlog_item_id=args.backlog_item_id,
-    )
-    print_json(result)
-    return 0
+        result = JournalNativeLocalRuntime(SITINA_HOME).execute(
+            " ".join(args.goal),
+            parent_goal_id=getattr(args, "goal_id", None),
+            backlog_item_id=getattr(args, "backlog_item_id", None),
+        )
+        print_json(result)
+        return 0 if result.get("status") in {"ok", "terminal"} else 2
+    print_json({
+        "status": "blocked",
+        "reason": "Legacy orchestration is retired and this home has no verified Journal-native runtime",
+        "legacy_fallback_attempted": False,
+    })
+    return 3
 
 
 def _chat_failure_text(error_type: str | None, error_text: str = "") -> str:
@@ -884,9 +893,21 @@ def cmd_chat(_args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    result = SitinaEngine(SITINA_HOME).ask(" ".join(args.goal), provider_mode=args.provider_mode, profile_overrides=parse_profile_overrides(args.profile_override))
-    print_json(result)
-    return 0
+    return cmd_run(args)
+
+
+def _retired_legacy_command(command: str, *, replacement: str | None = None) -> int:
+    payload: dict[str, Any] = {
+        "status": "blocked",
+        "reason": f"{command} belonged to the retired Legacy orchestration engine",
+        "legacy_read_enabled": False,
+        "legacy_write_enabled": False,
+        "fallback_attempted": False,
+    }
+    if replacement:
+        payload["replacement"] = replacement
+    print_json(payload)
+    return 3
 
 
 def _extension_error(error: BaseException) -> int:
@@ -1042,15 +1063,11 @@ def cmd_agent(args: argparse.Namespace) -> int:
 
 
 def cmd_resume(args: argparse.Namespace) -> int:
-    result = SitinaEngine(SITINA_HOME).resume(args.run_id)
-    print_json(result)
-    return 0 if result.get("status") == "ok" else 2
+    return _retired_legacy_command("resume", replacement="Journal-native checkpoint recovery")
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
-    result = SitinaEngine(SITINA_HOME).cancel(args.run_id, reason=args.reason)
-    print_json(result)
-    return 0 if result.get("status") == "cancelled" else 2
+    return _retired_legacy_command("cancel", replacement="runtime-specific cancellation")
 
 
 def cmd_checkpoint(args: argparse.Namespace) -> int:
@@ -1473,9 +1490,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
-    out = SitinaEngine(SITINA_HOME).backup()
-    print_json({"status": "ok", "backup": str(out), "excluded": ["profiles/*.env", "tokens", "secrets"]})
-    return 0
+    return _retired_legacy_command("backup", replacement="Production authority backup")
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
@@ -1510,9 +1525,7 @@ def _parse_older_than(value: str) -> int:
 
 
 def cmd_export_run(args: argparse.Namespace) -> int:
-    out = SitinaEngine(SITINA_HOME).export_run(args.run_id)
-    print_json({"status": "ok", "export": str(out)})
-    return 0
+    return _retired_legacy_command("export-run", replacement="Journal trace/evidence export")
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -1659,28 +1672,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
             return 0
         return 2 if result.get("status") == "not_found" else 3
 
-    engine = SitinaEngine(SITINA_HOME)
-    if args.memory_cmd == "review":
-        if args.accept:
-            result = engine.memory_review("accept", args.accept, reviewer="cli", source="memory_review_legacy")
-        elif args.reject:
-            result = engine.memory_review("reject", args.reject, reviewer="cli", source="memory_review_legacy", rejected_reason=args.reason)
-        else:
-            result = engine.memory_review("list", status=None if args.status == "all" else args.status)
-    elif args.memory_cmd == "show":
-        result = engine.memory_review("show", args.candidate_id)
-    elif args.memory_cmd == "accept":
-        result = engine.memory_review("accept", args.candidate_id, reviewer="cli", source="memory_cli")
-    elif args.memory_cmd == "reject":
-        result = engine.memory_review("reject", args.candidate_id, reviewer="cli", source="memory_cli", rejected_reason=args.reason)
-    else:
-        raise SystemExit("unknown memory command")
-    print_json(result)
-    if result.get("status") in {"ok", "already_accepted", "already_rejected"}:
-        return 0
-    if result.get("status") == "not_found":
-        return 2
-    return 3
+    return _retired_legacy_command("legacy memory", replacement="Journal-native memory")
 
 
 def cmd_provider(args: argparse.Namespace) -> int:
@@ -1706,14 +1698,7 @@ def cmd_provider(args: argparse.Namespace) -> int:
 
 
 def cmd_approve_run(args: argparse.Namespace) -> int:
-    result = SitinaEngine(SITINA_HOME).approve_run(
-        args.run_id,
-        action=args.action,
-        files=args.file or None,
-        continue_run=not args.no_continue,
-    )
-    print_json(result)
-    return 0 if result.get("status") in {"done", "approved"} else 3
+    return _retired_legacy_command("approve-run", replacement="runtime-scoped effect approval")
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
@@ -2310,7 +2295,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     policy = LegacyRuntimePolicy.load(SITINA_HOME)
     legacy_only_handlers = {
-        cmd_ask,
+        cmd_agent,
+        cmd_goal,
+        cmd_backlog,
+        cmd_plan,
+        cmd_obsidian,
+        cmd_worktree,
         cmd_resume,
         cmd_cancel,
         cmd_checkpoint,
@@ -2321,7 +2311,15 @@ def main(argv: list[str] | None = None) -> int:
         cmd_export_run,
         cmd_approve_run,
     }
-    if policy.protected_environment and policy.fully_disabled and args.func in legacy_only_handlers:
+    legacy_run_graph = (
+        args.func is cmd_run
+        and bool(getattr(args, "goal", ()))
+        and args.goal[0] == "graph"
+    )
+    legacy_mcp_invoke = args.func is cmd_mcp and getattr(args, "mcp_cmd", None) == "invoke"
+    if policy.protected_environment and policy.fully_disabled and (
+        args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke
+    ):
         print_json({
             "status": "blocked",
             "reason": "command belongs to the retired Legacy runtime and has no Journal-native implementation",

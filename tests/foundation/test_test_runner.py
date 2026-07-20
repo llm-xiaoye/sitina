@@ -56,7 +56,7 @@ class LayeredRunnerTests(unittest.TestCase):
         self.assertIn("_unittest_selector", source)
         self.assertIn("suite_result_root", source)
         self.assertIn("--execution-manifest", source)
-        self.assertIn("--record-legacy-baseline", source)
+        self.assertNotIn("--record-legacy-baseline", source)
 
     def test_child_process_sees_disposable_home(self) -> None:
         home = Path(os.environ["SITINA_HOME"]).resolve()

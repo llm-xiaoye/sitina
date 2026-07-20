@@ -407,6 +407,13 @@ def _looks_like_high_entropy_secret(value: str) -> bool:
         return False
     if candidate.count("/") > 1 or "\\" in candidate:
         return False
+    if re.fullmatch(
+        r"[A-Za-z][A-Za-z0-9._-]*-\d{8}T\d{6,12}(?:Z|[+-]\d{4})(?:-[A-Za-z0-9._-]+)?",
+        candidate,
+    ):
+        return False
+    if re.search(r"\d{8}T\d{6,12}$", candidate):
+        return False
     if re.search(r"\d{8}T\d{6,12}Z$", candidate):
         return False
     counts = {character: candidate.count(character) for character in set(candidate)}

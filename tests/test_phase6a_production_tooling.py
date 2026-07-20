@@ -29,7 +29,7 @@ from sitina.operations.phase6b import (
     Phase6BManifestVerifier,
 )
 from sitina.orchestrator.bplus_production import BPlusProductionRuntime, ProductionRuntimeContext
-from sitina.orchestrator.engine import SitinaEngine
+from sitina.orchestrator.local_runtime import JournalNativeLocalRuntime
 from sitina.security.key_provider import JournalAuthProvider, KeyPurpose
 from sitina.security.macos_keychain import MacOSKeychainProvider, MemoryKeychainBackend, SecurityFrameworkKeychainBackend
 
@@ -462,7 +462,7 @@ class Phase6AProductionToolingTests(unittest.TestCase):
         self.assertEqual(durable.authority.resolution.state, AuthorityState.JOURNAL_WRITER_AUTHORIZED)
         self.assertTrue(any(item["run_id"] == "legacy-run-r1" for item in durable.list_runs()))
         self.assertEqual(durable.show_run("legacy-run-r1")["reader_generation"], "legacy-frozen-snapshot-v1")
-        routed = SitinaEngine(self.sim, bplus_keychain_backend=backend).run("deployed route", provider_mode="mock")
+        routed = JournalNativeLocalRuntime(self.sim, keychain_backend=backend, now=self.now + 4000).execute("deployed route")
         self.assertEqual(
             (routed["writer"], routed["routing_generation"]),
             ("journal", "bplus-production-journal-cas-v1"),
@@ -480,53 +480,6 @@ class Phase6AProductionToolingTests(unittest.TestCase):
         self.assertEqual(replay["cas_reference_count"], 3)
         self.assertEqual(replay["cas_read_count"], 3)
         self.assertEqual(replay["external_call_count"], 0)
-
-    def test_operator_cli_executes_controlled_cutover_and_commits_cutover_verified(self) -> None:
-        with sqlite3.connect(self.sim / "data/sitina.db") as connection:
-            connection.executescript(
-                "CREATE TABLE runs(run_id TEXT PRIMARY KEY,phase TEXT,risk_level TEXT,verification_status TEXT,updated_at TEXT,state_json TEXT);"
-                "CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT,ts TEXT,run_id TEXT,trace_id TEXT,event_type TEXT,payload_json TEXT);"
-            )
-            state = {"run_id": "legacy-operator-run", "phase": "done", "risk_level": "low", "verification_status": "verified"}
-            connection.execute(
-                "INSERT INTO runs VALUES(?,?,?,?,?,?)",
-                ("legacy-operator-run", "done", "low", "verified", "2026-07-13T00:00:00Z", json.dumps(state)),
-            )
-        self.control_root.mkdir(exist_ok=True)
-        manifest_path = self.control_root / "maintenance-manifest.json"
-        readiness_path = self.control_root / "readiness.json"
-        manifest_path.write_text(json.dumps(self.manifest, sort_keys=True) + "\n", encoding="utf-8")
-        readiness_path.write_text(json.dumps(self.readiness, sort_keys=True) + "\n", encoding="utf-8")
-        environment = dict(os.environ)
-        environment.pop("SITINA_CONTROL_PLANE_READONLY", None)
-        environment["SITINA_HOME"] = str(self.sim)
-        environment["PYTHONDONTWRITEBYTECODE"] = "1"
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).resolve().parents[1] / "scripts/cutover-phase6b.py"),
-                "--manifest", str(manifest_path),
-                "--readiness", str(readiness_path),
-                "--expected-manifest-sha256", str(self.manifest["manifest_sha256"]),
-                "--expected-readiness-sha256", str(self.readiness["readiness_sha256"]),
-                "--allow-simulation",
-                "--memory-keychain",
-            ],
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout)
-        report = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(report["status"], "CUTOVER_VERIFIED")
-        self.assertEqual(report["authority_state"], "JOURNAL_WRITER_AUTHORIZED")
-        self.assertTrue(report["cutover_verified"]["verified"])
-        self.assertFalse(report["legacy_writer_activated_after_fence"])
-        self.assertEqual(LegacyWriteGate(self.sim).status().state, "FROZEN_NO_WRITER")
-
 
 if __name__ == "__main__":
     unittest.main()

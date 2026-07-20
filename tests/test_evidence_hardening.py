@@ -511,18 +511,13 @@ class EvidenceHardeningTests(unittest.TestCase):
             self.assertEqual(first["baseline_id"], second["baseline_id"])
             self.assertEqual(first["run_ids"], second["run_ids"])
 
-    def test_report_v1_refresh_creates_baseline(self) -> None:
+    def test_report_v1_refresh_is_retired(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = self._home(tmp)
             SitinaStore(home).init_db()
             generator = AcceptanceReportGenerator(home)
-            records = self._baseline_records()
-            run_ids = [record["run_id"] for record in records.values()]
-            with patch("sitina.orchestrator.engine.SitinaEngine.run", side_effect=[{"run_id": run_id} for run_id in run_ids]), patch.object(generator, "_mock_baseline", return_value=records):
-                report = generator.generate_v1_report(refresh_baseline=True)
-            self.assertEqual(report["baseline_source"], "refreshed")
-            self.assertTrue(report["baseline_current"])
-            self.assertTrue(BaselineManager(home).manifests())
+            with self.assertRaisesRegex(RuntimeError, "Legacy baseline refresh was retired"):
+                generator.generate_v1_report(refresh_baseline=True)
 
     def test_stale_baseline_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

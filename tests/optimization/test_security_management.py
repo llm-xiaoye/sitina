@@ -480,6 +480,13 @@ class SecurityManagementTests(unittest.TestCase):
         self.assertTrue(any("$joined" in item.field_path for item in findings))
         log_findings = scan_text_for_secrets("log authorization: Bearer " + key, path="run.log", scope="log")
         self.assertTrue(log_findings)
+        self.assertFalse(
+            scan_text_for_secrets(
+                "clean-bplus-20260715T221012+0800-failed-bootstrap-1",
+                path="sentinel.json",
+                scope="docs",
+            )
+        )
         serialized = json.dumps([item.safe_dict() for item in findings])
         self.assertNotIn("fragmented-secret-value", serialized)
         scopes = scan_named_scopes(Path(os.environ["SITINA_HOME"]))

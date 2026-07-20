@@ -54,6 +54,36 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         print_json.assert_called_once_with({"run_id": "tma-run-cli", "terminal_state": "SUCCEEDED"})
 
     @patch("sitina.cli.print_json")
+    @patch("sitina.cli.AutonomousRuntime")
+    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.cli._bplus_installed", return_value=True)
+    @patch(
+        "sitina.cli.ExtensionManager.load_registry",
+        return_value={"plugins": {"enabled-plugin": {"disabled": False}}, "skills": {}},
+    )
+    def test_enabled_extensions_cannot_preempt_the_production_journal_runtime(
+        self,
+        _extension_registry: Mock,
+        _installed: Mock,
+        runtime_type: Mock,
+        autonomous_type: Mock,
+        print_json: Mock,
+    ) -> None:
+        runtime_type.return_value.execute.return_value = {
+            "run_id": "tma-run-with-extensions",
+            "terminal_state": "SUCCEEDED",
+        }
+        self.assertEqual(cli.cmd_run(self.args("live")), 0)
+        autonomous_type.assert_not_called()
+        runtime_type.return_value.execute.assert_called_once_with(
+            "ordinary shared evidence decision",
+            label="cli-production-ordinary-goal",
+        )
+        print_json.assert_called_once_with(
+            {"run_id": "tma-run-with-extensions", "terminal_state": "SUCCEEDED"}
+        )
+
+    @patch("sitina.cli.print_json")
     @patch("sitina.cli.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
     @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
@@ -222,10 +252,35 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         _installed: Mock,
         runtime_type: Mock,
     ) -> None:
-        with patch("sitina.cli.SitinaEngine") as engine_type, patch("sitina.cli.print_json"):
-            engine_type.return_value.run.return_value = {"status": "ok", "provider_mode": "mock"}
+        with patch("sitina.cli.JournalNativeLocalRuntime") as runtime_local, patch("sitina.cli.print_json"):
+            runtime_local.return_value.execute.return_value = {"status": "terminal", "provider_mode": "mock"}
             self.assertEqual(cli.cmd_run(self.args("mock")), 0)
             runtime_type.assert_not_called()
+            runtime_local.return_value.execute.assert_called_once()
+
+    @patch("sitina.cli.cmd_run", return_value=0)
+    def test_ask_is_an_alias_of_the_unified_run_router(self, cmd_run: Mock) -> None:
+        arguments = argparse.Namespace(
+            goal=["question"],
+            provider_mode="mock",
+            profile_override=[],
+        )
+        self.assertEqual(cli.cmd_ask(arguments), 0)
+        cmd_run.assert_called_once_with(arguments)
+
+    @patch("sitina.cli.print_json")
+    @patch("sitina.cli._bplus_installed", return_value=False)
+    @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
+    def test_unverified_home_never_falls_back_to_legacy_engine(
+        self,
+        _extension_registry: Mock,
+        _installed: Mock,
+        print_json: Mock,
+    ) -> None:
+        self.assertEqual(cli.cmd_run(self.args("mock")), 3)
+        payload = print_json.call_args.args[0]
+        self.assertEqual(payload["status"], "blocked")
+        self.assertFalse(payload["legacy_fallback_attempted"])
 
     def test_runtime_semantic_policy_adds_blackboard_for_shared_versioned_conflict_goal(self) -> None:
         runtime = TrueMultiAgentProductionRuntime.__new__(TrueMultiAgentProductionRuntime)

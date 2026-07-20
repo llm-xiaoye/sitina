@@ -30,7 +30,6 @@ from sitina.legacy.model import (
     LegacySourceRecord,
 )
 from sitina.legacy.readonly import LegacySQLiteReader
-from sitina.orchestrator.engine import SitinaEngine
 from sitina.storage import SitinaStore
 from sitina.utils import write_json
 
@@ -126,7 +125,7 @@ class LegacyCompatibilityTests(unittest.TestCase):
         self.assertEqual(frozen.state, "FROZEN_NO_WRITER")
         try:
             with self.assertRaises(LegacyWriteDenied):
-                SitinaEngine(self.home).run("phase0 frozen writer bypass", provider_mode="mock")
+                gate.assert_writes_allowed()
             with self.assertRaises(LegacyWriteDenied):
                 SitinaStore(self.home).append_jsonl(self.home / "logs/events/forbidden.jsonl", {"x": 1})
             with LegacySQLiteReader.open(self.home / "data/sitina.db") as reader:

@@ -126,12 +126,12 @@ class SystemEvaluationTests(unittest.TestCase):
             suite="chaos",
             required_components=("provider", "tool", "journal", "cas", "projection", "worker", "disk"),
             cases=(
-                ExecutableSuiteCase(component="provider", test_id="tests.test_runtime_reliability.RuntimeReliabilityTests.test_provider_total_timeout_interrupts_blocking_response_read", proves="Provider timeout terminates the physical worker and becomes a typed failure."),
+                ExecutableSuiteCase(component="provider", test_id="tests.test_atomic_storage_protocols.AtomicStorageProtocolTests.test_provider_unknown_outcome_never_blindly_resends", proves="Provider unknown outcome fails closed and is never blindly resent."),
                 ExecutableSuiteCase(component="tool", test_id="tests.optimization.test_security_management.SecurityManagementTests.test_s02_tool_timeouts_propagate_cancellation_and_cleanup_without_live_worker", proves="Tool timeout fails closed, propagates cancellation, and leaves no live worker."),
                 ExecutableSuiteCase(component="journal", test_id="tests.test_journal_crash_matrix.JournalCrashMatrixTests.test_complete_unacknowledged_frame_is_adopted_and_lost_ack_is_idempotent", proves="Crash and duplicate replay recover a committed frame exactly once."),
                 ExecutableSuiteCase(component="cas", test_id="tests.test_atomic_storage_protocols.AtomicStorageProtocolTests.test_cas_is_durable_before_journal_and_resume_is_idempotent", proves="CAS failure cannot publish a Journal reference before durable content."),
                 ExecutableSuiteCase(component="projection", test_id="tests.test_projection_kernel.ProjectionKernelTests.test_gap_fails_and_catalog_stores_metadata_not_payload", proves="Out-of-order projection input fails closed and requires a gap-free rebuild."),
-                ExecutableSuiteCase(component="worker", test_id="tests.test_runtime_reliability.RuntimeReliabilityTests.test_provider_worker_eof_is_fail_closed_with_exit_code", proves="Worker crash/EOF is typed and cannot become success."),
+                ExecutableSuiteCase(component="worker", test_id="tests.optimization.test_orchestration_management.OrchestrationManagementTests.test_o07_worker_timeout_cancels_releases_resources_checkpoints_and_selects_takeover", proves="Worker timeout fails closed, releases resources, checkpoints, and selects recovery takeover."),
                 ExecutableSuiteCase(component="disk", test_id="tests.test_journal_crash_matrix.JournalCrashMatrixTests.test_enospc_and_eio_poison_writer_until_fresh_recovery", proves="Disk-full and I/O errors poison the writer until explicit recovery."),
             ),
         )

@@ -11,9 +11,7 @@
         "tests/foundation/test_runtime_profile.py",
         "tests/foundation/test_home_isolation.py",
         "tests/foundation/test_test_runner.py",
-        "tests/foundation/test_legacy_baseline.py",
         "tests/foundation/test_plan_suite_integrity.py",
-        "tests/foundation/test_write_sink_inventory.py",
         "tests/optimization/test_ledger_coverage.py",
         "tests/optimization/test_blackboard_state_management.py",
         "tests/optimization/test_context_handoff_management.py",
@@ -39,9 +37,7 @@
     },
     "integration_isolated": {
       "selectors": [
-        "tests/test_sitina.py",
         "tests/test_evidence_hardening.py",
-        "tests/test_runtime_reliability.py",
         "tests/test_agent_scheduling.py",
         "tests/test_blackboard_projection.py",
         "tests/test_checkpoint_resume_v1.py",
@@ -55,6 +51,7 @@
         "tests/test_provider_recovery_projection.py",
         "tests/test_task_lease_projection.py",
         "tests/test_true_multi_agent_cli_routing.py",
+        "tests/test_production_cli_retirement.py",
         "tests/test_conversation_router.py",
         "tests/test_chat_cli.py",
         "tests/test_fast_conversation_runtime.py",
@@ -89,9 +86,7 @@
       "selectors": [
         "tests/test_legacy_compatibility.py",
         "tests/test_legacy_inventory.py",
-        "tests/test_legacy_classification.py",
-        "tests/test_shadow_journal_guards.py",
-        "tests/test_legacy_dual_read.py"
+        "tests/test_legacy_classification.py"
       ],
       "timeout_seconds": 600,
       "expected_duration": "medium",
@@ -155,8 +150,7 @@
         "tests/test_scheduler_decisions.py",
         "tests/test_dispatch_outbox.py",
         "tests/test_durable_timers.py",
-        "tests/test_terminal_eligibility.py",
-        "tests/test_bplus_shadow_runtime.py"
+        "tests/test_terminal_eligibility.py"
       ],
       "timeout_seconds": 1800,
       "expected_duration": "medium",
@@ -185,8 +179,7 @@
         "tests/test_arbitration_protocol.py",
         "tests/test_rework_protocol.py",
         "tests/test_blackboard_mvcc.py",
-        "tests/test_protocol_coordination.py",
-        "tests/test_protocol_legacy_comparison.py"
+        "tests/test_protocol_coordination.py"
       ],
       "timeout_seconds": 1800,
       "expected_duration": "medium",
@@ -281,10 +274,7 @@
         "tests/test_legacy_writer_fence_coverage.py",
         "tests/test_production_journal_genesis.py",
         "tests/test_legacy_import.py",
-        "tests/test_journal_first_routing.py",
         "tests/test_reader_generation.py",
-        "tests/test_cutover_dual_read.py",
-        "tests/test_cutover_rebuild.py",
         "tests/test_cutover_dry_run.py",
         "tests/test_effect_capability_activation.py"
       ],
@@ -360,9 +350,6 @@
     },
     "live_provider_opt_in": {
       "selectors": [
-        "tests/test_live_minimal.py",
-        "tests/test_live_protocol_scenarios.py",
-        "tests/test_live_collaboration_depth.py",
         "tests/test_live_audit_acceptance_contract.py"
       ],
       "timeout_seconds": 3600,

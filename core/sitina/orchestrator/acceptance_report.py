@@ -42,24 +42,9 @@ class AcceptanceReportGenerator:
         baseline_manifest: dict[str, Any] | None
         baseline_source: str
         if refresh_baseline:
-            from sitina.orchestrator.engine import SitinaEngine
-
-            goals = (
-                "code-change-fixture mock baseline after evidence hardening refresh",
-                "handoff-reject-fixture mock baseline after evidence hardening refresh",
-                "arbitration-ask-user-fixture mock baseline after evidence hardening refresh",
-                "lease-conflict-block-fixture mock baseline after evidence hardening refresh",
-                "high-risk-full-gate-fixture mock baseline after evidence hardening refresh",
-                "side-effect-descriptor-fixture mock baseline after evidence hardening refresh",
+            raise RuntimeError(
+                "v1 Legacy baseline refresh was retired; use the Journal-native Production acceptance report"
             )
-            created_run_ids = {
-                str(SitinaEngine(self.home).run(goal, provider_mode="mock")["run_id"])
-                for goal in goals
-            }
-            baseline = self._mock_baseline(allowed_run_ids=created_run_ids)
-            secret_scan = self._secret_scan()
-            baseline_manifest = baseline_manager.save(revision=revision, records=baseline, secret_scan=secret_scan)
-            baseline_source = "refreshed"
         else:
             secret_scan = self._secret_scan()
             baseline_manifest = baseline_manager.current(revision)

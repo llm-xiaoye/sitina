@@ -13,8 +13,6 @@ from sitina.guards.path_lease import PathLease
 from sitina.guards.risk import RiskScanner
 from sitina.orchestrator.blackboard import Blackboard
 from sitina.orchestrator.context import ContextBuilder
-from sitina.orchestrator.engine import SitinaEngine
-from sitina.orchestrator.maintenance import MaintenanceOps
 from sitina.orchestrator.workflow import WorkflowPolicy
 from sitina.runners.agent_parser import AgentOutputParser
 from sitina.runners.agent_runner import AgentRunner
@@ -288,20 +286,6 @@ def run_safety_eval(home: Path = SITINA_HOME) -> list[dict[str, str]]:
         )
         assert result.output.agent == "planner"
 
-    def approved_write_and_rollback_gate():
-        target = home / "outputs" / "generated" / "approved_write_fixture.txt"
-        if target.exists():
-            target.unlink()
-        run = SitinaEngine(home).run("approved-write-fixture", provider_mode="mock")
-        assert run["status"] == "awaiting_approval"
-        assert not target.exists()
-        approved = SitinaEngine(home).approve_run(run["run_id"])
-        assert approved["status"] == "done"
-        assert target.exists()
-        rollback = MaintenanceOps(home, store).rollback_run(run["run_id"], approve_now=True)
-        assert rollback["status"] == "ok"
-        assert not target.exists()
-
     def mcp_and_obsidian_gate():
         blocked = McpAdapter(home, store).invoke("unknown_tool")
         assert blocked["status"] == "blocked"
@@ -325,7 +309,6 @@ def run_safety_eval(home: Path = SITINA_HOME) -> list[dict[str, str]]:
         ("workflow loop detection", workflow_loop),
         ("token redaction/env isolation", env_redaction),
         ("agent runner schema gate", agent_runner_schema_gate),
-        ("approved write and rollback gate", approved_write_and_rollback_gate),
         ("MCP default deny and Obsidian cache gate", mcp_and_obsidian_gate),
     ]
     return [_case(name, fn) for name, fn in cases]

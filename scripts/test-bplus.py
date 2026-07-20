@@ -205,7 +205,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--live-approval")
     parser.add_argument("--execution-manifest", type=Path)
-    parser.add_argument("--record-legacy-baseline", type=Path)
     arguments = parser.parse_args(argv)
     config = _load_json(CONFIG)
     suites = config["suites"]
@@ -272,26 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in list(environment):
         if any(fragment in name.upper() for fragment in ("API_KEY", "AUTH_TOKEN", "PASSWORD", "PRIVATE_KEY")):
             environment.pop(name, None)
-    if arguments.record_legacy_baseline:
-        allowed_baselines = {
-            Path("/Users/moss/Desktop/sitina/output/sitina-bplus-legacy-behavior-baseline.json"),
-            Path("/Users/moss/Desktop/sitina/output/sitina-bplus-legacy-behavior-baseline-phase-minus1-final.json"),
-        }
-        if arguments.record_legacy_baseline not in allowed_baselines:
-            raise SystemExit("baseline output is outside the Phase -1 manifest")
-        command = [
-            config["approved_python"],
-            "-m",
-            "sitina.legacy.baseline",
-            "--home",
-            str(home),
-            "--python-profile-hash",
-            manifest.python_profile_hash,
-            "--output",
-            str(arguments.record_legacy_baseline),
-        ]
-    else:
-        command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
+    command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
     started = time.monotonic()
     process = subprocess.Popen(
         command,
@@ -345,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": "BPLUS_TEST_RESULT_V1",
         "suite": arguments.suite,
         "selectors": selectors,
-        "mode": "record_legacy_baseline" if arguments.record_legacy_baseline else "tests",
+        "mode": "tests",
         "command": command,
         "child_cwd": str(home),
         "duration_seconds": round(duration, 6),
@@ -370,8 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     _write_json_new_or_replace(result_path, result)
     suite_result_root.mkdir(parents=True, exist_ok=True)
-    suite_result_name = "legacy-behavior-baseline-record" if arguments.record_legacy_baseline else arguments.suite
-    _write_json_new_or_replace(suite_result_root / f"{suite_result_name}.json", result)
+    _write_json_new_or_replace(suite_result_root / f"{arguments.suite}.json", result)
     if timed_out:
         print(f"suite timeout after {definition['timeout_seconds']}s", file=sys.stderr)
     if external_attempts:

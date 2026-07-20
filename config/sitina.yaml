@@ -13,7 +13,7 @@
     "legacy_write_enabled": false,
     "active_business_jsonl_enabled": false,
     "missing_legacy_is_valid": true,
-    "legacy_retired_root": "/Users/moss/SitinaHub/legacy-retired/20260715T214045+0800"
+    "legacy_retired_root": null
   },
   "runtime": {
     "bplus_shadow_enabled": false,

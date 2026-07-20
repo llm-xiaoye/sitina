@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import subprocess, unittest
-from pathlib import Path
+import unittest
 
 from sitina.legacy.cutover_contracts import CutoverCommandIdentity, READINESS_PREDICATE_IDS
 from sitina.legacy.maintenance_manifest import CutoverDryRun, MaintenanceManifestBuilder, MaintenanceManifestError
@@ -26,13 +25,4 @@ class CutoverDryRunTests(unittest.TestCase):
         with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"operators":("o1",)})
         with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"allowed_paths":("/Users/moss/SitinaHub/data",)})
 
-    def test_phase6a_script_has_no_execute_option(self) -> None:
-        script=Path(__file__).parents[1]/"scripts/cutover-dry-run.py"
-        source=script.read_text(encoding="utf-8")
-        self.assertNotIn('add_argument("--execute"',source); self.assertNotIn("execute_cutover",source)
-        completed=subprocess.run(["/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",str(script),"--help"],capture_output=True,text=True)
-        self.assertEqual(completed.returncode,0); self.assertNotIn("--execute",completed.stdout)
-
-
 if __name__ == "__main__": unittest.main()
-

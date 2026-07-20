@@ -764,7 +764,11 @@ def _validate_checkpoint_recovery(
     """Reconstruct and verify every pre-V2 durable live-checkpoint manifest."""
 
     from sitina.cas.model import ObjectRef
-    from sitina.orchestrator.checkpoint_resume import stream_heads, verify_checkpoint_manifest
+    from sitina.orchestrator.checkpoint_resume import (
+        declared_stream_heads_match,
+        stream_heads,
+        verify_checkpoint_manifest,
+    )
 
     events = tuple(journal.iter_events(0))
     by_position = {event.position: event for event in events}
@@ -816,7 +820,9 @@ def _validate_checkpoint_recovery(
             or journal._position_hash.get(frontier_position) != durable["validated_through_hash"]
         ):
             raise ProductionBackupError("restored checkpoint frontier is not committed by the Journal")
-        if stream_heads(events, frontier_position) != durable["stream_heads"]:
+        verified_heads = stream_heads(events, frontier_position)
+        declared_heads = dict(durable["stream_heads"])
+        if not declared_stream_heads_match(verified_heads, declared_heads):
             raise ProductionBackupError("restored checkpoint Stream heads differ from its manifest")
         for reference_id in durable["cas_refs"]:
             normalized = str(reference_id)

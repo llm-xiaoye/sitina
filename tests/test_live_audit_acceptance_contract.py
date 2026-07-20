@@ -10,7 +10,6 @@ from sitina.orchestrator.acceptance_report import AcceptanceReportGenerator
 from sitina.orchestrator.audit_verify import AuditVerifier
 from sitina.orchestrator.cli_evidence import CLI_CHECKS, CliEvidenceRecorder
 from sitina.orchestrator.collaboration import CollaborationRuntime
-from sitina.orchestrator.engine import SitinaEngine
 from sitina.orchestrator.ledger import RunLedger
 from sitina.orchestrator.proposals import ProposalBid, ProposalManager
 from sitina.orchestrator.reporting import ReportPersistence, report_exit_code
@@ -487,24 +486,6 @@ class LiveAuditAcceptanceContractTests(unittest.TestCase):
             payload = {"extensions": {"proposal_evaluation": {"decision": "support", "score": 90, "reason": "support"}}, "claims": []}
             evaluation = CollaborationRuntime(home)._evaluation_from_agent_output(manager, round_, proposal, "critic", payload)
             self.assertEqual(evaluation.decision, "block")
-
-    def test_22_run_output_distinguishes_command_and_domain_status(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = self._home(tmp)
-            self._start_run(home, "run_output_status", provider_mode="mock")
-            RunLedger(home).record("run_blocked", run_id="run_output_status", status="blocked", reason="policy block")
-            result = SitinaEngine(home)._finalize_autonomy_run({"run_id": "run_output_status", "phase": "blocked", "status": "blocked", "reason": "policy block"})
-            self.assertEqual(result["command_status"], "executed")
-            self.assertEqual(result["run_status"], "run_blocked")
-            self.assertEqual(result["terminal_type"], "run_blocked")
-
-    def test_23_blocked_run_is_not_domain_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = self._home(tmp)
-            self._start_run(home, "run_blocked_domain", provider_mode="mock")
-            RunLedger(home).record("run_blocked", run_id="run_blocked_domain", status="blocked", reason="policy block")
-            result = SitinaEngine(home)._finalize_autonomy_run({"run_id": "run_blocked_domain", "phase": "blocked", "status": "blocked"})
-            self.assertFalse(result["domain_success"])
 
     def test_24_acceptance_uses_domain_outcome_not_command_exit(self) -> None:
         self.assertEqual(report_exit_code("passed"), 0)

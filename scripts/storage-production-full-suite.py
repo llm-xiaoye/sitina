@@ -374,7 +374,11 @@ def _run_isolated(
 def main() -> int:
     args = _arguments()
     repository = args.repository.expanduser().resolve(strict=True)
-    test_root = args.test_root.expanduser().resolve(strict=True)
+    test_root = args.test_root.expanduser().resolve(strict=False)
+    if test_root == PRODUCTION_HOME or PRODUCTION_HOME in test_root.parents:
+        raise RuntimeError("full-suite test root must remain outside Production")
+    test_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    test_root = test_root.resolve(strict=True)
     output = args.evidence_output.expanduser().resolve(strict=False)
     if repository != PRODUCTION_HOME:
         raise RuntimeError("full-suite runner is bound to the installed source")
@@ -388,6 +392,7 @@ def main() -> int:
     before = _storage_snapshot(repository)
     previous_control = os.environ.get("SITINA_CONTROL_PLANE_READONLY")
     os.environ["SITINA_CONTROL_PLANE_READONLY"] = "1"
+    sys.path.insert(0, str(repository / "core"))
     sys.path.insert(0, str(repository / "tests/foundation"))
     try:
         from home_factory import DisposableHomeFactory
