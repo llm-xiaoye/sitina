@@ -81,11 +81,11 @@ class ExecutionSandboxTests(unittest.TestCase):
     def test_timeout_kills_process_group_and_rejects(self) -> None:
         target = self.workspace / "hang.py"
         target.write_text(
+            "import time\n"
             "def probe():\n"
             "    \"\"\">>> probe()\n    None\n    \"\"\"\n"
             "    return None\n"
-            "while True:\n"
-            "    pass\n",
+            "time.sleep(60)\n",
             encoding="utf-8",
         )
         limits = SandboxResourceLimits(cpu_seconds=1, wall_seconds=1)

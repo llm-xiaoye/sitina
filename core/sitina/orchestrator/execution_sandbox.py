@@ -370,6 +370,28 @@ class ExecutionSandboxRunner:
             fixture_authorization=self.fixture_authorization,
         )
 
+    @staticmethod
+    def _signal_sandbox(process: subprocess.Popen[bytes], requested_signal: signal.Signals) -> None:
+        """Signal the whole sandbox, with a safe exact-PID Darwin fallback.
+
+        The worker's kernel RLIMIT_NPROC=1 and the qualified Seatbelt profile
+        both deny descendants.  Some Darwin releases nevertheless return EPERM
+        for killpg() across the Seatbelt boundary; in that case the runner PID
+        is the entire sandbox process tree and is safe to signal directly.
+        """
+
+        try:
+            os.killpg(process.pid, requested_signal)
+            return
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        try:
+            os.kill(process.pid, requested_signal)
+        except ProcessLookupError:
+            return
+
     def _invoke(
         self,
         request: dict[str, object],
@@ -438,11 +460,11 @@ class ExecutionSandboxRunner:
                 return_code = process.wait(timeout=self.limits.wall_seconds)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                os.killpg(process.pid, signal.SIGTERM)
+                self._signal_sandbox(process, signal.SIGTERM)
                 try:
                     return_code = process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    self._signal_sandbox(process, signal.SIGKILL)
                     return_code = process.wait()
                 return_code = 124
         duration_ms = int((time.monotonic() - started) * 1000)
