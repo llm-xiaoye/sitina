@@ -17,6 +17,7 @@ terminalize as SUCCEEDED when result.accepted is True.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -43,6 +44,8 @@ class VerificationVerdict:
     checked_diff: bool
     checked_tests: bool
     reasons: tuple[str, ...] = ()
+    test_evidence_ref: str | None = None
+    test_evidence_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,8 @@ class ExecutionResult:
             "redaction_ok": self.redaction_ok,
             "verifier_id": self.verification.verifier_id if self.verification else None,
             "verification_accepted": self.verification.accepted if self.verification else None,
+            "test_evidence_ref": self.verification.test_evidence_ref if self.verification else None,
+            "test_evidence_hash": self.verification.test_evidence_hash if self.verification else None,
             "notes": list(self.notes),
         }
 
@@ -141,7 +146,13 @@ def run_safe_execution(
         # H12 (test evidence): an ACCEPT is only valid with real executed-test
         # evidence. Syntax-only ("checked_tests=False") must never be accepted —
         # that was the hollow-acceptance bug. Fail-closed: downgrade to reject.
-        if verdict.accepted and not verdict.checked_tests:
+        evidence_bound = (
+            isinstance(verdict.test_evidence_ref, str)
+            and bool(re.fullmatch(r"(?:cas|test-evidence):[0-9a-f]{64}", verdict.test_evidence_ref))
+            and isinstance(verdict.test_evidence_hash, str)
+            and bool(re.fullmatch(r"[0-9a-f]{64}", verdict.test_evidence_hash))
+        )
+        if verdict.accepted and (not verdict.checked_tests or not evidence_bound):
             notes.append(f"attempt{attempt}:rejected:accept_without_test_evidence")
             rollback(attempt)
             continue
@@ -164,4 +175,3 @@ def run_safe_execution(
         workspace=workspace, diff_paths=last_diff, redaction_ok=True,
         notes=tuple(notes) + ("rework_exhausted_fail_closed",),
     )
-

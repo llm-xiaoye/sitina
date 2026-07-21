@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import base64
 import datetime as dt
 import fcntl
 import hashlib
@@ -35,6 +36,7 @@ _guard_installed = False
 _guard_home: Path | None = None
 _writer_fds: dict[Path, int] = {}
 _network_egress_nonces: set[str] = set()
+_sandbox_execution_nonces: set[str] = set()
 _local = threading.local()
 _state_lock = threading.RLock()
 
@@ -96,6 +98,276 @@ class FrozenNetworkEgressCapability:
     allowed_hosts: tuple[str, ...]
     expires_at: int
     _nonce: str
+
+
+@dataclass(frozen=True)
+class FrozenSandboxExecutionCapability:
+    """One-use authority for one exact OS-sandbox runner invocation.
+
+    This does not authorize a shell or a generic subprocess.  It binds the
+    frozen-home escape hatch to immutable code/policy/input identities and the
+    exact argv/cwd/read/write/resource scope used by the sandbox launcher.
+    """
+
+    capability_id: str
+    authority_resolution_id: str
+    authority_input_frontier_hash: str
+    run_id: str
+    diff_hash: str
+    runner_executable: str
+    runner_executable_hash: str
+    python_executable_hash: str
+    worker_path: str
+    worker_hash: str
+    argv: tuple[str, ...]
+    argv_hash: str
+    cwd: str
+    read_roots: tuple[str, ...]
+    write_roots: tuple[str, ...]
+    sandbox_policy_hash: str
+    resource_limits: tuple[tuple[str, int], ...]
+    expires_at: int
+    _nonce: str
+
+
+def _sha256_regular_file(path: Path) -> str:
+    candidate = Path(path).expanduser().resolve(strict=True)
+    if candidate.is_symlink() or not candidate.is_file():
+        raise LegacyWriteDenied(f"sandbox executable/input is not a regular file: {candidate}")
+    digest = hashlib.sha256()
+    with candidate.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def frozen_sandbox_profile(
+    python_executable: Path,
+    worker_path: Path,
+    read_roots: tuple[Path, ...],
+    write_roots: tuple[Path, ...],
+) -> str:
+    """Build the only Seatbelt policy eligible for frozen execution."""
+
+    python = Path(python_executable).expanduser().resolve(strict=True)
+    worker = Path(worker_path).expanduser().resolve(strict=True)
+    reads = tuple(sorted((Path(path).expanduser().resolve(strict=True) for path in read_roots), key=str))
+    writes = tuple(sorted((Path(path).expanduser().resolve(strict=True) for path in write_roots), key=str))
+    read_rules = (python.parents[1], worker, *reads, *writes)
+
+    def sbpl(path: Path) -> str:
+        rendered = str(path)
+        if "\n" in rendered or "\r" in rendered or "\x00" in rendered:
+            raise LegacyWriteDenied("sandbox path contains forbidden characters")
+        return json.dumps(rendered)
+
+    lines = [
+        "(version 1)",
+        "(deny default)",
+        "(import \"system.sb\")",
+        "(deny network*)",
+        "(deny process-fork)",
+        "(deny process-exec)",
+        f"(allow process-exec (literal {sbpl(python)}))",
+        "(allow file-read* file-test-existence",
+        *(f"  (subpath {sbpl(path)})" for path in read_rules),
+        ")",
+        "(allow file-write*",
+        *(f"  (subpath {sbpl(path)})" for path in writes),
+        ")",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def issue_frozen_sandbox_execution_capability(
+    authority_resolution: object | None,
+    *,
+    home: Path,
+    run_id: str,
+    diff_hash: str,
+    runner_executable: Path,
+    python_executable: Path,
+    worker_path: Path,
+    argv: tuple[str, ...],
+    cwd: Path,
+    read_roots: tuple[Path, ...],
+    write_roots: tuple[Path, ...],
+    sandbox_policy_hash: str,
+    resource_limits: tuple[tuple[str, int], ...],
+    expires_at: int,
+    now: int | None = None,
+    fixture_authorization: bool = False,
+) -> FrozenSandboxExecutionCapability:
+    """Issue a one-use capability for an exact Seatbelt runner command."""
+
+    moment = int(time.time()) if now is None else int(now)
+    canonical_home = Path(home).expanduser().resolve(strict=True)
+    if LegacyWriteGate(canonical_home).status().state != "FROZEN_NO_WRITER":
+        raise LegacyWriteDenied("sandbox execution capability requires a verified frozen home")
+    if fixture_authorization:
+        if canonical_home == Path("/Users/moss/SitinaHub") or not (
+            canonical_home / ".sitina-bplus-disposable-v1"
+        ).is_file():
+            raise LegacyWriteDenied("sandbox fixture authorization requires a disposable non-Production home")
+        authority_resolution_id = "fixture-authority"
+        authority_frontier_hash = "fixture-frontier"
+    else:
+        from sitina.authority.model import AuthorityResolution
+
+        if type(authority_resolution) is not AuthorityResolution:
+            raise LegacyWriteDenied("sandbox execution requires an authentic AuthorityResolution")
+        try:
+            authority_resolution.assert_fresh(now=moment)  # type: ignore[union-attr]
+            journal_authorized = bool(authority_resolution.authorizes_journal)  # type: ignore[union-attr]
+            writer_count = int(authority_resolution.writer_count)  # type: ignore[union-attr]
+        except Exception as error:
+            raise LegacyWriteDenied("sandbox execution requires a fresh authority resolution") from error
+        if not journal_authorized or writer_count != 1:
+            raise LegacyWriteDenied("sandbox execution requires one Journal writer authority")
+        authority_resolution_id = str(authority_resolution.resolution_id)
+        authority_frontier_hash = str(authority_resolution.input_frontier_hash)
+        if not re.fullmatch(r"[0-9a-f]{64}", authority_resolution_id) or not re.fullmatch(
+            r"[0-9a-f]{64}", authority_frontier_hash
+        ):
+            raise LegacyWriteDenied("sandbox execution authority identity is invalid")
+
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,255}", str(run_id)):
+        raise LegacyWriteDenied("sandbox execution run_id is invalid")
+    for label, value in (("diff", diff_hash), ("policy", sandbox_policy_hash)):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(value)):
+            raise LegacyWriteDenied(f"sandbox execution {label} hash is invalid")
+    if expires_at <= moment or expires_at - moment > 300:
+        raise LegacyWriteDenied("sandbox execution expiry is invalid")
+
+    runner = Path(runner_executable).expanduser().resolve(strict=True)
+    python = Path(python_executable).expanduser().resolve(strict=True)
+    worker = Path(worker_path).expanduser().resolve(strict=True)
+    working_directory = Path(cwd).expanduser().resolve(strict=True)
+    reads = tuple(sorted(str(Path(path).expanduser().resolve(strict=True)) for path in read_roots))
+    writes = tuple(sorted(str(Path(path).expanduser().resolve(strict=True)) for path in write_roots))
+    if not reads or not writes:
+        raise LegacyWriteDenied("sandbox execution argv or filesystem scope is invalid")
+    if any(not isinstance(name, str) or not name or not isinstance(value, int) or value <= 0 for name, value in resource_limits):
+        raise LegacyWriteDenied("sandbox execution resource limits are invalid")
+
+    normalized_limits = tuple(sorted((str(name), int(value)) for name, value in resource_limits))
+    expected_profile = frozen_sandbox_profile(
+        python,
+        worker,
+        tuple(Path(path) for path in reads),
+        tuple(Path(path) for path in writes),
+    )
+    expected_prefix = (
+        str(runner),
+        "-p",
+        expected_profile,
+        str(python),
+        "-I",
+        "-S",
+        str(worker),
+        "--request",
+    )
+    if len(argv) != 9 or tuple(argv[:8]) != expected_prefix:
+        raise LegacyWriteDenied("sandbox execution is not the exact trusted worker command")
+    if hashlib.sha256(expected_profile.encode("utf-8")).hexdigest() != sandbox_policy_hash:
+        raise LegacyWriteDenied("sandbox execution policy hash does not match the trusted policy")
+    try:
+        request = json.loads(base64.urlsafe_b64decode(argv[8].encode("ascii")))
+    except Exception as error:
+        raise LegacyWriteDenied("sandbox execution worker request is invalid") from error
+    if not isinstance(request, dict) or request.get("resource_limits") != dict(normalized_limits):
+        raise LegacyWriteDenied("sandbox execution worker request is not resource-bound")
+
+    runner_hash = _sha256_regular_file(runner)
+    python_hash = _sha256_regular_file(python)
+    worker_hash = _sha256_regular_file(worker)
+    argv_hash = hashlib.sha256(_canonical(list(argv))).hexdigest()
+    nonce = os.urandom(32).hex()
+    core = {
+        "authority_resolution_id": authority_resolution_id,
+        "authority_input_frontier_hash": authority_frontier_hash,
+        "run_id": run_id,
+        "diff_hash": diff_hash,
+        "runner_executable": str(runner),
+        "runner_executable_hash": runner_hash,
+        "python_executable_hash": python_hash,
+        "worker_path": str(worker),
+        "worker_hash": worker_hash,
+        "argv_hash": argv_hash,
+        "cwd": str(working_directory),
+        "read_roots": list(reads),
+        "write_roots": list(writes),
+        "sandbox_policy_hash": sandbox_policy_hash,
+        "resource_limits": [[name, value] for name, value in normalized_limits],
+        "expires_at": expires_at,
+        "nonce_hash": hashlib.sha256(nonce.encode("ascii")).hexdigest(),
+    }
+    identity = hashlib.sha256(_canonical(core)).hexdigest()
+    with _state_lock:
+        _sandbox_execution_nonces.add(nonce)
+    return FrozenSandboxExecutionCapability(
+        "sandbox-execution:" + identity,
+        authority_resolution_id,
+        authority_frontier_hash,
+        str(run_id),
+        str(diff_hash),
+        str(runner),
+        runner_hash,
+        python_hash,
+        str(worker),
+        worker_hash,
+        tuple(argv),
+        argv_hash,
+        str(working_directory),
+        reads,
+        writes,
+        str(sandbox_policy_hash),
+        normalized_limits,
+        int(expires_at),
+        nonce,
+    )
+
+
+@contextlib.contextmanager
+def authorized_frozen_sandbox_execution(
+    capability: FrozenSandboxExecutionCapability | None,
+    *,
+    argv: tuple[str, ...],
+    cwd: Path,
+    diff_hash: str,
+    now: int | None = None,
+) -> Iterator[None]:
+    """Consume one capability and scope it to exactly one Popen audit event."""
+
+    if capability is None:
+        yield
+        return
+    moment = int(time.time()) if now is None else int(now)
+    resolved_cwd = str(Path(cwd).expanduser().resolve(strict=True))
+    if (
+        not isinstance(capability, FrozenSandboxExecutionCapability)
+        or tuple(argv) != capability.argv
+        or resolved_cwd != capability.cwd
+        or diff_hash != capability.diff_hash
+        or moment > capability.expires_at
+        or _sha256_regular_file(Path(capability.runner_executable)) != capability.runner_executable_hash
+        or len(capability.argv) < 4
+        or _sha256_regular_file(Path(capability.argv[3])) != capability.python_executable_hash
+        or _sha256_regular_file(Path(capability.worker_path)) != capability.worker_hash
+        or hashlib.sha256(_canonical(list(capability.argv))).hexdigest() != capability.argv_hash
+        or hashlib.sha256(capability.argv[2].encode("utf-8")).hexdigest() != capability.sandbox_policy_hash
+    ):
+        raise LegacyWriteDenied("frozen sandbox execution capability is invalid, expired, or out of scope")
+    with _state_lock:
+        if capability._nonce not in _sandbox_execution_nonces:
+            raise LegacyWriteDenied("frozen sandbox execution capability was already consumed")
+        _sandbox_execution_nonces.remove(capability._nonce)
+    previous = getattr(_local, "sandbox_execution", None)
+    _local.sandbox_execution = (capability, False)
+    try:
+        yield
+    finally:
+        _local.sandbox_execution = previous
 
 
 def issue_frozen_network_egress_capability(
@@ -515,6 +787,23 @@ def _audit_guard(event: str, arguments: tuple[Any, ...]) -> None:
         if _marker_present(home):
             if getattr(_local, "extension_effect", None) in {"shell", "install_network"}:
                 return
+            sandbox_scope = getattr(_local, "sandbox_execution", None)
+            if sandbox_scope is not None:
+                capability, used = sandbox_scope
+                executable = str(arguments[0]) if arguments else ""
+                raw_argv = arguments[1] if len(arguments) > 1 else ()
+                requested_argv = tuple(str(item) for item in raw_argv) if isinstance(raw_argv, (list, tuple)) else ()
+                requested_cwd = arguments[2] if len(arguments) > 2 else None
+                resolved_cwd = str(Path(requested_cwd).expanduser().resolve(strict=False)) if requested_cwd else capability.cwd
+                if (
+                    not used
+                    and executable == capability.runner_executable
+                    and requested_argv == capability.argv
+                    and resolved_cwd == capability.cwd
+                ):
+                    _local.sandbox_execution = (capability, True)
+                    return
+                raise LegacyWriteDenied("Legacy fence denies an out-of-scope or repeated sandbox subprocess")
             raise LegacyWriteDenied(f"Legacy fence denies {event} while frozen")
         return
     if event == "socket.connect":

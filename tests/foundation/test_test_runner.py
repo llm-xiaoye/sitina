@@ -48,28 +48,12 @@ class LayeredRunnerTests(unittest.TestCase):
         config = json.loads((ROOT / "tests/test_suites.json").read_text(encoding="utf-8"))
         gate = config["suites"]["execution_activation_gate"]
         self.assertEqual(gate["result_policy"], "ZERO_NONPASS_AND_COMPLETE_V1")
-        self.assertEqual(
-            gate["development_pending_skip"],
-            {
-                "test_id": (
-                    "tests.test_execution_verifier_frozen.ProductionVerifierFrozenHomeTests."
-                    "test_sandbox_success_accepts_with_test_evidence"
-                ),
-                "reason": "pending Step 6: authorized OS sandbox runner not yet implemented",
-            },
-        )
+        self.assertNotIn("development_pending_skip", gate)
         self.assertIn("tests/test_execution_verifier_frozen.py", gate["selectors"])
+        self.assertIn("tests/test_execution_sandbox.py", gate["selectors"])
         from tests.test_execution_verifier_frozen import ProductionVerifierFrozenHomeTests
         pending = ProductionVerifierFrozenHomeTests.test_sandbox_success_accepts_with_test_evidence
-        pending_case = ProductionVerifierFrozenHomeTests(
-            "test_sandbox_success_accepts_with_test_evidence"
-        )
-        self.assertEqual(pending_case.id(), gate["development_pending_skip"]["test_id"])
-        self.assertTrue(getattr(pending, "__unittest_skip__", False))
-        self.assertEqual(
-            getattr(pending, "__unittest_skip_why__", None),
-            gate["development_pending_skip"]["reason"],
-        )
+        self.assertFalse(getattr(pending, "__unittest_skip__", False))
 
     def test_activation_gate_accepts_complete_all_pass_suite(self) -> None:
         from tests.foundation.activation_gate_runner import LoadedGateSuite, run_loaded_gate

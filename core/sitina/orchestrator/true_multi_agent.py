@@ -5435,7 +5435,16 @@ class TrueMultiAgentProductionRuntime:
         def verifier(diff_paths: Sequence[str], forge_result: Mapping[str, Any]) -> VerificationVerdict:
             # Delegating to extracted helper for testability (eliminates mirror drift)
             from sitina.orchestrator.execution_verification import verify_execution_diff
-            return verify_execution_diff(diff_paths, verifier_id, forge_result)
+            from sitina.orchestrator.execution_sandbox import CASTestEvidencePublisher
+            return verify_execution_diff(
+                diff_paths,
+                verifier_id,
+                forge_result,
+                run_id=evidence.run_id,
+                home=self.home,
+                authority_resolution=context.authority.resolution,
+                evidence_publisher=CASTestEvidencePublisher(cas, context.provider),
+            )
 
         def rollback(attempt: int) -> None:
             ws = base_ws / f"attempt-{attempt}"

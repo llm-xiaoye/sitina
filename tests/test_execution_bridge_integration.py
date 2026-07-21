@@ -4,7 +4,6 @@ approval + real boundary redaction + real ast verifier + bounded rework + rollba
 — driven by a scripted-mock Forge (no provider/live)."""
 from __future__ import annotations
 
-import ast
 import itertools
 import os
 import shutil
@@ -14,7 +13,8 @@ from pathlib import Path
 
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.runners.provider import ProviderToolCall, ProviderToolTurn, ScriptedMockToolClient
-from sitina.orchestrator.execution_bridge import ExecutionBinding, VerificationVerdict, run_safe_execution
+from sitina.orchestrator.execution_bridge import ExecutionBinding, run_safe_execution
+from sitina.orchestrator.execution_sandbox import FilesystemTestEvidencePublisher
 from sitina.security.redaction import redact_boundary_value
 from sitina.guards.path_lease import PathLease
 
@@ -81,7 +81,14 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
         # No mirror verifier: call the REAL production helper (eliminates drift).
         def verifier(diff, res):
             from sitina.orchestrator.execution_verification import verify_execution_diff
-            return verify_execution_diff(diff, VER_ID, res)
+            return verify_execution_diff(
+                diff,
+                VER_ID,
+                res,
+                run_id=f"integration-{base.name}-{state['attempt']}",
+                home=self.home,
+                evidence_publisher=FilesystemTestEvidencePublisher(self.home / "test-evidence"),
+            )
         def rollback(a):
             w = base / f"attempt-{a}"
             if w.exists(): shutil.rmtree(w, ignore_errors=True)
@@ -104,6 +111,8 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
         self.assertTrue(res.verification.checked_tests, "accept must have real test evidence")
         self.assertEqual(res.verification.verifier_id, VER_ID)
         self.assertNotEqual(res.verification.verifier_id, EXEC_ID)
+        self.assertTrue(res.verification.test_evidence_ref.startswith("test-evidence:"))
+        self.assertEqual(len(res.verification.test_evidence_hash), 64)
 
     def test_clean_code_without_tests_not_accepted(self):
         # syntax-valid but NO executable tests -> fail-closed (the hollow-accept fix)

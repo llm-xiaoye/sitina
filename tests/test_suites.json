@@ -59,6 +59,7 @@
         "tests/test_extensions.py",
         "tests/test_provider_tool_protocols.py",
         "tests/test_execution_bridge_integration.py",
+        "tests/test_execution_sandbox.py",
         "tests/test_frozen_home_fixture.py",
         "tests/test_frozen_fence_contract.py",
         "tests/test_execution_verifier_frozen.py"
@@ -72,6 +73,7 @@
       "selectors": [
         "tests/test_execution_bridge.py",
         "tests/test_execution_bridge_integration.py",
+        "tests/test_execution_sandbox.py",
         "tests/test_frozen_home_fixture.py",
         "tests/test_frozen_fence_contract.py",
         "tests/test_execution_verifier_frozen.py"
@@ -80,11 +82,7 @@
       "expected_duration": "activation-gate",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
-      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1",
-      "development_pending_skip": {
-        "test_id": "tests.test_execution_verifier_frozen.ProductionVerifierFrozenHomeTests.test_sandbox_success_accepts_with_test_evidence",
-        "reason": "pending Step 6: authorized OS sandbox runner not yet implemented"
-      }
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
     },
     "crash_fault": {
       "selectors": [

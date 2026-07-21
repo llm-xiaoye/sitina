@@ -1,121 +1,126 @@
-"""Independent verification of execution results.
-
-Extracted from _execute_winner to enable direct testing and eliminate test-mirror drift.
-"""
+"""Independent, fail-closed verification of execution results."""
 from __future__ import annotations
 
 import ast
-import subprocess
-import sys
+import os
 from pathlib import Path
-from typing import Sequence, Mapping, Any
+from typing import Any, Mapping, Sequence
 
-from sitina.orchestrator.execution_bridge import VerificationVerdict
 from sitina.legacy.fence import LegacyWriteDenied
-from sitina.utils import isolated_env
+from sitina.orchestrator.execution_bridge import VerificationVerdict
+from sitina.orchestrator.execution_sandbox import (
+    ExecutionSandboxError,
+    ExecutionSandboxRunner,
+    SandboxResourceLimits,
+    TestEvidencePublisher,
+)
 
 
 def verify_execution_diff(
     diff_paths: Sequence[str],
     verifier_id: str,
     forge_result: Mapping[str, Any],
+    *,
+    run_id: str | None = None,
+    home: Path | None = None,
+    authority_resolution: object | None = None,
+    fixture_authorization: bool = False,
+    evidence_publisher: TestEvidencePublisher | None = None,
+    sandbox_executable: Path = Path("/usr/bin/sandbox-exec"),
+    limits: SandboxResourceLimits | None = None,
 ) -> VerificationVerdict:
-    """Independent, read-only verification of execution diff.
+    """Statically inspect the diff, then execute tests only in a qualified OS sandbox.
 
-    Performs:
-    1. Syntax check (ast.parse) on all .py files
-    2. Runs doctests/unittest on files with test evidence
-    3. Returns verdict with checked_tests=True only if real tests executed
-
-    Args:
-        diff_paths: Paths to produced files (absolute)
-        verifier_id: Identity of the verifier (must differ from executor)
-        forge_result: Forge execution result (unused, for interface consistency)
-
-    Returns:
-        VerificationVerdict with:
-        - checked_diff=True (always reads actual files)
-        - checked_tests=True only if executable tests ran
-        - accepted=True only if syntax ok AND tests ran AND all passed
-        - reasons: list of failure reasons (empty if accepted)
-
-    Note:
-        Currently calls subprocess.run which is DENIED by the frozen fence.
-        This will fail in production frozen homes with LegacyWriteDenied.
-        A future fix must use an authorized execution channel or in-process execution.
+    A successful verdict always references immutable TestEvidence containing
+    actual collected/executed/pass/fail/skip/error counts and before/after diff
+    hashes.  Sandbox or publication unavailability becomes a structured reject.
     """
-    reasons: list[str] = []
 
+    del forge_result  # execution self-report is deliberately not verification input
+    reasons: list[str] = []
     if not diff_paths:
         return VerificationVerdict(
-            False, verifier_id, checked_diff=True, checked_tests=False,
-            reasons=("empty diff: nothing produced",)
+            False,
+            verifier_id,
+            checked_diff=True,
+            checked_tests=False,
+            reasons=("empty diff: nothing produced",),
         )
 
-    py_files = [p for p in diff_paths if p.endswith(".py")]
-
-    # Syntax check
-    for p in py_files:
+    py_files = [Path(value).expanduser() for value in diff_paths if str(value).endswith(".py")]
+    test_targets: list[Path] = []
+    for path in py_files:
         try:
-            ast.parse(Path(p).read_text(encoding="utf-8", errors="strict"))
-        except (SyntaxError, UnicodeDecodeError, OSError) as exc:
-            reasons.append(f"{Path(p).name}: {type(exc).__name__}")
+            source = path.read_text(encoding="utf-8", errors="strict")
+            ast.parse(source)
+        except (SyntaxError, UnicodeDecodeError, OSError) as error:
+            reasons.append(f"{path.name}: {type(error).__name__}")
+            continue
+        if "test_" in path.name or ">>>" in source:
+            test_targets.append(path)
 
     if reasons:
         return VerificationVerdict(
-            False, verifier_id, checked_diff=True, checked_tests=False,
-            reasons=tuple(reasons)
+            False, verifier_id, checked_diff=True, checked_tests=False, reasons=tuple(reasons)
         )
-
-    # Run tests (doctest / unittest)
-    ran_tests = False
-    for p in py_files:
-        try:
-            src = Path(p).read_text(encoding="utf-8", errors="strict")
-        except OSError:
-            continue
-
-        is_testfile = Path(p).name.startswith("test_") or "test_" in Path(p).name
-        has_doctest = ">>>" in src
-
-        if not (is_testfile or has_doctest):
-            continue
-
-        mod = "unittest" if is_testfile else "doctest"
-        try:
-            proc = subprocess.run(
-                [sys.executable, "-m", mod, p],
-                cwd=str(Path(p).parent),
-                env=isolated_env(),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (LegacyWriteDenied, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as exc:
-            # Fail-closed on inability to run tests — including the frozen
-            # fence's LegacyWriteDenied. PRECISE catch: KeyboardInterrupt /
-            # SystemExit / GeneratorExit must propagate, never be masked into a
-            # verdict. The diagnostic is preserved (not overwritten below).
-            reasons.append(f"{Path(p).name}: test execution unavailable ({type(exc).__name__})")
-            continue
-
-        ran_tests = True
-        if proc.returncode != 0:
-            reasons.append(f"{Path(p).name}: tests failed rc={proc.returncode}")
-
-    # Fail-closed: no executable test evidence -> cannot accept. Preserve any
-    # per-file diagnostics (e.g. LegacyWriteDenied) already collected; only add
-    # the generic reason when there is none.
-    if not ran_tests:
-        if not reasons:
-            reasons.append("no executable test evidence (no doctest/test_*.py)")
+    if not test_targets:
         return VerificationVerdict(
-            False, verifier_id, checked_diff=True, checked_tests=False,
-            reasons=tuple(reasons)
+            False,
+            verifier_id,
+            checked_diff=True,
+            checked_tests=False,
+            reasons=("no executable test evidence (no doctest/test_*.py)",),
+        )
+    if evidence_publisher is None:
+        return VerificationVerdict(
+            False,
+            verifier_id,
+            checked_diff=True,
+            checked_tests=False,
+            reasons=("immutable test evidence publisher unavailable",),
         )
 
-    accepted = not reasons
+    execution_run_id = run_id or f"verification-{verifier_id}"
+    sandbox_home = Path(home or os.environ.get("SITINA_HOME", "/Users/moss/SitinaHub"))
+    try:
+        runner = ExecutionSandboxRunner(
+            home=sandbox_home,
+            authority_resolution=authority_resolution,
+            fixture_authorization=fixture_authorization,
+            sandbox_executable=sandbox_executable,
+            limits=limits,
+        )
+        evidence = runner.run_tests(
+            test_targets,
+            run_id=execution_run_id,
+            diff_paths=[Path(value).expanduser() for value in diff_paths],
+        )
+        raw_evidence = evidence.canonical_bytes()
+        evidence_hash = evidence.evidence_hash
+        evidence_ref = evidence_publisher.publish(raw_evidence, evidence_hash=evidence_hash)
+    except (ExecutionSandboxError, LegacyWriteDenied, OSError, UnicodeError, ValueError) as error:
+        return VerificationVerdict(
+            False,
+            verifier_id,
+            checked_diff=True,
+            checked_tests=False,
+            reasons=(f"test execution unavailable ({type(error).__name__})",),
+        )
+
+    if not evidence.accepted:
+        reasons.append(
+            "sandbox tests rejected "
+            f"(collected={evidence.collected_test_count},executed={evidence.executed_test_count},"
+            f"passed={evidence.passed_test_count},failed={evidence.failed_test_count},"
+            f"skipped={evidence.skipped_test_count},errors={evidence.error_test_count},"
+            f"rc={evidence.runner_return_code},timeout={str(evidence.timed_out).lower()})"
+        )
     return VerificationVerdict(
-        accepted, verifier_id, checked_diff=True,
-        checked_tests=True, reasons=tuple(reasons)
+        evidence.accepted,
+        verifier_id,
+        checked_diff=True,
+        checked_tests=evidence.executed_test_count > 0,
+        reasons=tuple(reasons),
+        test_evidence_ref=evidence_ref,
+        test_evidence_hash=evidence_hash,
     )
