@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import runpy
 import subprocess
@@ -42,6 +43,86 @@ class LayeredRunnerTests(unittest.TestCase):
             config["suites"]["live_provider_opt_in"]["external_io_policy"],
             "EXPLICIT_CURRENT_MANIFEST_ONLY",
         )
+
+    def test_execution_activation_gate_has_independent_strict_policy(self) -> None:
+        config = json.loads((ROOT / "tests/test_suites.json").read_text(encoding="utf-8"))
+        gate = config["suites"]["execution_activation_gate"]
+        self.assertEqual(gate["result_policy"], "ZERO_NONPASS_AND_COMPLETE_V1")
+        self.assertEqual(
+            gate["development_pending_skip"],
+            {
+                "test_id": (
+                    "tests.test_execution_verifier_frozen.ProductionVerifierFrozenHomeTests."
+                    "test_sandbox_success_accepts_with_test_evidence"
+                ),
+                "reason": "pending Step 6: authorized OS sandbox runner not yet implemented",
+            },
+        )
+        self.assertIn("tests/test_execution_verifier_frozen.py", gate["selectors"])
+        from tests.test_execution_verifier_frozen import ProductionVerifierFrozenHomeTests
+        pending = ProductionVerifierFrozenHomeTests.test_sandbox_success_accepts_with_test_evidence
+        pending_case = ProductionVerifierFrozenHomeTests(
+            "test_sandbox_success_accepts_with_test_evidence"
+        )
+        self.assertEqual(pending_case.id(), gate["development_pending_skip"]["test_id"])
+        self.assertTrue(getattr(pending, "__unittest_skip__", False))
+        self.assertEqual(
+            getattr(pending, "__unittest_skip_why__", None),
+            gate["development_pending_skip"]["reason"],
+        )
+
+    def test_activation_gate_accepts_complete_all_pass_suite(self) -> None:
+        from tests.foundation.activation_gate_runner import LoadedGateSuite, run_loaded_gate
+
+        class Probe(unittest.TestCase):
+            def test_passes(self):
+                pass
+
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Probe)
+        test_ids = tuple(test.id() for test in suite)
+        summary = run_loaded_gate(
+            LoadedGateSuite(suite, {"probe": len(test_ids)}, test_ids, ()),
+            stream=io.StringIO(),
+        )
+        self.assertTrue(summary["accepted"])
+        self.assertTrue(summary["collection_complete"])
+        self.assertTrue(summary["execution_complete"])
+        self.assertEqual(summary["passed"], 1)
+
+    def test_activation_gate_rejects_every_nonpass_category(self) -> None:
+        from tests.foundation.activation_gate_runner import LoadedGateSuite, run_loaded_gate
+
+        class Probe(unittest.TestCase):
+            def test_failure(self):
+                self.fail("failure")
+
+            def test_error(self):
+                raise RuntimeError("error")
+
+            @unittest.skip("skip")
+            def test_skip(self):
+                pass
+
+            @unittest.expectedFailure
+            def test_expected_failure(self):
+                self.fail("expected")
+
+            @unittest.expectedFailure
+            def test_unexpected_success(self):
+                pass
+
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Probe)
+        test_ids = tuple(test.id() for test in suite)
+        summary = run_loaded_gate(
+            LoadedGateSuite(suite, {"probe": len(test_ids)}, test_ids, ()),
+            stream=io.StringIO(),
+        )
+        self.assertFalse(summary["accepted"])
+        self.assertEqual(summary["failures"], 1)
+        self.assertEqual(summary["errors"], 1)
+        self.assertEqual(summary["skipped"], 1)
+        self.assertEqual(summary["expected_failures"], 1)
+        self.assertEqual(summary["unexpected_successes"], 1)
 
     def test_runner_uses_timeout_process_group_and_sentinel_checks(self) -> None:
         source = RUNNER.read_text(encoding="utf-8")

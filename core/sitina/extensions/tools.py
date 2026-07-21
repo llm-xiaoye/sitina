@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import glob
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.request
@@ -23,6 +25,7 @@ from sitina.extensions.spec import (
     validate_identifier,
 )
 from sitina.runners.mcp_adapter import StdioMcpClient, validate_json_schema
+from sitina.guards.risk import RiskScanner
 from sitina.legacy.fence import authorized_extension_effect
 from sitina.security.tool_security import (
     PromptIsolationPolicy,
@@ -113,6 +116,15 @@ RISK_BY_PERMISSION = {
     "external_service": "high",
 }
 
+# Risk rules whose match means the effect escapes the worktree (host-effect):
+# no free rollback, always require human approval (M1.7).
+_HOST_EFFECT_RULE_IDS = frozenset({
+    "host_package_install",
+    "host_system_modify",
+    "external_network",
+    "write_project_outside_path",
+})
+
 
 class ToolCatalog:
     """One permission-enforcing catalog for built-ins and plugin capabilities."""
@@ -123,10 +135,26 @@ class ToolCatalog:
         *,
         approval_callback: ApprovalCallback | None = None,
         workspace: Path | None = None,
+        write_executor: Any | None = None,
     ):
         self.manager = manager
         self.approval_callback = approval_callback
         self.workspace = Path(workspace or manager.sitina_home).expanduser().resolve(strict=False)
+        # Optional strong-write engine (ToolExecutor). When present and a run is
+        # bound, sitina_write_file uses atomic/before_hash/patch-journal writes
+        # instead of whole-file overwrite. Approval is still enforced by
+        # _authorize upstream; this only upgrades the write mechanics (M1.1).
+        self._write_executor = write_executor
+        self._run_id: str | None = None
+        # Deterministic risk floor (M1.4): scans every non-trivial tool call
+        # against config/permissions.yaml before approval. Block verdicts
+        # (sudo, curl|sh, .env/secret/ssh/key reads+writes, path escape) cannot
+        # be overridden by the approval callback. Reuse the executor's scanner
+        # if present so rules load once.
+        if write_executor is not None and getattr(write_executor, "risk_scanner", None) is not None:
+            self._risk_scanner = write_executor.risk_scanner
+        else:
+            self._risk_scanner = RiskScanner(Path(manager.sitina_home))
         self._tools: dict[str, ToolDefinition] = {}
         self._skill_roots: dict[str, Path] = {}
         self._mcp_rules: list[ToolPermissionRule] = []
@@ -189,17 +217,60 @@ class ToolCatalog:
             max(0, int((time.monotonic() - started_monotonic) * 1000)),
         )
 
+    def bind_run(self, run_id: str) -> None:
+        """Bind the active run_id so strong writes can tag lease/patch journal.
+        Called by the runtime at the start of each run()."""
+        self._run_id = run_id
+
+    @staticmethod
+    def _risk_params(definition: ToolDefinition, arguments: Mapping[str, Any]) -> tuple[str, str | None, str | None] | None:
+        """Map a builtin tool call to (operation, target, command) for the risk
+        scanner. Returns None to skip scanning (glob/list/plugin/MCP — MCP has
+        its own policy path)."""
+        name = definition.name
+        if name == "sitina_read_file":
+            return ("read", str(arguments.get("path") or ""), None)
+        if name in {"sitina_write_file", "sitina_edit_file"}:
+            return ("write", str(arguments.get("path") or ""), None)
+        if name == "sitina_shell":
+            return ("shell", None, str(arguments.get("command") or ""))
+        if name == "sitina_http_request":
+            return ("web", str(arguments.get("url") or ""), None)
+        return None
+
     def _authorize(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> None:
+        # Deterministic risk floor (M1.4): scan first, hard-block cannot be
+        # overridden by the approval callback.
+        scan = None
+        params = self._risk_params(definition, arguments)
+        if params is not None:
+            operation, target, command = params
+            scan = self._risk_scanner.scan(
+                operation,
+                target=target,
+                command=command,
+                allowed_roots=[str(self.workspace), str(self.manager.sitina_home)],
+            )
+            if scan.action == "block":
+                reasons = "; ".join(m.reason for m in scan.matches if m.action == "block") or "policy"
+                raise ToolApprovalDenied(f"risk scanner blocked {definition.name}: {reasons}")
         approval_granted = definition.permission == "read"
         if not approval_granted:
+            risk = scan.risk_level if scan is not None else RISK_BY_PERMISSION[definition.permission]
+            host_effect = scan is not None and any(
+                m.rule_id in _HOST_EFFECT_RULE_IDS for m in scan.matches
+            )
+            reason = f"tool requires {definition.permission} permission (risk: {risk})"
+            if host_effect:
+                reason += " — HOST-EFFECT: escapes the worktree, no free rollback"
             request = ApprovalRequest(
                 "approval-" + uuid.uuid4().hex,
                 definition.name,
                 definition.permission,
-                RISK_BY_PERMISSION[definition.permission],
+                risk,
                 definition.origin,
                 dict(arguments),
-                f"tool requires {definition.permission} permission",
+                reason,
             )
             approval_granted = self.approval_callback is not None and self.approval_callback(request)
         if definition.security_server is not None and definition.security_tool is not None:
@@ -292,6 +363,26 @@ class ToolCatalog:
         )
         self._add(
             ToolDefinition(
+                "sitina_grep",
+                "Search file contents by regular expression under a directory. "
+                "Read-only and automatically permitted. Returns matches as file:line entries.",
+                self._object_schema(
+                    {
+                        "pattern": {"type": "string"},
+                        "path": {"type": "string"},
+                        "include": {"type": "string"},
+                        "ignore_case": {"type": "boolean"},
+                        "max_results": {"type": "number"},
+                    },
+                    ("pattern",),
+                ),
+                "read",
+                "sitina",
+                self._grep,
+            )
+        )
+        self._add(
+            ToolDefinition(
                 "sitina_write_file",
                 "Write UTF-8 text to a local file. Requires per-call write approval.",
                 self._object_schema(
@@ -301,6 +392,26 @@ class ToolCatalog:
                 "write",
                 "sitina",
                 self._write_file,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_edit_file",
+                "Edit a file by replacing an exact string. Requires per-call write approval. "
+                "old_string must match verbatim and (unless replace_all) appear exactly once; "
+                "supply enough surrounding context to make it unique.",
+                self._object_schema(
+                    {
+                        "path": {"type": "string"},
+                        "old_string": {"type": "string"},
+                        "new_string": {"type": "string"},
+                        "replace_all": {"type": "boolean"},
+                    },
+                    ("path", "old_string", "new_string"),
+                ),
+                "write",
+                "sitina",
+                self._edit_file,
             )
         )
         self._add(
@@ -476,13 +587,120 @@ class ToolCatalog:
         suffix = uuid.uuid5(uuid.NAMESPACE_URL, raw).hex[:10]
         return raw[:53] + "_" + suffix
 
+    _GREP_SKIP_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache"})
+
+    def _grep(self, value: dict[str, Any]) -> dict[str, Any]:
+        flags = re.IGNORECASE if bool(value.get("ignore_case")) else 0
+        try:
+            pattern = re.compile(str(value["pattern"]), flags)
+        except re.error as error:
+            raise ToolRuntimeError(f"invalid grep pattern: {error}") from error
+        root = Path(str(value.get("path") or self.workspace)).expanduser().resolve(strict=True)
+        include = str(value["include"]) if value.get("include") else None
+        max_results = int(value["max_results"]) if value.get("max_results") is not None else 200
+        matches: list[dict[str, Any]] = []
+        truncated = False
+        for current, dirs, files in os.walk(root):
+            dirs[:] = sorted(name for name in dirs if name not in self._GREP_SKIP_DIRS)
+            for name in sorted(files):
+                if include is not None and not fnmatch.fnmatch(name, include):
+                    continue
+                file_path = Path(current) / name
+                try:
+                    with file_path.open("r", encoding="utf-8", errors="strict") as handle:
+                        for number, line in enumerate(handle, start=1):
+                            if pattern.search(line):
+                                matches.append(
+                                    {
+                                        "file": str(file_path),
+                                        "line": number,
+                                        "text": line.rstrip("\n")[:400],
+                                    }
+                                )
+                                if len(matches) >= max_results:
+                                    truncated = True
+                                    break
+                except (UnicodeDecodeError, OSError):
+                    continue  # skip binary/unreadable files
+                if truncated:
+                    break
+            if truncated:
+                break
+        return {"matches": matches, "count": len(matches), "truncated": truncated}
+
     def _write_file(self, value: dict[str, Any]) -> dict[str, Any]:
         path = Path(str(value["path"])).expanduser().resolve(strict=False)
+        content = str(value["content"])
+        append = bool(value.get("append"))
+        # Strong write path (M1.1): atomic replace + before_hash + PathLease +
+        # patch journal via ToolExecutor.write_direct. Only for full overwrite;
+        # append has no atomic-replace semantics so it keeps the plain path.
+        if self._write_executor is not None and self._run_id is not None and not append:
+            if path.exists() and not path.is_file():
+                raise ToolRuntimeError(f"write target is not a regular file: {path}")
+            result = self._write_executor.write_direct(
+                target=str(path),
+                content=content,
+                run_id=self._run_id,
+            )
+            if result.get("status") != "ok":
+                raise ToolRuntimeError(
+                    f"strong write failed ({result.get('status')}): {result.get('reason')}"
+                )
+            return {
+                "path": str(path),
+                "bytes": len(content.encode("utf-8")),
+                "append": False,
+                "patch_id": result.get("patch_id"),
+                "before_hash": result.get("before_hash"),
+                "after_hash": result.get("after_hash"),
+            }
         path.parent.mkdir(parents=True, exist_ok=True)
-        mode = "a" if bool(value.get("append")) else "w"
+        mode = "a" if append else "w"
         with path.open(mode, encoding="utf-8") as handle:
-            handle.write(str(value["content"]))
-        return {"path": str(path), "bytes": len(str(value["content"]).encode("utf-8")), "append": mode == "a"}
+            handle.write(content)
+        return {"path": str(path), "bytes": len(content.encode("utf-8")), "append": mode == "a"}
+
+    def _edit_file(self, value: dict[str, Any]) -> dict[str, Any]:
+        path = Path(str(value["path"])).expanduser().resolve(strict=False)
+        old = str(value["old_string"])
+        new = str(value["new_string"])
+        replace_all = bool(value.get("replace_all"))
+        if old == new:
+            raise ToolRuntimeError("old_string and new_string are identical; nothing to edit")
+        if not path.is_file():
+            raise ToolRuntimeError(f"edit target does not exist or is not a file: {path}")
+        original = path.read_text(encoding="utf-8")
+        occurrences = original.count(old)
+        if occurrences == 0:
+            raise ToolRuntimeError("old_string not found in file (must match verbatim)")
+        if occurrences > 1 and not replace_all:
+            raise ToolRuntimeError(
+                f"old_string is not unique ({occurrences} matches); add surrounding context "
+                f"or set replace_all=true"
+            )
+        updated = original.replace(old, new) if replace_all else original.replace(old, new, 1)
+        replaced = occurrences if replace_all else 1
+        # Route through the strong write path (atomic + before_hash + patch journal)
+        # when available; otherwise plain atomic-ish overwrite.
+        if self._write_executor is not None and self._run_id is not None:
+            result = self._write_executor.write_direct(
+                target=str(path), content=updated, run_id=self._run_id
+            )
+            if result.get("status") != "ok":
+                raise ToolRuntimeError(
+                    f"strong write failed ({result.get('status')}): {result.get('reason')}"
+                )
+            return {
+                "path": str(path),
+                "replaced": replaced,
+                "patch_id": result.get("patch_id"),
+                "before_hash": result.get("before_hash"),
+                "after_hash": result.get("after_hash"),
+            }
+        with path.open("w", encoding="utf-8") as handle:
+            handle.write(updated)
+        return {"path": str(path), "replaced": replaced}
 
     def _shell(self, value: dict[str, Any]) -> dict[str, Any]:
         cwd = Path(str(value.get("cwd") or self.workspace)).expanduser().resolve(strict=True)

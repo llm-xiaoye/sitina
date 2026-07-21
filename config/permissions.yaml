@@ -39,6 +39,8 @@
     {"id": "doctor_fix_command", "operations": ["doctor_fix"], "risk_level": "high", "action": "approval", "reason": "doctor --fix is high risk"},
     {"id": "mcp_write", "operations": ["mcp_write"], "tool_types": ["write"], "risk_level": "high", "action": "approval", "reason": "MCP write requires approval"},
     {"id": "external_network", "operations": ["web", "mcp_read", "mcp_write", "shell"], "command_patterns": ["\\b(curl|wget|ssh|scp|rsync)\\b"], "risk_level": "high", "action": "approval", "reason": "external network operation"},
+    {"id": "host_package_install", "operations": ["shell"], "command_patterns": ["\\bpip3?\\s+install\\b", "\\b(brew)\\s+(install|upgrade|reinstall)\\b", "\\bapt(-get)?\\s+install\\b", "\\bnpm\\s+(install|i)\\b.*\\s-g\\b", "\\b(pnpm|yarn)\\s+global\\b", "\\bgem\\s+install\\b", "\\bcargo\\s+install\\b", "\\bgo\\s+install\\b"], "risk_level": "high", "action": "approval", "reason": "host-effect: package install escapes the worktree (no free rollback)"},
+    {"id": "host_system_modify", "operations": ["shell"], "command_patterns": ["\\bsystemctl\\b", "\\blaunchctl\\b", "\\bdefaults\\s+write\\b", "\\bcrontab\\b", "\\bchmod\\s+[+]?s\\b", "\\bchown\\s+root\\b", "\\bkillall\\b", "\\bmkfs\\b", "\\bdiskutil\\b"], "risk_level": "high", "action": "approval", "reason": "host-effect: system/service modification escapes the worktree (no free rollback)"},
     {"id": "secret_sensitive_tool", "operations": ["mcp_read", "mcp_write"], "tool_types": ["secret_sensitive"], "risk_level": "critical", "action": "block", "reason": "secret-sensitive MCP tool blocked"}
   ],
   "tester_allowed_commands": [

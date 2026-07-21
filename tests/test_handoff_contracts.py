@@ -22,6 +22,28 @@ class HandoffContractTests(unittest.TestCase):
         self.assertEqual(fact["_object_refs"], ["cas:" + "e" * 64])
         self.assertEqual(len(fact["contract_hash"]), 64)
 
+    def test_input_hashes_must_be_bare_64_hex_not_sha256_prefixed(self) -> None:
+        # Regression: the runtime's sha256_bytes() yields a "sha256:"-prefixed
+        # 71-char hash; _handoff must strip it before it enters input_hashes,
+        # symmetric with the cas: strip on input_refs. A prefixed hash must fail.
+        prefixed = "sha256:" + "a" * 64  # 71 chars, as sha256_bytes returns
+        with self.assertRaises(HandoffContractError):
+            HandoffContract(
+                "handoff-a", 1, "agent-source", "agent-target", "task-a", "verify a bounded result",
+                ("read-only analysis",), ("handoff-receive",), ("a" * 64,), (prefixed, "b" * 64), "c" * 64,
+                {"type": "object", "required": ["result"]}, ("result is hash-bound",), ("inputs are current",),
+                ("provider uncertainty",), ("none",), 1024, "2026-07-20T00:00:00Z", "d" * 64,
+            )
+        # The stripped form (what the fix produces) is accepted.
+        stripped = prefixed.removeprefix("sha256:")
+        ok = HandoffContract(
+            "handoff-a", 1, "agent-source", "agent-target", "task-a", "verify a bounded result",
+            ("read-only analysis",), ("handoff-receive",), ("a" * 64,), (stripped, "b" * 64), "c" * 64,
+            {"type": "object", "required": ["result"]}, ("result is hash-bound",), ("inputs are current",),
+            ("provider uncertainty",), ("none",), 1024, "2026-07-20T00:00:00Z", "d" * 64,
+        )
+        self.assertEqual(len(ok.input_hashes[0]), 64)
+
     def test_contract_rejects_missing_acceptance_scope_or_non_cas_object(self) -> None:
         value = self.contract()
         with self.assertRaises(HandoffContractError):

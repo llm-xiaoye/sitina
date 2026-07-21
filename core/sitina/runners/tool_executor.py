@@ -20,12 +20,22 @@ _UNSET = object()
 
 
 class ToolExecutor:
-    def __init__(self, home: Path = SITINA_HOME, store: SitinaStore | None = None):
+    def __init__(
+        self,
+        home: Path = SITINA_HOME,
+        store: SitinaStore | None = None,
+        *,
+        enforce_write_boundary: bool = False,
+    ):
         self.home = home
         self.store = store or SitinaStore(home)
         self.risk_scanner = RiskScanner(home)
         self.approvals = ApprovalManager(home, self.store)
         self.diff = DiffVerifier()
+        # SL1: when true, every write is fail-closed sensitive-content checked
+        # BEFORE it touches disk (redact_boundary_value on the content). Opt-in
+        # so the execution bridge enforces it without changing other write paths.
+        self.enforce_write_boundary = enforce_write_boundary
         from sitina.effects.legacy_adapters import ShadowEffectBridge
         self.effect_shadow = ShadowEffectBridge.from_environment()
 
@@ -105,6 +115,23 @@ class ToolExecutor:
         )
         return {"risk_scan": scan.model_dump(), **result}
 
+    def write_direct(
+        self,
+        *,
+        target: str,
+        content: str,
+        run_id: str,
+        expected_before_hash: object = _UNSET,
+    ) -> dict[str, Any]:
+        """Strong write primitive (before_hash + PathLease + atomic replace +
+        patch journal) WITHOUT the risk-scan/approval/store-audit pipeline.
+
+        Approval and risk classification are enforced upstream by the caller's
+        own gate (e.g. ToolCatalog._authorize). This exposes only the safe write
+        mechanics so the autonomous tool loop can replace whole-file overwrite
+        with atomic, rollback-able writes. Guardrail wiring is M1.4."""
+        return self._write(target, content, run_id, expected_before_hash=expected_before_hash)
+
     def _read(self, target: str | None) -> dict[str, Any]:
         if not target:
             return {"status": "blocked", "reason": "read target required"}
@@ -114,6 +141,17 @@ class ToolExecutor:
     def _write(self, target: str | None, content: str, run_id: str, *, expected_before_hash: object = _UNSET) -> dict[str, Any]:
         if not target:
             return {"status": "blocked", "reason": "write target required"}
+        # SL1 pre-write hard gate: reject sensitive content BEFORE it reaches
+        # disk. Fail-closed, no mutation of content, no write-then-scan.
+        if self.enforce_write_boundary:
+            from sitina.security.redaction import redact_boundary_value
+            boundary = redact_boundary_value(content, boundary="write")
+            if boundary.redacted_paths:
+                return {
+                    "status": "blocked",
+                    "reason": "write blocked: sensitive content at persistence boundary",
+                    "redacted_paths": list(boundary.redacted_paths),
+                }
         path = Path(target).expanduser()
         ensure_dir(path.parent)
         before = self.diff.before_hash(path)
@@ -122,6 +160,7 @@ class ToolExecutor:
         before_content = path.read_text(encoding="utf-8") if path.exists() and path.is_file() else None
         patch_id = sha256_text(f"{run_id}\n{path}\n{before}\n{content}")
         patch_path = self.home / "artifacts" / "patches" / f"{patch_id.split(':', 1)[1]}.json"
+        ensure_dir(patch_path.parent)
         with PathLease(path, run_id, self.home):
             if before != self.diff.before_hash(path):
                 return {"status": "blocked", "reason": "before_hash changed before write"}

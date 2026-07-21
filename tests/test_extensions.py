@@ -335,6 +335,36 @@ class ExtensionManagerTests(unittest.TestCase):
         journal.close.assert_called_once()
         self.assertTrue(any(call.args[0] == "run_failed" for call in audit.append.call_args_list))
 
+    def test_production_standalone_agent_runs_without_conversation_session(self) -> None:
+        # M1.6: `sitina agent` in a frozen production home has no chat session.
+        # It must still run with a full journal audit, WITHOUT requiring a
+        # ConversationLifecycle (which only links chat turns).
+        (self.sitina_home / "state/.legacy-control").mkdir(parents=True)
+        (self.sitina_home / "state/.legacy-control/frozen.json").write_text("{}\n", encoding="utf-8")
+        (self.sitina_home / ".sitina-bplus-disposable-v1").write_text("fixture\n", encoding="utf-8")
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=FakeToolClient([ProviderToolTurn("done: standalone agent ok", (), "stop", {})]),
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        context = Mock()
+        audit = Mock()
+        audit.summary.return_value = {}
+        with (
+            patch("sitina.orchestrator.bplus_production.ProductionRuntimeContext.load", return_value=context),
+            patch("sitina.extensions.runtime.JournalAutonomousAudit", return_value=audit),
+            patch("sitina.conversation.lifecycle.ConversationLifecycle") as lifecycle_cls,
+        ):
+            # No session_id / turn_index / route_decision — standalone agent.
+            result = runtime.run("build a small module")
+        self.assertEqual(result["terminal_state"], "SUCCEEDED")
+        self.assertEqual(result["response"], "done: standalone agent ok")
+        # The chat-linking lifecycle must NOT be constructed for a standalone run.
+        lifecycle_cls.assert_not_called()
+        # But the run is still fully journal-audited.
+        self.assertTrue(audit.append.call_args_list)
+
     def test_dynamic_stdio_mcp_lists_then_calls_tools_through_shell_approval(self) -> None:
         source = self.root / "mcp-plugin"
         write_mcp_plugin(source)

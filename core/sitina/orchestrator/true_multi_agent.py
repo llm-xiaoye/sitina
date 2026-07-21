@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -242,6 +243,22 @@ def _checkpoint_restart_required(goal: str) -> bool:
             "检查点重启恢复",
         )
     )
+
+
+def _execution_required(goal: str) -> bool:
+    """Does this goal need real execution (write code / operate the machine)?
+    Heuristic sibling of the router's execution_markers — the bridge only fires
+    the executor loop-instance when the goal is an action, not pure analysis."""
+    normalized = goal.casefold()
+    markers = (
+        "创建", "新建", "修改", "改一下", "修复", "重构", "实现一个", "帮我实现",
+        "写一个", "写个", "删除", "重命名", "安装", "部署", "改代码", "操作电脑",
+        "跑测试", "运行测试", "帮我写", "帮我修",
+        "create a ", "fix the ", "refactor", "implement a ", "write a ",
+        "delete the ", "install the ", "deploy the", "edit the ", "build the ",
+        "run the tests",
+    )
+    return any(marker in normalized for marker in markers)
 
 
 def _integrated_closure_required(goal: str) -> bool:
@@ -2915,6 +2932,10 @@ class TrueMultiAgentProductionRuntime:
             overrides=overrides,
         )
         receiver = receivers[0]
+        # HandoffContract / Handoff require bare 64-hex hashes, but self.policy_hash
+        # comes from sha256_bytes ("sha256:"-prefixed, 71 chars). Strip once and use
+        # this at every handoff-subsystem boundary (contract, offer, acknowledge).
+        policy_hash_64 = self.policy_hash.removeprefix("sha256:")
         handoff_id = "handoff-" + stable_hash("TRUE_MULTI_AGENT_HANDOFF", {"run": evidence.run_id})[:28]
         obligation = "obligation-" + handoff_id
         open_fact = self._protocol_open(evidence, "handoff", handoff_id, obligation, source_decision.decision_id)
@@ -2981,7 +3002,9 @@ class TrueMultiAgentProductionRuntime:
                 ("read selected immutable proposal", "produce bounded JSON handoff result", "preserve evidence lineage"),
                 ("handoff-receive",),
                 (winner.output_ref.removeprefix("cas:"),),
-                (winner.output_hash, refrozen_component),
+                # HandoffContract requires bare 64-hex hashes; output_hash carries
+                # the "sha256:" prefix (sha256_bytes), symmetric with the cas: strip above.
+                (winner.output_hash.removeprefix("sha256:"), refrozen_component),
                 stable_hash("TRUE_MULTI_AGENT_HANDOFF_STATE", {"run": evidence.run_id, "generation": generation}),
                 {
                     "type": "object",
@@ -2993,7 +3016,7 @@ class TrueMultiAgentProductionRuntime:
                 (("Which exact acceptance checks are mandatory?",) if incomplete else ()),
                 min(4000, int(self.policy["max_total_tokens_per_run"])),
                 "2099-01-01T00:00:00Z",
-                self.policy_hash,
+                policy_hash_64,
                 previous_generation_ref=previous_generation_ref,
                 previous_rejection_event_ref=previous_rejection_event_ref,
                 reject_reason_resolution_map=resolution_map,
@@ -3019,7 +3042,7 @@ class TrueMultiAgentProductionRuntime:
             receiver.agent_id,
             task_id,
             contract.contract_hash,
-            policy_hash=self.policy_hash,
+            policy_hash=policy_hash_64,
             capability_hash=receiver_capability_hash(receiver),
             budget=contract.budget_tokens,
             deadline=contract.deadline,
@@ -3116,7 +3139,7 @@ class TrueMultiAgentProductionRuntime:
             )
             next_handoff, opened_generation = handoff.new_generation(
                 specification_hash=next_contract.contract_hash,
-                policy_hash=self.policy_hash,
+                policy_hash=policy_hash_64,
                 capability_hash=receiver_capability_hash(receiver),
                 budget=next_contract.budget_tokens,
                 deadline=next_contract.deadline,
@@ -3232,7 +3255,7 @@ class TrueMultiAgentProductionRuntime:
                 verified_objective_ref=contract.objective_ref,
                 verified_scope_ref=contract.scope_ref,
                 acceptance_criteria_confirmed=bool(contract.acceptance_criteria),
-                verified_policy_hash=self.policy_hash,
+                verified_policy_hash=policy_hash_64,
                 verified_current_state_ref=contract.current_state_ref,
                 verified_output_schema_hash=contract.output_schema_hash,
             )
@@ -5283,6 +5306,171 @@ class TrueMultiAgentProductionRuntime:
             "terminal_state": "RESTART_REQUIRED",
         }
 
+    def _independent_verifier_id(self, executor_id: str) -> str:
+        """Pick a registry agent with review/verification capability that is not
+        the executor — enforces H11 executor != verifier at selection time."""
+        for agent in self.registry.identities:
+            caps = set(getattr(agent, "capabilities", ()))
+            if agent.agent_id != executor_id and ({"review", "verification"} & caps):
+                return agent.agent_id
+        return "agent-delta" if executor_id != "agent-delta" else "agent-horizon"
+
+    def _execute_winner(
+        self,
+        context: Any,
+        journal: Any,
+        cas: Any,
+        run_stream: CanonicalStream,
+        evidence: RunEvidence,
+        winner: AgentCallResult,
+        winner_agent: Any,
+    ) -> "ExecutionResult":
+        """M2 safe execution bridge (SL layer): drive a Forge loop-instance to
+        build the winner, then enforce the migrated handoff invariants via
+        run_safe_execution — pre-write + deliverable boundary redaction (H4),
+        independent read-only verification of the ACTUAL diff (H11/H12), bounded
+        rework with per-attempt isolation (H6). Borrows the orchestrator journal
+        (no second writer lock). Returns a formal ExecutionResult."""
+        from sitina.extensions.runtime import AutonomousRuntime, JournalAutonomousAudit
+        from sitina.orchestrator.execution_bridge import (
+            ExecutionBinding, VerificationVerdict, run_safe_execution,
+        )
+        from sitina.security.redaction import redact_boundary_value
+
+        proposal = winner.value if isinstance(winner.value, Mapping) else {}
+        approach = str(proposal.get("approach") or proposal.get("summary") or "")
+        acceptance = proposal.get("acceptance_checks") or []
+        policy_hash_64 = self.policy_hash.removeprefix("sha256:")
+        # FIX2 (identity model): the 8 registry agents are ALL read-only,
+        # provider-text-only — Forge included (it is the FAST synthesis agent,
+        # asserted read-only in fast_runtime). None may be recorded as having
+        # performed a write. The bridge executor is therefore a DISTINCT,
+        # write-authorized EXECUTION ROLE (a Forge tool-loop instance), not a
+        # registry text agent. The winning text agent is only the PROPOSER.
+        proposer_id = getattr(winner_agent, "agent_id", "unknown")
+        executor_id = "forge-execution-role"  # write-authorized; not a text agent
+        verifier_id = self._independent_verifier_id(proposer_id)
+        # Isolated execution sandbox OUTSIDE the frozen home: raw mkdir under
+        # home/ is fenced at orchestrator level. A temp dir keeps isolation +
+        # rollback (rmtree); the patch journal still lands under home/artifacts
+        # via the authorized tool-effect context inside the loop.
+        base_ws = Path(tempfile.mkdtemp(prefix=f"sitina-exec-{evidence.run_id}-"))
+        binding = ExecutionBinding(
+            winner_output_hash=winner.output_hash.removeprefix("sha256:"),
+            approved_scope=(str(base_ws),),
+            policy_hash=policy_hash_64,
+            run_id=evidence.run_id,
+        )
+
+        def attempt_ws(attempt: int) -> Path:
+            ws = base_ws / f"attempt-{attempt}"
+            ws.mkdir(parents=True, exist_ok=True)
+            return ws
+
+        def scoped_approval(ws: Path):
+            # Req 5: execution is bound to approved_scope. Approve writes strictly
+            # INSIDE the sandbox worktree; deny shell/network/host-effect and any
+            # out-of-scope write (fail-closed). RiskScanner block-level (sudo,
+            # .env, secret) + SL1 boundary still hard-block regardless.
+            ws_root = str(ws.expanduser().resolve(strict=False))
+            def _decide(request: Any) -> bool:
+                if getattr(request, "permission", None) != "write":
+                    return False
+                target = str((getattr(request, "arguments", {}) or {}).get("path") or "")
+                try:
+                    resolved = str(Path(target).expanduser().resolve(strict=False))
+                except Exception:
+                    return False
+                return resolved == ws_root or resolved.startswith(ws_root + "/")
+            return _decide
+
+        embedded_usage = {"provider_calls": 0, "physical_sends": 0, "tool_calls": 0}
+
+        def forge_runner(attempt: int, _workspace: str) -> Mapping[str, Any]:
+            ws = attempt_ws(attempt)
+            exec_run_id = f"forge-exec-{evidence.run_id}-{attempt}"
+            audit = JournalAutonomousAudit(
+                journal, cas, context.provider, run_id=exec_run_id, policy_hash=self.policy_hash
+            )
+            task = (
+                f"Goal: {evidence.goal}\n\n"
+                f"An approved approach was selected by multi-agent review. Implement it now "
+                f"using the file tools; write all files under {ws}.\n\n"
+                f"Approved approach:\n{approach}\n\n"
+                f"Acceptance checks: {json.dumps(list(acceptance), ensure_ascii=False)}"
+            )
+            runtime = AutonomousRuntime(
+                self.home,
+                approval_callback=scoped_approval(ws),       # in-sandbox writes only
+                workspace=ws,
+                max_turns=int(self.policy.get("max_execution_turns", 16)),
+                enforce_write_boundary=True,                 # SL1 pre-write hard gate
+            )
+            self._exec_last_attempt = attempt
+            r = runtime.run_embedded(task, run_id=exec_run_id, journal_audit=audit)
+            # FIX3: aggregate embedded-loop usage so execution can't silently
+            # bypass budget accounting; surfaced in the evidence event below.
+            embedded_usage["provider_calls"] += int(r.get("provider_call_count", 0) or 0)
+            embedded_usage["physical_sends"] += int(r.get("provider_physical_send_count", 0) or 0)
+            embedded_usage["tool_calls"] += int(r.get("tool_call_count", 0) or 0)
+            return r
+
+        def collect_diff() -> list[str]:
+            ws = attempt_ws(getattr(self, "_exec_last_attempt", 1))
+            return sorted(str(p) for p in ws.rglob("*") if p.is_file())
+
+        def boundary_check(diff_paths: Sequence[str]) -> list[str]:
+            # Deliverable-level H4 gate: fail-closed on sensitive content in the
+            # actual produced files BEFORE they are accepted/persisted onward.
+            flagged: list[str] = []
+            for p in diff_paths:
+                try:
+                    text = Path(p).read_text(encoding="utf-8", errors="strict")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                if redact_boundary_value(text, boundary="write").redacted_paths:
+                    flagged.append(p)
+            return flagged
+
+        def verifier(diff_paths: Sequence[str], forge_result: Mapping[str, Any]) -> VerificationVerdict:
+            # Delegating to extracted helper for testability (eliminates mirror drift)
+            from sitina.orchestrator.execution_verification import verify_execution_diff
+            return verify_execution_diff(diff_paths, verifier_id, forge_result)
+
+        def rollback(attempt: int) -> None:
+            ws = base_ws / f"attempt-{attempt}"
+            if ws.exists():
+                import shutil as _shutil
+                _shutil.rmtree(ws, ignore_errors=True)
+
+        result = run_safe_execution(
+            binding=binding, executor_id=executor_id, workspace=str(base_ws),
+            forge_runner=forge_runner, collect_diff=collect_diff,
+            boundary_check=boundary_check, verifier=verifier, rollback=rollback,
+            max_attempts=int(self.policy.get("max_execution_attempts", 2)),
+        )
+        # FIX4: record real mutation accounting instead of a hardcoded 0.
+        # Sandbox writes are sandbox_mutation_count (isolated temp, not the repo);
+        # patch refs come from the produced diff. proposer vs executor vs verifier
+        # are recorded distinctly so the audit is internally consistent.
+        sandbox_mutations = len(result.diff_paths)
+        run_stream.append(
+            "forge-execution-result",
+            ({"event_type": "forge.execution.result", **result.as_event(),
+              "proposer_id": proposer_id,
+              "executor_id": executor_id,
+              "executor_is_text_agent": False,
+              "verifier_id": verifier_id,
+              "sandbox_mutation_count": sandbox_mutations,
+              "sandbox_patch_paths": list(result.diff_paths),
+              "external_mutation_count": 0,  # nothing left the sandbox
+              "embedded_provider_call_count": embedded_usage["provider_calls"],
+              "embedded_physical_send_count": embedded_usage["physical_sends"],
+              "embedded_tool_call_count": embedded_usage["tool_calls"]},),
+            actor="forge-execution-bridge",
+        )
+        return result
+
     def _terminalize(
         self,
         journal: Any,
@@ -5711,7 +5899,16 @@ class TrueMultiAgentProductionRuntime:
                     self._blackboard(
                         journal, run_stream, executor, evidence, analysis, winner, winner_agent, proposal_decision, controls
                     )
-                if "handoff" in analysis.protocols:
+                # Req 1: for execution goals, deterministically bypass the
+                # text-handoff protocol when the bypass flag is on — the
+                # execution bridge + SL safety layer carry the invariants. The
+                # non-execution handoff path is unchanged (Req 9).
+                bypass_handoff = (
+                    bool(self.policy.get("execution_handoff_bypass_enabled"))
+                    and bool(self.policy.get("execution_bridge_enabled"))
+                    and _execution_required(evidence.goal)
+                )
+                if "handoff" in analysis.protocols and not bypass_handoff:
                     self._handoff(
                         journal, run_stream, executor, evidence, analysis, winner, winner_agent, proposal_decision, controls
                     )
@@ -5770,7 +5967,17 @@ class TrueMultiAgentProductionRuntime:
                     ),
                     actor="effect-reconciliation-policy",
                 )
+            # Deterministic execution-goal decision (Req 1): NOT dependent on
+            # whether Atlas emitted a "handoff" protocol.
+            execution_goal = bool(self.policy.get("execution_bridge_enabled")) and _execution_required(evidence.goal)
             if "checkpoint" in analysis.protocols or bool(controls.get("force_checkpoint_restart")):
+                # Req 8: an execution goal must never be resolved via a restart
+                # that skips the execution bridge — that would mark it done
+                # without execution + verification. Fail closed instead.
+                if execution_goal:
+                    raise DynamicCollaborationError(
+                        "execution goal cannot resolve via checkpoint restart before the execution bridge"
+                    )
                 restart_plan = self._checkpoint_restart(
                     context,
                     journal,
@@ -5782,6 +5989,19 @@ class TrueMultiAgentProductionRuntime:
                 )
                 journal.close()
                 return restart_plan
+            # Execution bridge (M2 + SL safety layer): build the winner, then
+            # enforce migrated invariants (boundary redaction, independent
+            # verify, bounded rework). Gated by execution_bridge_enabled.
+            if execution_goal:
+                exec_result = self._execute_winner(
+                    context, journal, cas, run_stream, evidence, winner, winner_agent
+                )
+                # Req 4/7/8: only an ACCEPTED execution may terminalize SUCCEEDED.
+                if not exec_result.accepted:
+                    raise DynamicCollaborationError(
+                        f"execution not accepted ({exec_result.status}); "
+                        f"attempts={exec_result.attempts}; fail-closed"
+                    )
             terminal_result = self._terminalize(journal, cas, run_stream, executor, evidence, run)
             if conversation_lifecycle is not None:
                 assert conversation_session_id is not None

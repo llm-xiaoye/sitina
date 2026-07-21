@@ -26,6 +26,7 @@ from sitina.runners.provider import (
     RoleProfileResolver,
 )
 from sitina.security.tool_security import summarize_tool_arguments, summarize_tool_result
+from sitina.runners.tool_executor import ToolExecutor
 from sitina.legacy.fence import issue_frozen_network_egress_capability
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 from sitina.utils import iso_now, redact_text, stable_json
@@ -49,6 +50,23 @@ class ToolTurnClient(Protocol):
 
 class AutonomousRuntimeError(RuntimeError):
     pass
+
+
+def _stringify_floats(value: Any) -> Any:
+    """Recursively convert floats to strings so audit payloads satisfy the
+    Journal's canonical JSON (which forbids floats for deterministic hashing).
+    Live providers put floats (latency/cost) in turn metadata; this preserves
+    the value as a string rather than dropping it. Matches the codebase's
+    string-valued-number convention (e.g. route confidence '0.9')."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, dict):
+        return {key: _stringify_floats(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_floats(item) for item in value]
+    return value
 
 
 class JournalAutonomousAudit:
@@ -77,7 +95,7 @@ class JournalAutonomousAudit:
         from sitina.cas.crypto import encrypt_object
         from sitina.journal.model import canonical_json_bytes
 
-        clean = json.loads(redact_text(stable_json(dict(payload))))
+        clean = _stringify_floats(json.loads(redact_text(stable_json(dict(payload)))))
         record = {
             "schema": "SITINA_AUTONOMOUS_RUN_RECORD_V2",
             "timestamp": iso_now(),
@@ -151,6 +169,8 @@ class AutonomousRuntime:
         approval_callback: ApprovalCallback | None = None,
         workspace: Path | None = None,
         max_tokens: int = 4096,
+        max_turns: int = 50,
+        enforce_write_boundary: bool = False,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.manager = manager or ExtensionManager(self.home)
@@ -189,9 +209,11 @@ class AutonomousRuntime:
             self.manager,
             approval_callback=approval_callback,
             workspace=workspace or self.home,
+            write_executor=ToolExecutor(self.home, enforce_write_boundary=enforce_write_boundary),
         )
         self.hooks = HookRunner(self.catalog)
         self.max_tokens = max_tokens
+        self.max_turns = max(1, int(max_turns))
         self._journal_audit: JournalAutonomousAudit | None = None
 
     def globally_enabled(self) -> bool:
@@ -215,6 +237,7 @@ class AutonomousRuntime:
         if not task:
             raise ValueError("autonomous task requires non-empty text")
         run_id = "agent-run-" + uuid.uuid4().hex
+        self.catalog.bind_run(run_id)
         selected_skills = self.manager.select_skills(task)
         selected_agents = self.manager.select_agents(task)
         system_prompt = self._system_prompt(selected_skills, selected_agents)
@@ -245,10 +268,13 @@ class AutonomousRuntime:
                 from sitina.conversation.models import route_decision_from_mapping
                 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 
-                if not session_id or turn_index is None or not isinstance(route_decision, Mapping):
-                    raise AutonomousRuntimeError(
-                        "production autonomous execution requires a conversation session, turn, and route decision"
-                    )
+                # Chat invokes with a full conversation context (session +
+                # turn + route). A standalone `sitina agent` run has none — it
+                # still gets a full journal audit (JournalAutonomousAudit), it
+                # just skips the chat-session linking (ConversationLifecycle).
+                has_conversation = (
+                    bool(session_id) and turn_index is not None and isinstance(route_decision, Mapping)
+                )
                 context = ProductionRuntimeContext.load(
                     self.home,
                     allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
@@ -263,20 +289,21 @@ class AutonomousRuntime:
                     run_id=run_id,
                     policy_hash=registry_hash,
                 )
-                lifecycle = ConversationLifecycle(journal, cas, context.provider)
-                lifecycle.start_turn(
-                    session_id=session_id,
-                    turn_index=turn_index,
-                    message=task,
-                    route_decision=route_decision_from_mapping(route_decision),
-                    occurred_at=iso_now(),
-                )
-                lifecycle.link_run(
-                    session_id=session_id,
-                    turn_index=turn_index,
-                    run_id=run_id,
-                    occurred_at=iso_now(),
-                )
+                if has_conversation:
+                    lifecycle = ConversationLifecycle(journal, cas, context.provider)
+                    lifecycle.start_turn(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        message=task,
+                        route_decision=route_decision_from_mapping(route_decision),
+                        occurred_at=iso_now(),
+                    )
+                    lifecycle.link_run(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        run_id=run_id,
+                        occurred_at=iso_now(),
+                    )
             result = self._run_active(
                 task=task,
                 run_id=run_id,
@@ -327,6 +354,49 @@ class AutonomousRuntime:
         finally:
             finish()
 
+    def run_embedded(
+        self,
+        task: str,
+        *,
+        run_id: str,
+        journal_audit: "JournalAutonomousAudit | None" = None,
+        cancel_check: Callable[[], bool] | None = None,
+        status_callback: Callable[[str, Mapping[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Run the tool loop as a loop-instance INSIDE another runtime that
+        already holds the journal writer (e.g. the MULTI orchestrator's Forge
+        execution bridge). Unlike run(), this opens NO journal writer of its
+        own — it borrows the caller's via `journal_audit` — so it never contends
+        the exclusive writer lock. Pass the orchestrator's already-open
+        JournalAutonomousAudit for fence-safe evidence."""
+        task = task.strip()
+        if not task:
+            raise ValueError("embedded run requires non-empty task text")
+        self.catalog.bind_run(run_id)
+        self._journal_audit = journal_audit
+        selected_skills = self.manager.select_skills(task)
+        selected_agents = self.manager.select_agents(task)
+        system_prompt = self._system_prompt(selected_skills, selected_agents)
+        messages = [{"role": "user", "content": task}]
+        tool_schemas = self.catalog.provider_schemas()
+        try:
+            return self._run_active(
+                task=task,
+                run_id=run_id,
+                system_prompt=system_prompt,
+                messages=messages,
+                tool_schemas=tool_schemas,
+                selected_skills=selected_skills,
+                selected_agents=selected_agents,
+                session_id=None,
+                turn_index=None,
+                lifecycle=None,
+                cancel_check=cancel_check,
+                status_callback=status_callback,
+            )
+        finally:
+            self._journal_audit = None
+
     def _run_active(
         self,
         *,
@@ -357,7 +427,30 @@ class AutonomousRuntime:
             },
         )
         self.hooks.run("before_agent", {"run_id": run_id, "task": task})
+        recent_signatures: list[str] = []
         while True:
+            # M1.5 loop robustness: hard turn cap — graceful stop, not a crash.
+            if provider_turns >= self.max_turns:
+                self._audit(run_id, "run_turn_cap_reached", {"max_turns": self.max_turns})
+                if lifecycle is not None:
+                    assert session_id is not None and turn_index is not None
+                    lifecycle.fail_turn(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        error_type="TurnCapReached",
+                        occurred_at=iso_now(),
+                    )
+                return self._result(
+                    run_id,
+                    "incomplete",
+                    "FAILED",
+                    f"stopped: reached max_turns={self.max_turns} without a final response",
+                    provider_turns,
+                    tool_results,
+                    selected_skills,
+                    selected_agents,
+                    provider_metadata,
+                )
             if cancel_check and cancel_check():
                 self._audit(run_id, "run_cancelled", {})
                 if lifecycle is not None:
@@ -510,6 +603,38 @@ class AutonomousRuntime:
                         ),
                     },
                 )
+            # M1.5 loop detection: if the model repeats the exact same tool
+            # calls (same names+args) AND every call errored, three turns in a
+            # row, it is stuck — stop gracefully instead of spinning.
+            signature = stable_json(
+                [
+                    {"name": call.name, "arguments": dict(call.arguments)}
+                    for call in turn.tool_calls
+                ]
+            )
+            all_errored = all(results_by_id[call.call_id].status != "ok" for call in turn.tool_calls)
+            if all_errored and recent_signatures[-2:] == [signature, signature]:
+                self._audit(run_id, "run_stuck_loop_detected", {"repeated_turns": 3})
+                if lifecycle is not None:
+                    assert session_id is not None and turn_index is not None
+                    lifecycle.fail_turn(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        error_type="StuckLoopDetected",
+                        occurred_at=iso_now(),
+                    )
+                return self._result(
+                    run_id,
+                    "incomplete",
+                    "FAILED",
+                    "stopped: repeated identical failing tool calls (stuck loop)",
+                    provider_turns,
+                    tool_results,
+                    selected_skills,
+                    selected_agents,
+                    provider_metadata,
+                )
+            recent_signatures.append(signature)
 
     def _execute_calls(self, run_id: str, calls: Sequence[ProviderToolCall]) -> dict[str, ToolResult]:
         read_calls: list[ProviderToolCall] = []

@@ -2,7 +2,9 @@
   "schema": "SITINA_TRUE_MULTI_AGENT_POLICY_V1",
   "generation": 1,
   "provider_profile": "deepseek",
-  "provider_model_allowlist": ["deepseek-v4-pro"],
+  "provider_model_allowlist": [
+    "deepseek-v4-pro"
+  ],
   "allowed_protocols": [
     "proposal",
     "review",
@@ -28,6 +30,9 @@
   "fallbacks": 0,
   "tool_calls_allowed": false,
   "external_mutation_allowed": false,
+  "execution_bridge_enabled": false,
+  "execution_handoff_bypass_enabled": false,
+  "max_execution_attempts": 2,
   "proposal_minimum_score": 70,
   "reviewer_author_conflict_forbidden": true,
   "high_risk_requires_security_review": true,

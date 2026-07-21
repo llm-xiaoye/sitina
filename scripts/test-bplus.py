@@ -198,6 +198,18 @@ def _unittest_selector(value: str) -> str:
     return value
 
 
+def _activation_gate_summary(output: str) -> dict[str, Any] | None:
+    marker = "SITINA_ACTIVATION_GATE_JSON:"
+    lines = [line[len(marker):] for line in output.splitlines() if line.startswith(marker)]
+    if len(lines) != 1:
+        return None
+    try:
+        value = json.loads(lines[0])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("suite", nargs="?")
@@ -271,7 +283,13 @@ def main(argv: list[str] | None = None) -> int:
     for name in list(environment):
         if any(fragment in name.upper() for fragment in ("API_KEY", "AUTH_TOKEN", "PASSWORD", "PRIVATE_KEY")):
             environment.pop(name, None)
-    command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
+    strict_activation_gate = definition.get("result_policy") == "ZERO_NONPASS_AND_COMPLETE_V1"
+    if strict_activation_gate:
+        command = [
+            config["approved_python"], "-m", "tests.foundation.activation_gate_runner", *selectors,
+        ]
+    else:
+        command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
     started = time.monotonic()
     process = subprocess.Popen(
         command,
@@ -305,7 +323,12 @@ def main(argv: list[str] | None = None) -> int:
     external_attempts = attempt_log.read_text(encoding="utf-8") if attempt_log.exists() else ""
     production_attempts = production_attempt_log.read_text(encoding="utf-8") if production_attempt_log.exists() else ""
     production_attempt_records = _parse_json_lines(production_attempts)
+    activation_gate = _activation_gate_summary(output) if strict_activation_gate else None
     return_code = process.returncode if not timed_out else 124
+    if strict_activation_gate and (
+        activation_gate is None or activation_gate.get("accepted") is not True
+    ):
+        return_code = return_code or 128
     if external_attempts:
         return_code = return_code or 125
     if production_attempts:
@@ -331,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         "duration_seconds": round(duration, 6),
         "test_count": int(test_count_match.group(1)) if test_count_match else None,
         "skipped_count": int(skipped_match.group(1)) if skipped_match else 0,
+        "activation_gate": activation_gate,
         "warning_count": len(warning_lines),
         "warning_lines": warning_lines[:200],
         "stdout_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),

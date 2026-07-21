@@ -28,7 +28,8 @@
         "tests/optimization/test_shared_contracts.py",
         "tests/optimization/test_source_manifest_coverage.py",
         "tests/optimization/test_system_evaluation.py",
-        "tests/optimization/test_suggestion_management.py"
+        "tests/optimization/test_suggestion_management.py",
+        "tests/test_execution_bridge.py"
       ],
       "timeout_seconds": 300,
       "expected_duration": "fast",
@@ -56,12 +57,34 @@
         "tests/test_chat_cli.py",
         "tests/test_fast_conversation_runtime.py",
         "tests/test_extensions.py",
-        "tests/test_provider_tool_protocols.py"
+        "tests/test_provider_tool_protocols.py",
+        "tests/test_execution_bridge_integration.py",
+        "tests/test_frozen_home_fixture.py",
+        "tests/test_frozen_fence_contract.py",
+        "tests/test_execution_verifier_frozen.py"
       ],
       "timeout_seconds": 1800,
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "NO_ACCESS_EXCEPT_SENTINEL"
+    },
+    "execution_activation_gate": {
+      "selectors": [
+        "tests/test_execution_bridge.py",
+        "tests/test_execution_bridge_integration.py",
+        "tests/test_frozen_home_fixture.py",
+        "tests/test_frozen_fence_contract.py",
+        "tests/test_execution_verifier_frozen.py"
+      ],
+      "timeout_seconds": 600,
+      "expected_duration": "activation-gate",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1",
+      "development_pending_skip": {
+        "test_id": "tests.test_execution_verifier_frozen.ProductionVerifierFrozenHomeTests.test_sandbox_success_accepts_with_test_evidence",
+        "reason": "pending Step 6: authorized OS sandbox runner not yet implemented"
+      }
     },
     "crash_fault": {
       "selectors": [
