@@ -1,13 +1,16 @@
 """Capability-bound macOS OS sandbox for executing untrusted test code."""
 from __future__ import annotations
 
+import ast
 import base64
 import contextlib
 import datetime as dt
+import doctest
 import hashlib
 import json
 import os
 import platform
+import select
 import shutil
 import signal
 import subprocess
@@ -78,6 +81,98 @@ def hash_diff(paths: Sequence[Path]) -> tuple[str, tuple[tuple[str, str], ...]]:
     return _sha256_bytes(_canonical([[path, digest] for path, digest in entries])), tuple(entries)
 
 
+def _test_case_classes(tree: ast.Module) -> set[str]:
+    """Resolve local unittest.TestCase subclasses without importing target code."""
+
+    classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    resolved: set[str] = set()
+    pending = set(classes)
+    while pending:
+        progressed = False
+        for name in tuple(pending):
+            node = classes[name]
+            bases = {
+                base.id
+                for base in node.bases
+                if isinstance(base, ast.Name)
+            } | {
+                base.attr
+                for base in node.bases
+                if isinstance(base, ast.Attribute)
+            }
+            if "TestCase" in bases or bases.intersection(resolved):
+                resolved.add(name)
+                pending.remove(name)
+                progressed = True
+        if not progressed:
+            break
+    return resolved
+
+
+def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
+    """Build and seal the executable TestPlan before target modules are loaded."""
+
+    parser = doctest.DocTestParser()
+    planned_targets: list[dict[str, object]] = []
+    collected = 0
+    for ordinal, path in enumerate(paths):
+        source = path.read_text(encoding="utf-8", errors="strict")
+        tree = ast.parse(source, filename=str(path))
+        mode = "unittest" if "test_" in path.name else "doctest"
+        planned_ids: list[str] = []
+        if mode == "unittest":
+            test_classes = _test_case_classes(tree)
+            for node in sorted(
+                (item for item in tree.body if isinstance(item, ast.ClassDef)),
+                key=lambda item: item.name,
+            ):
+                if not isinstance(node, ast.ClassDef) or node.name not in test_classes:
+                    continue
+                for member in sorted(
+                    (
+                        item
+                        for item in node.body
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and item.name.startswith("test")
+                    ),
+                    key=lambda item: item.name,
+                ):
+                    planned_ids.append(
+                        f"_sitina_sandbox_target_{ordinal}.{node.name}.{member.name}"
+                    )
+            expected_count = len(planned_ids)
+        else:
+            expected_count = 0
+            for node in ast.walk(tree):
+                if not isinstance(
+                    node,
+                    (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+                ):
+                    continue
+                docstring = ast.get_docstring(node, clean=False)
+                if docstring:
+                    expected_count += len(parser.get_examples(docstring))
+        collected += expected_count
+        planned_targets.append(
+            {
+                "index": ordinal,
+                "path": str(path),
+                "mode": mode,
+                "source_hash": _sha256_bytes(source.encode("utf-8")),
+                "expected_count": expected_count,
+                "planned_test_ids": planned_ids,
+            }
+        )
+    plan: dict[str, object] = {
+        "schema": "SITINA_TRUSTED_TEST_PLAN_V1",
+        "targets": planned_targets,
+        "collected_test_count": collected,
+    }
+    if collected <= 0:
+        raise ExecutionSandboxError("trusted TestPlan contains zero executable tests")
+    return plan, _sha256_bytes(_canonical(plan))
+
+
 @dataclass(frozen=True)
 class SandboxResourceLimits:
     cpu_seconds: int = 10
@@ -113,6 +208,7 @@ class SandboxResourceLimits:
 @dataclass(frozen=True)
 class TestEvidence:
     run_id: str
+    test_plan_hash: str
     diff_hash_before: str
     diff_hash_after: str
     target_hashes: tuple[tuple[str, str], ...]
@@ -133,6 +229,9 @@ class TestEvidence:
     sandbox_policy_hash: str
     sandbox_provider_id: str
     sandbox_capability_id: str
+    controller_protocol_response_present: bool
+    controller_response_hash: str
+    controller_attestation_hash: str
     cwd: str
     read_roots: tuple[str, ...]
     write_roots: tuple[str, ...]
@@ -145,6 +244,7 @@ class TestEvidence:
 
     def __post_init__(self) -> None:
         hashes = (
+            self.test_plan_hash,
             self.diff_hash_before,
             self.diff_hash_after,
             self.runner_executable_hash,
@@ -152,6 +252,8 @@ class TestEvidence:
             self.worker_hash,
             self.argv_hash,
             self.sandbox_policy_hash,
+            self.controller_response_hash,
+            self.controller_attestation_hash,
             self.stdout_hash,
             self.stderr_hash,
         )
@@ -169,6 +271,10 @@ class TestEvidence:
         )
         if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in counts):
             raise ValueError("TestEvidence counts must be non-negative integers")
+        if not isinstance(self.controller_protocol_response_present, bool):
+            raise ValueError("TestEvidence controller response presence must be boolean")
+        if not self.controller_attestation_valid:
+            raise ValueError("TestEvidence controller attestation is invalid")
 
     @property
     def execution_complete(self) -> bool:
@@ -187,12 +293,34 @@ class TestEvidence:
             and self.error_test_count == 0
             and self.expected_failure_count == 0
             and self.unexpected_success_count == 0
+            and self.controller_attestation_valid
         )
+
+    @property
+    def controller_attestation_valid(self) -> bool:
+        expected = _sha256_bytes(
+            _canonical(
+                {
+                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V1",
+                    "controller_identity": self.sandbox_capability_id,
+                    "diff_hash": self.diff_hash_before,
+                    "test_plan_hash": self.test_plan_hash,
+                    "response_hash": self.controller_response_hash,
+                    "worker_hash": self.worker_hash,
+                    "argv_hash": self.argv_hash,
+                    "runner_return_code": self.runner_return_code,
+                    "timed_out": self.timed_out,
+                    "protocol_response_present": self.controller_protocol_response_present,
+                }
+            )
+        )
+        return self.controller_attestation_hash == expected
 
     def mapping(self) -> dict[str, object]:
         return {
             "schema": "SITINA_TEST_EVIDENCE_V1",
             "run_id": self.run_id,
+            "test_plan_hash": self.test_plan_hash,
             "diff_hash_before": self.diff_hash_before,
             "diff_hash_after": self.diff_hash_after,
             "target_hashes": [[path, digest] for path, digest in self.target_hashes],
@@ -213,6 +341,10 @@ class TestEvidence:
             "sandbox_policy_hash": self.sandbox_policy_hash,
             "sandbox_provider_id": self.sandbox_provider_id,
             "sandbox_capability_id": self.sandbox_capability_id,
+            "controller_protocol_response_present": self.controller_protocol_response_present,
+            "controller_response_hash": self.controller_response_hash,
+            "controller_attestation_hash": self.controller_attestation_hash,
+            "controller_attestation_valid": self.controller_attestation_valid,
             "cwd": self.cwd,
             "read_roots": list(self.read_roots),
             "write_roots": list(self.write_roots),
@@ -301,11 +433,108 @@ class _Invocation:
     argv_hash: str
     policy_hash: str
     capability_id: str
+    controller_protocol_response_present: bool
+    controller_response_hash: str
+    controller_attestation_hash: str
     duration_milliseconds: int
+
+
+_TEST_COUNT_FIELDS = (
+    "collected",
+    "executed",
+    "passed",
+    "failed",
+    "skipped",
+    "errors",
+    "expected_failures",
+    "unexpected_successes",
+)
+
+
+def _validated_counts(value: object) -> dict[str, int] | None:
+    if not isinstance(value, dict) or set(value) != set(_TEST_COUNT_FIELDS):
+        return None
+    if any(
+        not isinstance(value[name], int)
+        or isinstance(value[name], bool)
+        or value[name] < 0
+        for name in _TEST_COUNT_FIELDS
+    ):
+        return None
+    counts = {name: int(value[name]) for name in _TEST_COUNT_FIELDS}
+    classified = sum(
+        counts[name]
+        for name in (
+            "passed",
+            "failed",
+            "skipped",
+            "errors",
+            "expected_failures",
+            "unexpected_successes",
+        )
+    )
+    if counts["executed"] != classified or counts["collected"] != counts["executed"]:
+        return None
+    return counts
+
+
+def _validated_test_response(
+    response: Mapping[str, Any],
+    *,
+    test_plan: Mapping[str, object],
+    test_plan_hash: str,
+) -> dict[str, int] | None:
+    if (
+        set(response)
+        != {"schema", "mode", "test_plan_hash", "counts", "targets", "worker_ok"}
+        or response.get("schema") != "SITINA_SANDBOX_TEST_RESULT_V1"
+        or response.get("mode") != "tests"
+        or response.get("test_plan_hash") != test_plan_hash
+        or response.get("worker_ok") is not True
+    ):
+        return None
+    planned_targets = test_plan.get("targets")
+    result_targets = response.get("targets")
+    if (
+        not isinstance(planned_targets, list)
+        or not isinstance(result_targets, list)
+        or len(result_targets) != len(planned_targets)
+    ):
+        return None
+    aggregate = {name: 0 for name in _TEST_COUNT_FIELDS}
+    seen_paths: set[str] = set()
+    for planned, result in zip(planned_targets, result_targets, strict=True):
+        if not isinstance(planned, dict) or not isinstance(result, dict):
+            return None
+        allowed = {"path", "mode", "counts"}
+        if set(result) != allowed:
+            return None
+        path = planned.get("path")
+        if (
+            not isinstance(path, str)
+            or path in seen_paths
+            or result.get("path") != path
+            or result.get("mode") != planned.get("mode")
+        ):
+            return None
+        seen_paths.add(path)
+        target_counts = _validated_counts(result.get("counts"))
+        if target_counts is None or target_counts["collected"] != planned.get("expected_count"):
+            return None
+        for name in _TEST_COUNT_FIELDS:
+            aggregate[name] += target_counts[name]
+    totals = _validated_counts(response.get("counts"))
+    if totals is None or totals != aggregate:
+        return None
+    if totals["collected"] != test_plan.get("collected_test_count"):
+        return None
+    return totals
 
 
 class ExecutionSandboxRunner:
     WORKER_MARKER = "SITINA_SANDBOX_WORKER_RESULT:"
+    WORKER_PROOF_MARKER = "SITINA_SANDBOX_WORKER_PROOF:"
+    WORKER_CHALLENGE_MARKER = "SITINA_SANDBOX_PARENT_CHALLENGE:"
 
     def __init__(
         self,
@@ -344,6 +573,7 @@ class ExecutionSandboxRunner:
         *,
         run_id: str,
         diff_hash: str,
+        test_plan_hash: str,
         argv: tuple[str, ...],
         cwd: Path,
         read_roots: tuple[Path, ...],
@@ -357,6 +587,7 @@ class ExecutionSandboxRunner:
             home=self.home,
             run_id=run_id,
             diff_hash=diff_hash,
+            test_plan_hash=test_plan_hash,
             runner_executable=self.sandbox_executable,
             python_executable=self.python_executable,
             worker_path=self.worker_path,
@@ -398,13 +629,17 @@ class ExecutionSandboxRunner:
         *,
         run_id: str,
         diff_hash: str,
+        test_plan_hash: str,
         cwd: Path,
         read_roots: tuple[Path, ...],
         write_roots: tuple[Path, ...],
         scratch: Path,
     ) -> _Invocation:
-        result_token = uuid.uuid4().hex
-        request = {**request, "result_token": result_token, "resource_limits": self.limits.mapping()}
+        request = {
+            **request,
+            "test_plan_hash": test_plan_hash,
+            "resource_limits": self.limits.mapping(),
+        }
         encoded_request = base64.urlsafe_b64encode(_canonical(request)).decode("ascii")
         profile = self._profile(read_roots, write_roots)
         policy_hash = _sha256_bytes(profile.encode("utf-8"))
@@ -423,14 +658,20 @@ class ExecutionSandboxRunner:
         capability = self._capability(
             run_id=run_id,
             diff_hash=diff_hash,
+            test_plan_hash=test_plan_hash,
             argv=argv,
             cwd=cwd,
             read_roots=read_roots,
             write_roots=write_roots,
             policy_hash=policy_hash,
         )
+        controller_identity = (
+            capability.capability_id
+            if capability is not None
+            else "sandbox-direct-fixture:"
+            + _sha256_bytes(os.urandom(32) + argv_hash.encode("ascii"))
+        )
         stem = uuid.uuid4().hex
-        stdout_path = scratch / f"{stem}.stdout"
         stderr_path = scratch / f"{stem}.stderr"
         environment = {
             "HOME": str(scratch),
@@ -441,46 +682,140 @@ class ExecutionSandboxRunner:
         }
         started = time.monotonic()
         timed_out = False
-        with stdout_path.open("wb") as stdout_handle, stderr_path.open("wb") as stderr_handle:
-            with authorized_frozen_sandbox_execution(capability, argv=argv, cwd=cwd, diff_hash=diff_hash):
+        stdout = b""
+        with stderr_path.open("wb") as stderr_handle:
+            with authorized_frozen_sandbox_execution(
+                capability,
+                argv=argv,
+                cwd=cwd,
+                diff_hash=diff_hash,
+                test_plan_hash=test_plan_hash,
+            ):
                 try:
                     process = subprocess.Popen(
                         list(argv),
                         cwd=cwd,
                         env=environment,
-                        stdin=subprocess.DEVNULL,
-                        stdout=stdout_handle,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
                         stderr=stderr_handle,
                         close_fds=True,
                         start_new_session=True,
                     )
                 except (OSError, subprocess.SubprocessError) as error:
                     raise ExecutionSandboxUnavailable("OS sandbox runner could not start") from error
-            try:
-                return_code = process.wait(timeout=self.limits.wall_seconds)
-            except subprocess.TimeoutExpired:
-                timed_out = True
+            if process.stdin is None or process.stdout is None:
+                raise ExecutionSandboxUnavailable("sandbox protocol pipes are unavailable")
+            deadline = time.monotonic() + self.limits.wall_seconds
+            stdout_buffer = bytearray()
+            line_buffer = bytearray()
+            result_payloads: list[bytes] = []
+            proof_values: list[str] = []
+            response: Mapping[str, Any] | None = None
+            expected_proof: str | None = None
+            protocol_invalid = False
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                readable, _writable, _exceptional = select.select(
+                    [process.stdout], [], [], min(remaining, 0.1)
+                )
+                if readable:
+                    chunk = os.read(process.stdout.fileno(), 64 * 1024)
+                    if not chunk:
+                        break
+                    stdout_buffer.extend(chunk)
+                    line_buffer.extend(chunk)
+                    if len(stdout_buffer) > self.limits.file_bytes:
+                        protocol_invalid = True
+                        break
+                    while b"\n" in line_buffer:
+                        raw_line, _, remainder = line_buffer.partition(b"\n")
+                        line_buffer = bytearray(remainder)
+                        line = raw_line.decode("utf-8", errors="replace")
+                        if line.startswith(self.WORKER_MARKER):
+                            result_payloads.append(raw_line[len(self.WORKER_MARKER):])
+                            if len(result_payloads) != 1:
+                                protocol_invalid = True
+                                continue
+                            try:
+                                decoded = base64.urlsafe_b64decode(result_payloads[0])
+                                candidate = json.loads(decoded)
+                            except Exception:
+                                protocol_invalid = True
+                                continue
+                            if not isinstance(candidate, dict):
+                                protocol_invalid = True
+                                continue
+                            response = candidate
+                            challenge = os.urandom(32).hex()
+                            expected_proof = _sha256_bytes(
+                                challenge.encode("ascii") + b"\0" + _canonical(candidate)
+                            )
+                            try:
+                                process.stdin.write(
+                                    (self.WORKER_CHALLENGE_MARKER + challenge + "\n").encode("ascii")
+                                )
+                                process.stdin.flush()
+                                process.stdin.close()
+                            except (BrokenPipeError, OSError):
+                                protocol_invalid = True
+                        elif line.startswith(self.WORKER_PROOF_MARKER):
+                            proof_values.append(line[len(self.WORKER_PROOF_MARKER):])
+                elif process.poll() is not None:
+                    # A final select/read observes EOF and exits the loop.
+                    continue
+            if timed_out or protocol_invalid:
                 self._signal_sandbox(process, signal.SIGTERM)
-                try:
-                    return_code = process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self._signal_sandbox(process, signal.SIGKILL)
-                    return_code = process.wait()
-                return_code = 124
-        duration_ms = int((time.monotonic() - started) * 1000)
-        stdout = stdout_path.read_bytes()[: self.limits.file_bytes]
-        stderr = stderr_path.read_bytes()[: self.limits.file_bytes]
-        prefix = self.WORKER_MARKER + result_token + ":"
-        matches = [line[len(prefix):] for line in stdout.decode("utf-8", errors="replace").splitlines() if line.startswith(prefix)]
-        response: Mapping[str, Any] | None = None
-        if len(matches) == 1:
             try:
-                decoded = base64.urlsafe_b64decode(matches[0].encode("ascii"))
-                candidate = json.loads(decoded)
-            except Exception:
-                candidate = None
-            if isinstance(candidate, dict):
-                response = candidate
+                return_code = process.wait(
+                    timeout=(
+                        2
+                        if (timed_out or protocol_invalid)
+                        else max(0.1, deadline - time.monotonic())
+                    )
+                )
+            except subprocess.TimeoutExpired:
+                self._signal_sandbox(process, signal.SIGKILL)
+                return_code = process.wait()
+            if timed_out:
+                return_code = 124
+            with contextlib.suppress(OSError):
+                process.stdin.close()
+            with contextlib.suppress(OSError):
+                process.stdout.close()
+            stdout = bytes(stdout_buffer[: self.limits.file_bytes])
+            if (
+                protocol_invalid
+                or len(result_payloads) != 1
+                or len(proof_values) != 1
+                or expected_proof is None
+                or proof_values[0] != expected_proof
+            ):
+                response = None
+        duration_ms = int((time.monotonic() - started) * 1000)
+        stderr = stderr_path.read_bytes()[: self.limits.file_bytes]
+        controller_response_hash = _sha256_bytes(
+            _canonical(response) if response is not None else b""
+        )
+        controller_attestation_hash = _sha256_bytes(
+            _canonical(
+                {
+                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V1",
+                    "controller_identity": controller_identity,
+                    "diff_hash": diff_hash,
+                    "test_plan_hash": test_plan_hash,
+                    "response_hash": controller_response_hash,
+                    "worker_hash": self.worker_hash,
+                    "argv_hash": argv_hash,
+                    "runner_return_code": return_code,
+                    "timed_out": timed_out,
+                    "protocol_response_present": response is not None,
+                }
+            )
+        )
         return _Invocation(
             response=response,
             return_code=return_code,
@@ -489,7 +824,10 @@ class ExecutionSandboxRunner:
             stderr=stderr,
             argv_hash=argv_hash,
             policy_hash=policy_hash,
-            capability_id=capability.capability_id if capability else "sandbox-direct-nonfrozen",
+            capability_id=controller_identity,
+            controller_protocol_response_present=response is not None,
+            controller_response_hash=controller_response_hash,
+            controller_attestation_hash=controller_attestation_hash,
             duration_milliseconds=duration_ms,
         )
 
@@ -508,16 +846,26 @@ class ExecutionSandboxRunner:
         outside_read.write_bytes(b"sandbox-read-must-be-denied")
         link = scratch / "escape-link"
         link.symlink_to(scratch.parent, target_is_directory=True)
+        probe_request: dict[str, object] = {
+            "mode": "probe",
+            "outside_read": str(outside_read),
+            "outside_write": str(outside_write),
+            "symlink_escape": str(link / outside_write.name),
+        }
+        probe_plan_hash = _sha256_bytes(
+            _canonical(
+                {
+                    "schema": "SITINA_SANDBOX_QUALIFICATION_PLAN_V1",
+                    "request": probe_request,
+                }
+            )
+        )
         try:
             probe = self._invoke(
-                {
-                    "mode": "probe",
-                    "outside_read": str(outside_read),
-                    "outside_write": str(outside_write),
-                    "symlink_escape": str(link / outside_write.name),
-                },
+                probe_request,
                 run_id=run_id + ":probe",
                 diff_hash=diff_hash,
+                test_plan_hash=probe_plan_hash,
                 cwd=cwd,
                 read_roots=read_roots,
                 write_roots=write_roots,
@@ -576,6 +924,7 @@ class ExecutionSandboxRunner:
         if any(path not in evidence_paths for path in targets):
             raise ExecutionSandboxError("sandbox test target is not bound into the diff evidence")
         diff_before, target_hashes = hash_diff(evidence_paths)
+        test_plan, test_plan_hash = _trusted_test_plan(targets)
         common = Path(os.path.commonpath([str(path) for path in evidence_paths])).resolve(strict=True)
         cwd = common if common.is_dir() else common.parent
         if len(cwd.parts) < 4:
@@ -606,22 +955,34 @@ class ExecutionSandboxRunner:
             if not raw_targets:
                 raise ExecutionSandboxError("no executable test evidence")
             invocation = self._invoke(
-                {"mode": "tests", "targets": raw_targets, "read_roots": [str(root) for root in read_roots]},
+                {
+                    "mode": "tests",
+                    "targets": raw_targets,
+                    "read_roots": [str(root) for root in read_roots],
+                    "test_plan": test_plan,
+                },
                 run_id=run_id,
                 diff_hash=diff_before,
+                test_plan_hash=test_plan_hash,
                 cwd=cwd,
                 read_roots=read_roots,
                 write_roots=write_roots,
                 scratch=scratch,
             )
             response = invocation.response or {}
-            counts = response.get("counts") if isinstance(response.get("counts"), dict) else {}
-            worker_ok = response.get("worker_ok") is True
+            validated_counts = _validated_test_response(
+                response,
+                test_plan=test_plan,
+                test_plan_hash=test_plan_hash,
+            )
+            counts = validated_counts or {}
+            worker_ok = validated_counts is not None and invocation.return_code == 0
             diff_after, _after_hashes = hash_diff(evidence_paths)
             finished_at = _utc_now()
             duration_ms = int((time.monotonic() - total_started) * 1000)
             return TestEvidence(
                 run_id=run_id,
+                test_plan_hash=test_plan_hash,
                 diff_hash_before=diff_before,
                 diff_hash_after=diff_after,
                 target_hashes=target_hashes,
@@ -642,6 +1003,9 @@ class ExecutionSandboxRunner:
                 sandbox_policy_hash=invocation.policy_hash,
                 sandbox_provider_id=provider_id,
                 sandbox_capability_id=invocation.capability_id,
+                controller_protocol_response_present=invocation.controller_protocol_response_present,
+                controller_response_hash=invocation.controller_response_hash,
+                controller_attestation_hash=invocation.controller_attestation_hash,
                 cwd=str(cwd),
                 read_roots=tuple(str(root) for root in read_roots),
                 write_roots=tuple(str(root) for root in write_roots),

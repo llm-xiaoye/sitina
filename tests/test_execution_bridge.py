@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import hashlib
+import tempfile
 import unittest
+from pathlib import Path
 
 from sitina.orchestrator.execution_bridge import (
     ExecutionBinding,
     ExecutionBridgeError,
     VerificationVerdict,
     run_safe_execution,
+)
+from sitina.orchestrator.execution_patch import (
+    ExecutionPatchError,
+    build_patch_manifest,
+    replay_patch_manifest,
 )
 
 
@@ -97,7 +105,7 @@ class ExecutionBridgeTests(unittest.TestCase):
         with self.assertRaises(ExecutionBridgeError):
             run_safe_execution(
                 binding=binding(), executor_id="agent-forge", workspace="/ws",
-                forge_runner=ok_forge, collect_diff=lambda: ["x"],
+                forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
                 boundary_check=lambda d: [],
                 verifier=lambda d, r: accepted_verdict("agent-forge"),  # same id!
                 rollback=lambda a: None, max_attempts=1,
@@ -107,7 +115,7 @@ class ExecutionBridgeTests(unittest.TestCase):
         with self.assertRaises(ExecutionBridgeError):
             run_safe_execution(
                 binding=binding(), executor_id="agent-forge", workspace="/ws",
-                forge_runner=ok_forge, collect_diff=lambda: ["x"],
+                forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
                 boundary_check=lambda d: [],
                 verifier=lambda d, r: accepted_verdict(checked_diff=False),  # checked_diff=False
                 rollback=lambda a: None, max_attempts=1,
@@ -146,7 +154,7 @@ class ExecutionBridgeTests(unittest.TestCase):
     def test_result_carries_immutable_binding(self) -> None:
         result = run_safe_execution(
             binding=binding(), executor_id="agent-forge", workspace="/ws",
-            forge_runner=ok_forge, collect_diff=lambda: ["x"],
+            forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
             boundary_check=lambda d: [],
             verifier=lambda d, r: accepted_verdict(),
             rollback=lambda a: None, max_attempts=1,
@@ -157,6 +165,164 @@ class ExecutionBridgeTests(unittest.TestCase):
         self.assertEqual(ev["approved_scope"], ["src/"])
         self.assertTrue(ev["accepted"])
         self.assertEqual(ev["test_evidence_hash"], "c" * 64)
+
+    def test_out_of_scope_diff_is_blocked_before_boundary_or_verifier(self) -> None:
+        observed: list[str] = []
+        result = run_safe_execution(
+            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            forge_runner=ok_forge, collect_diff=lambda: ["../escape.py"],
+            boundary_check=lambda d: observed.append("boundary") or [],
+            verifier=lambda d, r: observed.append("verifier") or accepted_verdict(),
+            rollback=lambda a: observed.append(f"rollback:{a}"), max_attempts=1,
+        )
+        self.assertEqual(result.status, "blocked")
+        self.assertFalse(result.accepted)
+        self.assertEqual(observed, ["rollback:1"])
+
+    def test_duplicate_diff_path_is_blocked(self) -> None:
+        result = run_safe_execution(
+            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            forge_runner=ok_forge, collect_diff=lambda: ["src/x.py", "src/x.py"],
+            boundary_check=lambda d: [], verifier=lambda d, r: accepted_verdict(),
+            rollback=lambda a: None, max_attempts=1,
+        )
+        self.assertEqual(result.status, "blocked")
+
+    def test_filesystem_evidence_reference_must_match_hash(self) -> None:
+        result = run_safe_execution(
+            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
+            boundary_check=lambda d: [],
+            verifier=lambda d, r: VerificationVerdict(
+                True, "agent-delta", True, True,
+                test_evidence_ref="test-evidence:" + "d" * 64,
+                test_evidence_hash="c" * 64,
+            ),
+            rollback=lambda a: None, max_attempts=1,
+        )
+        self.assertFalse(result.accepted)
+
+    def test_patch_manifest_is_deterministic_and_replay_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            workspace.mkdir()
+            target = workspace / "src" / "result.py"
+            target.parent.mkdir()
+            content = b"VALUE = 1\n"
+            target.write_bytes(content)
+            digest = hashlib.sha256(content).hexdigest()
+            reference = "test-content:" + digest
+            event = {
+                "schema": "SITINA_FILE_MUTATION_EVENT_V1",
+                "sequence": 1,
+                "operation": "create",
+                "path": str(target.resolve()),
+                "before_hash": None,
+                "after_hash": "sha256:" + digest,
+                "authorization_ref": "approval-fixture",
+                "denied": False,
+            }
+            arguments = {
+                "run_id": "run-1",
+                "execution_attempt_id": "execution-attempt:" + "a" * 64,
+                "workspace": workspace,
+                "diff_paths": [str(target)],
+                "mutation_events": [event],
+                "content_refs": {str(target.resolve()): reference},
+            }
+            first, first_hash = build_patch_manifest(**arguments)
+            second, second_hash = build_patch_manifest(**arguments)
+            self.assertEqual(first, second)
+            self.assertEqual(first_hash, second_hash)
+            self.assertEqual(first["entries"][0]["mutation_operations"], ["create"])
+            destination = Path(parent) / "replayed"
+            tree_hash = replay_patch_manifest(
+                first,
+                destination=destination,
+                load_content=lambda value: content if value == reference else b"",
+            )
+            self.assertEqual(tree_hash, first["after_tree_hash"])
+            self.assertEqual((destination / "src/result.py").read_bytes(), content)
+
+    def test_patch_replay_rejects_content_identity_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            workspace.mkdir()
+            target = workspace / "x.py"
+            target.write_text("x = 1\n", encoding="utf-8")
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            manifest, _digest = build_patch_manifest(
+                run_id="run-1",
+                execution_attempt_id="execution-attempt:" + "b" * 64,
+                workspace=workspace,
+                diff_paths=[str(target)],
+                mutation_events=[
+                    {
+                        "sequence": 1,
+                        "operation": "create",
+                        "path": str(target.resolve()),
+                        "before_hash": None,
+                        "after_hash": digest,
+                        "authorization_ref": "approval-fixture",
+                        "denied": False,
+                    }
+                ],
+                content_refs={str(target.resolve()): "test-content:" + digest},
+            )
+            with self.assertRaises(ExecutionPatchError):
+                replay_patch_manifest(
+                    manifest,
+                    destination=Path(parent) / "tampered",
+                    load_content=lambda _reference: b"tampered",
+                )
+
+    def test_patch_manifest_rejects_hidden_or_unsupported_successful_mutations(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            workspace.mkdir()
+            target = workspace / "result.txt"
+            hidden = workspace / "hidden.txt"
+            target.write_text("result", encoding="utf-8")
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            base_event = {
+                "sequence": 1,
+                "operation": "modify",
+                "path": str(target.resolve()),
+                "before_hash": "1" * 64,
+                "after_hash": digest,
+                "authorization_ref": "approval-result",
+                "denied": False,
+            }
+            with self.assertRaisesRegex(
+                ExecutionPatchError, "exactly match the collected diff"
+            ):
+                build_patch_manifest(
+                    run_id="run-hidden",
+                    execution_attempt_id="execution-attempt:" + "c" * 64,
+                    workspace=workspace,
+                    diff_paths=[str(target)],
+                    mutation_events=[
+                        base_event,
+                        {
+                            **base_event,
+                            "sequence": 2,
+                            "path": str(hidden.resolve(strict=False)),
+                            "authorization_ref": "approval-hidden",
+                        },
+                    ],
+                    content_refs={str(target.resolve()): "content:" + digest},
+                )
+            with self.assertRaisesRegex(
+                ExecutionPatchError, "unsupported or unaudited mutation"
+            ):
+                build_patch_manifest(
+                    run_id="run-delete",
+                    execution_attempt_id="execution-attempt:" + "d" * 64,
+                    workspace=workspace,
+                    diff_paths=[str(target)],
+                    mutation_events=[{**base_event, "operation": "delete"}],
+                    content_refs={str(target.resolve()): "content:" + digest},
+                )
 
 
 if __name__ == "__main__":

@@ -22,7 +22,12 @@ from sitina.effects.gateway import EffectGateway
 from sitina.effects.results import ResultPipeline, ResultPolicy
 from sitina.journal.local import LocalJournal
 from sitina.orchestrator.bplus_production import VerifiedJournalReadView
-from sitina.orchestrator.true_multi_agent_runtime import ProviderExecutor, RuntimeActivation
+from sitina.orchestrator.true_multi_agent_runtime import (
+    ProviderExecutor,
+    RuntimeActivation,
+    TrueMultiAgentRuntimeError,
+    normalize_usage,
+)
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 
 
@@ -83,6 +88,99 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         view.close()
         with view as reopened:
             self.assertEqual(tuple(reopened.iter_events(0)), ())
+
+    @staticmethod
+    def _budget_only_executor(*, max_tokens: int = 100) -> ProviderExecutor:
+        executor = object.__new__(ProviderExecutor)
+        executor.policy = {
+            "max_provider_requests_per_run": 4,
+            "max_total_tokens_per_run": max_tokens,
+            "max_total_cost_micro_usd_per_run": 1000,
+            "pricing": {
+                "input_micro_usd_per_million_tokens": 1_000_000,
+                "output_micro_usd_per_million_tokens": 2_000_000,
+            },
+        }
+        executor.call_count = 0
+        executor.embedded_call_count = 0
+        executor.embedded_physical_send_count = 0
+        executor.usage_input_total = 0
+        executor.usage_output_total = 0
+        executor.usage_cache_read_total = 0
+        executor.usage_cache_write_total = 0
+        executor.usage_total = 0
+        executor.cost_total_micro_usd = 0
+        executor.unsettled_usage_count = 0
+        executor.transport = SimpleNamespace(physical_send_count=0)
+        return executor
+
+    def test_unified_budget_records_embedded_cache_usage_and_cost(self) -> None:
+        executor = self._budget_only_executor()
+        executor.admit_embedded_provider_call(20)
+        executor.settle_embedded_provider_call(
+            {
+                "physical_send_count": 1,
+                "token_usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 8,
+                    "cache_read_tokens": 5,
+                    "cache_write_tokens": 3,
+                    "total_tokens": 20,
+                },
+            }
+        )
+        self.assertEqual(
+            executor.usage_totals(),
+            {
+                "input_tokens": 12,
+                "output_tokens": 8,
+                "cache_read_tokens": 5,
+                "cache_write_tokens": 3,
+                "total_tokens": 20,
+                "cost_micro_usd": 28,
+                "unsettled_usage_count": 0,
+            },
+        )
+        self.assertEqual(executor.provider_call_total(), 1)
+        self.assertEqual(executor.physical_send_total(), 1)
+
+    def test_post_response_budget_overrun_preserves_actual_usage(self) -> None:
+        executor = self._budget_only_executor(max_tokens=20)
+        executor.admit_embedded_provider_call(10)
+        with self.assertRaises(TrueMultiAgentRuntimeError):
+            executor.settle_embedded_provider_call(
+                {
+                    "token_usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 9,
+                        "total_tokens": 21,
+                    }
+                }
+            )
+        self.assertEqual(executor.usage_total, 21)
+        self.assertEqual(executor.usage_input_total, 12)
+        self.assertEqual(executor.usage_output_total, 9)
+        self.assertEqual(executor.embedded_call_count, 1)
+
+    def test_preflight_rejects_insufficient_remaining_budget_before_send(self) -> None:
+        executor = self._budget_only_executor(max_tokens=20)
+        executor.usage_total = 15
+        with self.assertRaises(TrueMultiAgentRuntimeError):
+            executor.admit_embedded_provider_call(10)
+        self.assertEqual(executor.physical_send_total(), 0)
+        self.assertEqual(executor.provider_call_total(), 0)
+
+    def test_usage_normalization_rejects_inconsistent_total(self) -> None:
+        with self.assertRaises(TrueMultiAgentRuntimeError):
+            normalize_usage(
+                {
+                    "token_usage": {
+                        "input_tokens": 4,
+                        "output_tokens": 3,
+                        "total_tokens": 99,
+                    }
+                }
+            )
 
     def test_mode_only_command_survives_a_fresh_runtime_without_provider_execution(self) -> None:
         class ControlledContext:

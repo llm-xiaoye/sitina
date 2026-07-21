@@ -50,10 +50,10 @@ class AuthorityResolverTests(unittest.TestCase):
 
     def test_stale_cached_resolution_cannot_open_writer(self) -> None:
         result=self.resolver.resolve(facts(),now=100)
+        with self.assertRaises(AuthorityResolverError): result.assert_fresh(now=110)
         with self.assertRaises(AuthorityResolverError): result.assert_fresh(now=111)
         stale=self.resolver.resolve_cached(result,now=111)
         self.assertEqual(stale.state,AuthorityState.RECOVERY_REQUIRED_NO_WRITER)
 
 
 if __name__ == "__main__": unittest.main()
-

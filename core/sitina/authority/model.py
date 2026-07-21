@@ -90,7 +90,6 @@ class AuthorityResolution:
         return int(self.authorizes_legacy) + int(self.authorizes_journal)
 
     def assert_fresh(self, *, now: int) -> None:
-        if now > self.expires_at:
+        if now >= self.expires_at:
             from .resolver import AuthorityResolverError
             raise AuthorityResolverError("authority resolution is stale")
-

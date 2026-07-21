@@ -25,6 +25,7 @@ from sitina.runners.provider import (
     ProviderToolTurn,
     RoleProfileResolver,
 )
+from sitina.security.redaction import redact_boundary_value
 from sitina.security.tool_security import summarize_tool_arguments, summarize_tool_result
 from sitina.runners.tool_executor import ToolExecutor
 from sitina.legacy.fence import issue_frozen_network_egress_capability
@@ -69,6 +70,132 @@ def _stringify_floats(value: Any) -> Any:
     return value
 
 
+def _redact_audit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Redact structured audit values without rewriting serialized JSON.
+
+    Applying ``redact_text`` to a JSON string can consume escape characters
+    inside a matching value and make the result impossible to parse.  Keep the
+    payload structured while redacting so audit serialization is always valid.
+    """
+
+    redacted = redact_boundary_value(dict(payload), boundary="log").value
+    if not isinstance(redacted, dict):
+        raise AutonomousRuntimeError("structured audit redaction must return an object")
+    return _stringify_floats(redacted)
+
+
+def _provider_usage_totals(
+    provider_metadata: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "total_tokens": 0,
+        "cost_micro_usd": 0,
+    }
+    aliases = {
+        "input_tokens": ("input_tokens", "prompt_tokens"),
+        "output_tokens": ("output_tokens", "completion_tokens"),
+        "cache_read_tokens": ("cache_read_tokens", "prompt_cache_hit_tokens"),
+        "cache_write_tokens": ("cache_write_tokens", "prompt_cache_miss_tokens"),
+        "total_tokens": ("total_tokens",),
+    }
+    for metadata in provider_metadata:
+        summary = metadata.get("token_usage")
+        details = metadata.get("provider_usage_details")
+        sources = tuple(
+            value for value in (summary, details) if isinstance(value, Mapping)
+        )
+        turn: dict[str, int] = {}
+        for target, source_names in aliases.items():
+            for source in sources:
+                value = next(
+                    (
+                        source[name]
+                        for name in source_names
+                        if isinstance(source.get(name), int)
+                        and not isinstance(source.get(name), bool)
+                        and int(source[name]) >= 0
+                    ),
+                    None,
+                )
+                if value is not None:
+                    turn[target] = int(value)
+                    break
+        turn.setdefault("input_tokens", 0)
+        turn.setdefault("output_tokens", 0)
+        turn.setdefault("cache_read_tokens", 0)
+        turn.setdefault("cache_write_tokens", 0)
+        turn.setdefault("total_tokens", turn["input_tokens"] + turn["output_tokens"])
+        for name in aliases:
+            totals[name] += turn[name]
+        cost = metadata.get("cost_micro_usd", 0)
+        if isinstance(cost, int) and not isinstance(cost, bool) and cost >= 0:
+            totals["cost_micro_usd"] += cost
+    return totals
+
+
+def _mutation_evidence(
+    tool_results: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    events: list[dict[str, Any]] = []
+    denied_attempts = 0
+    external_mutations = 0
+    for sequence, item in enumerate(tool_results, start=1):
+        permission = str(item.get("permission") or "")
+        status = str(item.get("status") or "")
+        decision = str(item.get("permission_decision") or "")
+        arguments = item.get("arguments")
+        value = item.get("result")
+        arguments_map = arguments if isinstance(arguments, Mapping) else {}
+        value_map = value if isinstance(value, Mapping) else {}
+        denied = status != "ok" and decision == "denied"
+        if denied and permission in {"write", "shell", "network", "external_service"}:
+            denied_attempts += 1
+        if status == "ok" and permission in {"shell", "network", "external_service"}:
+            external_mutations += 1
+        if permission != "write":
+            continue
+        raw_path = value_map.get("path", arguments_map.get("path"))
+        normalized_path = None
+        if isinstance(raw_path, str) and raw_path:
+            normalized_path = str(Path(raw_path).expanduser().resolve(strict=False))
+        before_hash = value_map.get("before_hash")
+        after_hash = value_map.get("after_hash")
+        operation = "denied_write" if denied else "append" if value_map.get("append") else (
+            "create" if before_hash is None else "modify"
+        )
+        events.append(
+            {
+                "schema": "SITINA_FILE_MUTATION_EVENT_V1",
+                "sequence": sequence,
+                "operation": operation,
+                "path": normalized_path,
+                "before_hash": before_hash if isinstance(before_hash, str) else None,
+                "after_hash": after_hash if isinstance(after_hash, str) else None,
+                "authorization_ref": item.get("authorization_ref"),
+                "tool_call_id": item.get("call_id"),
+                "tool_name": item.get("name"),
+                "status": status,
+                "denied": denied,
+            }
+        )
+    successful_paths = {
+        str(item["path"])
+        for item in events
+        if not item["denied"] and isinstance(item.get("path"), str)
+    }
+    return {
+        "events": events,
+        "file_mutation_event_count": sum(not item["denied"] for item in events),
+        "unique_mutated_path_count": len(successful_paths),
+        "denied_effect_attempt_count": denied_attempts,
+        "external_mutation_count": external_mutations,
+    }
+
+
 class JournalAutonomousAudit:
     """CAS-body/Journal-event evidence sink for the production tool loop."""
 
@@ -95,7 +222,7 @@ class JournalAutonomousAudit:
         from sitina.cas.crypto import encrypt_object
         from sitina.journal.model import canonical_json_bytes
 
-        clean = _stringify_floats(json.loads(redact_text(stable_json(dict(payload)))))
+        clean = _redact_audit_payload(payload)
         record = {
             "schema": "SITINA_AUTONOMOUS_RUN_RECORD_V2",
             "timestamp": iso_now(),
@@ -171,6 +298,8 @@ class AutonomousRuntime:
         max_tokens: int = 4096,
         max_turns: int = 50,
         enforce_write_boundary: bool = False,
+        provider_preflight: Callable[[int], None] | None = None,
+        provider_settlement: Callable[[Mapping[str, Any]], None] | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.manager = manager or ExtensionManager(self.home)
@@ -214,6 +343,8 @@ class AutonomousRuntime:
         self.hooks = HookRunner(self.catalog)
         self.max_tokens = max_tokens
         self.max_turns = max(1, int(max_turns))
+        self.provider_preflight = provider_preflight
+        self.provider_settlement = provider_settlement
         self._journal_audit: JournalAutonomousAudit | None = None
 
     def globally_enabled(self) -> bool:
@@ -485,6 +616,8 @@ class AutonomousRuntime:
                     "max_tokens": self.max_tokens,
                 },
             )
+            if self.provider_preflight is not None:
+                self.provider_preflight(self.max_tokens)
             try:
                 turn = self.client.complete_tool_turn(
                     self.profile,
@@ -508,6 +641,8 @@ class AutonomousRuntime:
                 raise
             provider_turns += 1
             provider_metadata.append(dict(turn.metadata))
+            if self.provider_settlement is not None:
+                self.provider_settlement(turn.metadata)
             assistant_calls = [
                 {"id": call.call_id, "name": call.name, "arguments": dict(call.arguments)}
                 for call in turn.tool_calls
@@ -566,10 +701,12 @@ class AutonomousRuntime:
                     "name": call.name,
                     "arguments": dict(call.arguments),
                     "permission": result.permission,
+                    "permission_decision": result.permission_decision,
                     "status": result.status,
                     "result": result.value,
                     "started_at": result.started_at,
                     "completed_at": result.completed_at,
+                    "authorization_ref": result.authorization_ref,
                 }
                 tool_results.append(record)
                 messages.append(
@@ -688,6 +825,7 @@ class AutonomousRuntime:
                 now,
                 now,
                 permission_decision="denied",
+                authorization_ref=getattr(exc, "authorization_ref", None),
             )
         self.hooks.run(
             "after_tool",
@@ -732,7 +870,7 @@ class AutonomousRuntime:
             "timestamp": iso_now(),
             "run_id": run_id,
             "event": event,
-            **json.loads(redact_text(stable_json(dict(payload)))),
+            **_redact_audit_payload(payload),
         }
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
@@ -749,6 +887,8 @@ class AutonomousRuntime:
         agents: Sequence[Any],
         provider_metadata: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
+        usage = _provider_usage_totals(provider_metadata)
+        mutations = _mutation_evidence(tool_results)
         return {
             "status": status,
             "terminal_state": terminal_state,
@@ -758,13 +898,23 @@ class AutonomousRuntime:
             "provider_physical_send_count": sum(
                 int(item.get("physical_send_count", 1)) for item in provider_metadata
             ),
+            "provider_input_tokens": usage["input_tokens"],
+            "provider_output_tokens": usage["output_tokens"],
+            "provider_cache_read_tokens": usage["cache_read_tokens"],
+            "provider_cache_write_tokens": usage["cache_write_tokens"],
+            "provider_token_total": usage["total_tokens"],
+            "provider_cost_micro_usd": usage["cost_micro_usd"],
             "tool_call_count": len(tool_results),
             "tool_results": [dict(item) for item in tool_results],
             "selected_skills": [item.qualified_name for item in skills],
             "selected_plugin_agents": [f"{item.plugin_name}:{item.name}" for item in agents],
             "provider_metadata": [dict(item) for item in provider_metadata],
-            "external_mutation_count": sum(
-                1 for item in tool_results if item.get("permission") in {"write", "shell", "network", "external_service"}
-            ),
+            "mutation_events": mutations["events"],
+            "accepted_file_operation_contract": ["create", "modify", "append"],
+            "unsupported_file_operations": ["delete", "rename"],
+            "file_mutation_event_count": mutations["file_mutation_event_count"],
+            "unique_mutated_path_count": mutations["unique_mutated_path_count"],
+            "denied_effect_attempt_count": mutations["denied_effect_attempt_count"],
+            "external_mutation_count": mutations["external_mutation_count"],
             "runtime": "sitina-autonomous-extensions-v1",
         }

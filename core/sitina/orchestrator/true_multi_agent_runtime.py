@@ -451,9 +451,35 @@ def normalize_usage(metadata: Mapping[str, Any]) -> dict[str, int]:
     input_tokens = int(summary.get("input_tokens", details.get("prompt_tokens", 0)) or 0)
     output_tokens = int(summary.get("output_tokens", details.get("completion_tokens", 0)) or 0)
     total_tokens = int(summary.get("total_tokens", details.get("total_tokens", input_tokens + output_tokens)) or 0)
-    if min(input_tokens, output_tokens, total_tokens) <= 0:
-        raise TrueMultiAgentRuntimeError("Provider response lacks positive token accounting")
-    return {"input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": total_tokens}
+    cache_read_tokens = int(
+        summary.get(
+            "cache_read_tokens",
+            details.get("cache_read_tokens", details.get("prompt_cache_hit_tokens", 0)),
+        )
+        or 0
+    )
+    cache_write_tokens = int(
+        summary.get(
+            "cache_write_tokens",
+            details.get("cache_write_tokens", details.get("prompt_cache_miss_tokens", 0)),
+        )
+        or 0
+    )
+    if (
+        min(input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) < 0
+        or total_tokens <= 0
+        or total_tokens != input_tokens + output_tokens
+        or cache_read_tokens > input_tokens
+        or cache_write_tokens > input_tokens
+    ):
+        raise TrueMultiAgentRuntimeError("Provider response has invalid token accounting")
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 @dataclass(frozen=True)
@@ -501,8 +527,15 @@ class ProviderExecutor:
     journal: Any
     cas: LocalCAS
     call_count: int = 0
+    embedded_call_count: int = 0
+    embedded_physical_send_count: int = 0
+    usage_input_total: int = 0
+    usage_output_total: int = 0
+    usage_cache_read_total: int = 0
+    usage_cache_write_total: int = 0
     usage_total: int = 0
     cost_total_micro_usd: int = 0
+    unsettled_usage_count: int = 0
     results: list[AgentCallResult] = field(default_factory=list)
     rejected_calls: list[dict[str, Any]] = field(default_factory=list)
     recovery_attempts: list[dict[str, Any]] = field(default_factory=list)
@@ -530,6 +563,92 @@ class ProviderExecutor:
             self.context.provider,
             ResultPolicy(64 * 1024, frozenset({"agent_id", "kind"}), 64 * 1024),
         )
+
+    def _usage_cost(self, usage: Mapping[str, int]) -> int:
+        pricing = dict(self.policy["pricing"])
+        return (
+            int(usage["input_tokens"])
+            * int(pricing["input_micro_usd_per_million_tokens"])
+            + int(usage["output_tokens"])
+            * int(pricing["output_micro_usd_per_million_tokens"])
+        ) // 1_000_000
+
+    def _provider_call_total(self) -> int:
+        return int(self.call_count) + int(getattr(self, "embedded_call_count", 0))
+
+    def _assert_model_admission(self, max_output_tokens: int) -> None:
+        if self._provider_call_total() >= int(self.policy["max_provider_requests_per_run"]):
+            raise TrueMultiAgentRuntimeError("Provider call ceiling reached before admission")
+        remaining_tokens = int(self.policy["max_total_tokens_per_run"]) - int(self.usage_total)
+        if remaining_tokens < max(1, int(max_output_tokens)):
+            raise TrueMultiAgentRuntimeError("per-run token budget insufficient before admission")
+        output_rate = int(self.policy["pricing"]["output_micro_usd_per_million_tokens"])
+        minimum_reserved_cost = (max(1, int(max_output_tokens)) * output_rate) // 1_000_000
+        remaining_cost = int(self.policy["max_total_cost_micro_usd_per_run"]) - int(
+            self.cost_total_micro_usd
+        )
+        if remaining_cost < minimum_reserved_cost:
+            raise TrueMultiAgentRuntimeError("per-run cost budget insufficient before admission")
+
+    def _record_usage(self, usage: Mapping[str, int], cost_micro: int) -> tuple[bool, bool]:
+        self.usage_input_total = int(getattr(self, "usage_input_total", 0)) + int(
+            usage["input_tokens"]
+        )
+        self.usage_output_total = int(getattr(self, "usage_output_total", 0)) + int(
+            usage["output_tokens"]
+        )
+        self.usage_cache_read_total = int(getattr(self, "usage_cache_read_total", 0)) + int(
+            usage["cache_read_tokens"]
+        )
+        self.usage_cache_write_total = int(getattr(self, "usage_cache_write_total", 0)) + int(
+            usage["cache_write_tokens"]
+        )
+        self.usage_total += int(usage["total_tokens"])
+        self.cost_total_micro_usd += int(cost_micro)
+        return (
+            self.usage_total > int(self.policy["max_total_tokens_per_run"]),
+            self.cost_total_micro_usd > int(self.policy["max_total_cost_micro_usd_per_run"]),
+        )
+
+    def provider_call_total(self) -> int:
+        return self._provider_call_total()
+
+    def physical_send_total(self) -> int:
+        return int(self.transport.physical_send_count) + int(
+            getattr(self, "embedded_physical_send_count", 0)
+        )
+
+    def usage_totals(self) -> dict[str, int]:
+        return {
+            "input_tokens": int(getattr(self, "usage_input_total", 0)),
+            "output_tokens": int(getattr(self, "usage_output_total", 0)),
+            "cache_read_tokens": int(getattr(self, "usage_cache_read_total", 0)),
+            "cache_write_tokens": int(getattr(self, "usage_cache_write_total", 0)),
+            "total_tokens": int(self.usage_total),
+            "cost_micro_usd": int(self.cost_total_micro_usd),
+            "unsettled_usage_count": int(getattr(self, "unsettled_usage_count", 0)),
+        }
+
+    def admit_embedded_provider_call(self, max_output_tokens: int) -> None:
+        self._assert_model_admission(max_output_tokens)
+
+    def settle_embedded_provider_call(self, metadata: Mapping[str, Any]) -> None:
+        try:
+            usage = normalize_usage(metadata)
+        except Exception:
+            self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + 1
+            raise
+        cost_micro = self._usage_cost(usage)
+        self.embedded_call_count = int(getattr(self, "embedded_call_count", 0)) + 1
+        physical = metadata.get("physical_send_count", 1)
+        self.embedded_physical_send_count = int(
+            getattr(self, "embedded_physical_send_count", 0)
+        ) + (int(physical) if isinstance(physical, int) and not isinstance(physical, bool) else 1)
+        token_over, cost_over = self._record_usage(usage, cost_micro)
+        if token_over or cost_over:
+            raise TrueMultiAgentRuntimeError(
+                "embedded Provider response exceeded the unified per-run model budget"
+            )
 
     def _publish(self, value: Mapping[str, Any], *, purpose: str) -> PublishedObjectReceipt:
         return self.cas.publish_verified(
@@ -602,9 +721,8 @@ class ProviderExecutor:
         validate: Callable[[Mapping[str, Any]], None],
         ack_lost: bool = False,
     ) -> AgentCallResult:
-        if self.call_count >= int(self.policy["max_provider_requests_per_run"]):
-            raise TrueMultiAgentRuntimeError("Provider call ceiling reached before admission")
-        ordinal = self.call_count + 1
+        self._assert_model_admission(int(self.policy["max_output_tokens_per_request"]))
+        ordinal = self._provider_call_total() + 1
         call_id = "call-" + stable_hash(
             "TRUE_MULTI_AGENT_CALL_ID",
             {"run_id": self.run_id, "agent_id": agent.agent_id, "task_id": task_id, "ordinal": ordinal},
@@ -709,8 +827,17 @@ class ProviderExecutor:
             effect_attempt_id,
             dispatch.token,
             (
-                BudgetReservation("billable_tokens", int(self.policy["max_total_tokens_per_run"]), current + 600),
-                BudgetReservation("cost_micro_usd", int(self.policy["max_total_cost_micro_usd_per_run"]), current + 600),
+                BudgetReservation(
+                    "billable_tokens",
+                    int(self.policy["max_total_tokens_per_run"]) - int(self.usage_total),
+                    current + 600,
+                ),
+                BudgetReservation(
+                    "cost_micro_usd",
+                    int(self.policy["max_total_cost_micro_usd_per_run"])
+                    - int(self.cost_total_micro_usd),
+                    current + 600,
+                ),
                 BudgetReservation("provider_attempts", 1, current + 600),
             ),
         )
@@ -800,20 +927,36 @@ class ProviderExecutor:
             effect_stream.append("effect-outcome-unknown", (unknown_fact,), actor=agent.agent_id)
         raw = raw_text.encode("utf-8")
         usage = normalize_usage(metadata)
-        pricing = dict(self.policy["pricing"])
-        cost_micro = (
-            usage["input_tokens"] * int(pricing["input_micro_usd_per_million_tokens"])
-            + usage["output_tokens"] * int(pricing["output_micro_usd_per_million_tokens"])
-        ) // 1_000_000
-        if self.usage_total + usage["total_tokens"] > int(self.policy["max_total_tokens_per_run"]):
-            raise TrueMultiAgentRuntimeError("per-run token budget exceeded")
-        if self.cost_total_micro_usd + cost_micro > int(self.policy["max_total_cost_micro_usd_per_run"]):
-            raise TrueMultiAgentRuntimeError("per-run cost budget exceeded")
-        self.usage_total += usage["total_tokens"]
-        self.cost_total_micro_usd += cost_micro
+        cost_micro = self._usage_cost(usage)
+        token_over, cost_over = self._record_usage(usage, cost_micro)
         bundle, token_fact = bundle.record_actual("billable_tokens", usage["total_tokens"])
         bundle, cost_fact = bundle.record_actual("cost_micro_usd", cost_micro)
         bundle, attempts_fact = bundle.record_actual("provider_attempts", 1)
+        if token_over or cost_over:
+            effect_stream.append(
+                "effect-budget-overrun-after-response",
+                (
+                    {
+                        "schema": "PROVIDER_USAGE_RECORDED_AFTER_BUDGET_OVERRUN_V1",
+                        "call_id": call_id,
+                        "run_id": self.run_id,
+                        "effect_id": effect_id,
+                        "effect_attempt_id": effect_attempt_id,
+                        **usage,
+                        "cost_micro_usd": cost_micro,
+                        "token_budget_exceeded": token_over,
+                        "cost_budget_exceeded": cost_over,
+                        "physical_send_count": 1,
+                    },
+                    token_fact,
+                    cost_fact,
+                    attempts_fact,
+                ),
+                actor="provider-budget-controller",
+            )
+            raise TrueMultiAgentRuntimeError(
+                "Provider response exceeded the unified per-run model budget after settlement"
+            )
         provider_response_id = metadata.get("provider_response_id")
         provider_request_id = provider_response_id or metadata.get("provider_request_id")
         if not isinstance(provider_request_id, str) or not provider_request_id:

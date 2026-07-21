@@ -5273,7 +5273,7 @@ class TrueMultiAgentProductionRuntime:
                     "checkpoint_ids": [item["checkpoint_id"] for item in prepared],
                     "frontier_kinds": [item["frontier_kind"] for item in prepared],
                     "old_process_pid": old_process_pid,
-                    "provider_call_count": executor.call_count,
+                    "provider_call_count": executor.provider_call_total(),
                     "provider_send_count": executor.transport.physical_send_count,
                     "provider_token_total": executor.usage_total,
                     "provider_cost_micro_usd": executor.cost_total_micro_usd,
@@ -5294,8 +5294,8 @@ class TrueMultiAgentProductionRuntime:
             "old_process_pid": old_process_pid,
             "checkpoint_ids": [item["checkpoint_id"] for item in prepared],
             "frontier_kinds": [item["frontier_kind"] for item in prepared],
-            "provider_call_count": executor.call_count,
-            "provider_physical_send_count": executor.transport.physical_send_count,
+            "provider_call_count": executor.provider_call_total(),
+            "provider_physical_send_count": executor.physical_send_total(),
             "provider_token_total": executor.usage_total,
             "provider_cost_micro_usd": executor.cost_total_micro_usd,
             "integrated_closure_required": integrated_continuation is not None,
@@ -5321,6 +5321,7 @@ class TrueMultiAgentProductionRuntime:
         journal: Any,
         cas: Any,
         run_stream: CanonicalStream,
+        executor: ProviderExecutor,
         evidence: RunEvidence,
         winner: AgentCallResult,
         winner_agent: Any,
@@ -5384,7 +5385,18 @@ class TrueMultiAgentProductionRuntime:
                 return resolved == ws_root or resolved.startswith(ws_root + "/")
             return _decide
 
-        embedded_usage = {"provider_calls": 0, "physical_sends": 0, "tool_calls": 0}
+        embedded_usage = {
+            "provider_calls": 0,
+            "physical_sends": 0,
+            "tool_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "total_tokens": 0,
+            "cost_micro_usd": 0,
+        }
+        attempt_results: dict[int, Mapping[str, Any]] = {}
 
         def forge_runner(attempt: int, _workspace: str) -> Mapping[str, Any]:
             ws = attempt_ws(attempt)
@@ -5403,16 +5415,29 @@ class TrueMultiAgentProductionRuntime:
                 self.home,
                 approval_callback=scoped_approval(ws),       # in-sandbox writes only
                 workspace=ws,
+                max_tokens=int(self.policy["max_output_tokens_per_request"]),
                 max_turns=int(self.policy.get("max_execution_turns", 16)),
                 enforce_write_boundary=True,                 # SL1 pre-write hard gate
+                provider_preflight=executor.admit_embedded_provider_call,
+                provider_settlement=executor.settle_embedded_provider_call,
             )
             self._exec_last_attempt = attempt
             r = runtime.run_embedded(task, run_id=exec_run_id, journal_audit=audit)
+            attempt_results[attempt] = r
             # FIX3: aggregate embedded-loop usage so execution can't silently
             # bypass budget accounting; surfaced in the evidence event below.
             embedded_usage["provider_calls"] += int(r.get("provider_call_count", 0) or 0)
             embedded_usage["physical_sends"] += int(r.get("provider_physical_send_count", 0) or 0)
             embedded_usage["tool_calls"] += int(r.get("tool_call_count", 0) or 0)
+            for source, target in (
+                ("provider_input_tokens", "input_tokens"),
+                ("provider_output_tokens", "output_tokens"),
+                ("provider_cache_read_tokens", "cache_read_tokens"),
+                ("provider_cache_write_tokens", "cache_write_tokens"),
+                ("provider_token_total", "total_tokens"),
+                ("provider_cost_micro_usd", "cost_micro_usd"),
+            ):
+                embedded_usage[target] += int(r.get(source, 0) or 0)
             return r
 
         def collect_diff() -> list[str]:
@@ -5458,11 +5483,75 @@ class TrueMultiAgentProductionRuntime:
             boundary_check=boundary_check, verifier=verifier, rollback=rollback,
             max_attempts=int(self.policy.get("max_execution_attempts", 2)),
         )
+        patch_receipts: list[Any] = []
+        if result.accepted:
+            accepted_runtime = attempt_results.get(result.attempts, {})
+            if int(accepted_runtime.get("external_mutation_count", 0) or 0) != 0:
+                result = dataclasses.replace(
+                    result,
+                    status="rejected",
+                    accepted=False,
+                    notes=result.notes + ("external_mutation_not_deliverable",),
+                )
+        if result.accepted:
+            try:
+                from sitina.orchestrator.execution_patch import (
+                    build_patch_manifest,
+                    verify_patch_replay,
+                )
+
+                final_runtime = attempt_results[result.attempts]
+                mutation_events = final_runtime.get("mutation_events")
+                if not isinstance(mutation_events, list):
+                    raise DynamicCollaborationError("accepted execution has no mutation event ledger")
+                content_refs: dict[str, str] = {}
+                for value in result.diff_paths:
+                    path = Path(value).expanduser().resolve(strict=True)
+                    receipt = executor._publish_body(
+                        path.read_bytes(), purpose="true-multi-agent-execution-patch-content"
+                    )
+                    patch_receipts.append(receipt)
+                    content_refs[str(path)] = receipt.object_ref.reference_id
+                manifest, manifest_hash = build_patch_manifest(
+                    run_id=evidence.run_id,
+                    execution_attempt_id=result.execution_attempt_id,
+                    workspace=attempt_ws(result.attempts),
+                    diff_paths=result.diff_paths,
+                    mutation_events=mutation_events,
+                    content_refs=content_refs,
+                )
+                verify_patch_replay(
+                    manifest,
+                    load_content=lambda reference: cas.open_verified(
+                        cas.resolve_reference(reference)
+                    ),
+                )
+                manifest_receipt = executor._publish(
+                    manifest, purpose="true-multi-agent-execution-patch-manifest"
+                )
+                patch_receipts.append(manifest_receipt)
+                result = dataclasses.replace(
+                    result,
+                    patch_manifest_ref=manifest_receipt.object_ref.reference_id,
+                    patch_manifest_hash=manifest_hash,
+                )
+            except Exception as error:
+                result = dataclasses.replace(
+                    result,
+                    status="rejected",
+                    accepted=False,
+                    notes=result.notes
+                    + (f"patch_manifest_rejected:{type(error).__name__}",),
+                )
         # FIX4: record real mutation accounting instead of a hardcoded 0.
         # Sandbox writes are sandbox_mutation_count (isolated temp, not the repo);
         # patch refs come from the produced diff. proposer vs executor vs verifier
         # are recorded distinctly so the audit is internally consistent.
-        sandbox_mutations = len(result.diff_paths)
+        final_runtime = attempt_results.get(result.attempts, {})
+        sandbox_mutations = int(final_runtime.get("file_mutation_event_count", 0) or 0)
+        unique_mutated_paths = int(final_runtime.get("unique_mutated_path_count", 0) or 0)
+        denied_effect_attempts = int(final_runtime.get("denied_effect_attempt_count", 0) or 0)
+        external_mutations = int(final_runtime.get("external_mutation_count", 0) or 0)
         run_stream.append(
             "forge-execution-result",
             ({"event_type": "forge.execution.result", **result.as_event(),
@@ -5471,12 +5560,24 @@ class TrueMultiAgentProductionRuntime:
               "executor_is_text_agent": False,
               "verifier_id": verifier_id,
               "sandbox_mutation_count": sandbox_mutations,
+              "sandbox_unique_mutated_path_count": unique_mutated_paths,
+              "denied_effect_attempt_count": denied_effect_attempts,
               "sandbox_patch_paths": list(result.diff_paths),
-              "external_mutation_count": 0,  # nothing left the sandbox
+              "mutation_events": list(final_runtime.get("mutation_events", [])),
+              "external_mutation_count": external_mutations,
               "embedded_provider_call_count": embedded_usage["provider_calls"],
               "embedded_physical_send_count": embedded_usage["physical_sends"],
-              "embedded_tool_call_count": embedded_usage["tool_calls"]},),
+              "embedded_tool_call_count": embedded_usage["tool_calls"],
+              "embedded_input_tokens": embedded_usage["input_tokens"],
+              "embedded_output_tokens": embedded_usage["output_tokens"],
+              "embedded_cache_read_tokens": embedded_usage["cache_read_tokens"],
+              "embedded_cache_write_tokens": embedded_usage["cache_write_tokens"],
+              "embedded_total_tokens": embedded_usage["total_tokens"],
+              "embedded_cost_micro_usd": embedded_usage["cost_micro_usd"],
+              "unified_model_budget": executor.usage_totals(),
+              "_object_refs": [item.object_ref.reference_id for item in patch_receipts]},),
             actor="forge-execution-bridge",
+            proofs=tuple(patch_receipts),
         )
         return result
 
@@ -5576,12 +5677,17 @@ class TrueMultiAgentProductionRuntime:
             "obligations": dict(evidence.obligations),
             "expected_terminal": evidence.expected_terminal,
             "terminal_decision": decision.__dict__,
-            "provider_physical_send_count": executor.transport.physical_send_count,
-            "provider_call_count": executor.call_count,
+            "provider_physical_send_count": executor.physical_send_total(),
+            "provider_call_count": executor.provider_call_total(),
             "provider_retry_count": sum(item.retry_count for item in evidence.calls),
             "provider_fallback_count": sum(item.fallback_count for item in evidence.calls),
             "provider_token_total": executor.usage_total,
             "provider_cost_micro_usd": executor.cost_total_micro_usd,
+            "provider_input_tokens": executor.usage_totals()["input_tokens"],
+            "provider_output_tokens": executor.usage_totals()["output_tokens"],
+            "provider_cache_read_tokens": executor.usage_totals()["cache_read_tokens"],
+            "provider_cache_write_tokens": executor.usage_totals()["cache_write_tokens"],
+            "provider_unsettled_usage_count": executor.usage_totals()["unsettled_usage_count"],
             "proposal_competition_count": sum(
                 1 for item in evidence.calls if item.value.get("kind") == "proposal"
             ),
@@ -5613,8 +5719,8 @@ class TrueMultiAgentProductionRuntime:
             "evidence_package_hash": evidence_hash,
             "called_agents": sorted(evidence.called_agents),
             "selected_agents": sorted(evidence.selected_agents),
-            "provider_call_count": executor.call_count,
-            "provider_physical_send_count": executor.transport.physical_send_count,
+            "provider_call_count": executor.provider_call_total(),
+            "provider_physical_send_count": executor.physical_send_total(),
             "provider_retry_count": 0,
             "provider_fallback_count": 0,
             "negotiation_protocol_count": negotiation_protocol_count,
@@ -5660,10 +5766,15 @@ class TrueMultiAgentProductionRuntime:
         result = {
             "run_id": evidence.run_id,
             "terminal_state": run.state.value,
-            "provider_call_count": executor.call_count,
-            "provider_physical_send_count": executor.transport.physical_send_count,
+            "provider_call_count": executor.provider_call_total(),
+            "provider_physical_send_count": executor.physical_send_total(),
             "provider_token_total": executor.usage_total,
             "provider_cost_micro_usd": executor.cost_total_micro_usd,
+            "provider_input_tokens": executor.usage_totals()["input_tokens"],
+            "provider_output_tokens": executor.usage_totals()["output_tokens"],
+            "provider_cache_read_tokens": executor.usage_totals()["cache_read_tokens"],
+            "provider_cache_write_tokens": executor.usage_totals()["cache_write_tokens"],
+            "provider_unsettled_usage_count": executor.usage_totals()["unsettled_usage_count"],
             "proposal_competition_count": sum(
                 1 for item in evidence.calls if item.value.get("kind") == "proposal"
             ),
@@ -6003,7 +6114,7 @@ class TrueMultiAgentProductionRuntime:
             # verify, bounded rework). Gated by execution_bridge_enabled.
             if execution_goal:
                 exec_result = self._execute_winner(
-                    context, journal, cas, run_stream, evidence, winner, winner_agent
+                    context, journal, cas, run_stream, executor, evidence, winner, winner_agent
                 )
                 # Req 4/7/8: only an ACCEPTED execution may terminalize SUCCEEDED.
                 if not exec_result.accepted:
@@ -6089,7 +6200,7 @@ class TrueMultiAgentProductionRuntime:
                         "event_type": "run.execution.failed-closed",
                         "error_type": type(error).__name__,
                         "error_hash": sha256_bytes(str(error).encode()),
-                        "provider_call_count": executor.call_count,
+                        "provider_call_count": executor.provider_call_total(),
                         "rejected_provider_output_count": len(executor.rejected_calls),
                         "automatic_retry_performed": False,
                         "fallback_performed": False,

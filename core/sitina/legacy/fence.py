@@ -114,6 +114,7 @@ class FrozenSandboxExecutionCapability:
     authority_input_frontier_hash: str
     run_id: str
     diff_hash: str
+    test_plan_hash: str
     runner_executable: str
     runner_executable_hash: str
     python_executable_hash: str
@@ -185,6 +186,7 @@ def issue_frozen_sandbox_execution_capability(
     home: Path,
     run_id: str,
     diff_hash: str,
+    test_plan_hash: str,
     runner_executable: Path,
     python_executable: Path,
     worker_path: Path,
@@ -233,7 +235,11 @@ def issue_frozen_sandbox_execution_capability(
 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,255}", str(run_id)):
         raise LegacyWriteDenied("sandbox execution run_id is invalid")
-    for label, value in (("diff", diff_hash), ("policy", sandbox_policy_hash)):
+    for label, value in (
+        ("diff", diff_hash),
+        ("test plan", test_plan_hash),
+        ("policy", sandbox_policy_hash),
+    ):
         if not re.fullmatch(r"[0-9a-f]{64}", str(value)):
             raise LegacyWriteDenied(f"sandbox execution {label} hash is invalid")
     if expires_at <= moment or expires_at - moment > 300:
@@ -275,7 +281,11 @@ def issue_frozen_sandbox_execution_capability(
         request = json.loads(base64.urlsafe_b64decode(argv[8].encode("ascii")))
     except Exception as error:
         raise LegacyWriteDenied("sandbox execution worker request is invalid") from error
-    if not isinstance(request, dict) or request.get("resource_limits") != dict(normalized_limits):
+    if (
+        not isinstance(request, dict)
+        or request.get("resource_limits") != dict(normalized_limits)
+        or request.get("test_plan_hash") != test_plan_hash
+    ):
         raise LegacyWriteDenied("sandbox execution worker request is not resource-bound")
 
     runner_hash = _sha256_regular_file(runner)
@@ -288,6 +298,7 @@ def issue_frozen_sandbox_execution_capability(
         "authority_input_frontier_hash": authority_frontier_hash,
         "run_id": run_id,
         "diff_hash": diff_hash,
+        "test_plan_hash": test_plan_hash,
         "runner_executable": str(runner),
         "runner_executable_hash": runner_hash,
         "python_executable_hash": python_hash,
@@ -311,6 +322,7 @@ def issue_frozen_sandbox_execution_capability(
         authority_frontier_hash,
         str(run_id),
         str(diff_hash),
+        str(test_plan_hash),
         str(runner),
         runner_hash,
         python_hash,
@@ -335,6 +347,7 @@ def authorized_frozen_sandbox_execution(
     argv: tuple[str, ...],
     cwd: Path,
     diff_hash: str,
+    test_plan_hash: str,
     now: int | None = None,
 ) -> Iterator[None]:
     """Consume one capability and scope it to exactly one Popen audit event."""
@@ -349,7 +362,8 @@ def authorized_frozen_sandbox_execution(
         or tuple(argv) != capability.argv
         or resolved_cwd != capability.cwd
         or diff_hash != capability.diff_hash
-        or moment > capability.expires_at
+        or test_plan_hash != capability.test_plan_hash
+        or moment >= capability.expires_at
         or _sha256_regular_file(Path(capability.runner_executable)) != capability.runner_executable_hash
         or len(capability.argv) < 4
         or _sha256_regular_file(Path(capability.argv[3])) != capability.python_executable_hash
@@ -443,7 +457,7 @@ def authorized_frozen_network_egress(
         or capability._nonce not in _network_egress_nonces
         or capability.operation != operation
         or normalized_host not in capability.allowed_hosts
-        or moment > capability.expires_at
+        or moment >= capability.expires_at
     ):
         raise LegacyWriteDenied("frozen network egress capability is invalid, expired, or out of scope")
     previous = getattr(_local, "network_egress", None)

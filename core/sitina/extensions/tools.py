@@ -41,7 +41,9 @@ class ToolRuntimeError(RuntimeError):
 
 
 class ToolApprovalDenied(ToolRuntimeError):
-    pass
+    def __init__(self, message: str, *, authorization_ref: str | None = None):
+        super().__init__(message)
+        self.authorization_ref = authorization_ref
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,7 @@ class ToolResult:
     completed_at: str
     duration_ms: int = 0
     permission_decision: str = "allowed"
+    authorization_ref: str | None = None
 
     def content(self) -> str:
         return PromptIsolationPolicy().wrap_tool_result(
@@ -181,7 +184,7 @@ class ToolCatalog:
             validate_json_schema(payload, dict(definition.input_schema))
         except Exception as exc:  # noqa: BLE001
             raise ToolRuntimeError(f"tool input failed schema validation for {name}: {exc}") from exc
-        self._authorize(definition, payload)
+        authorization_ref = self._authorize(definition, payload)
         started_at = iso_now()
         started_monotonic = time.monotonic()
         try:
@@ -206,6 +209,7 @@ class ToolCatalog:
                 started_at,
                 completed_at,
                 max(0, int((time.monotonic() - started_monotonic) * 1000)),
+                authorization_ref=authorization_ref,
             )
         return ToolResult(
             name,
@@ -215,6 +219,7 @@ class ToolCatalog:
             started_at,
             iso_now(),
             max(0, int((time.monotonic() - started_monotonic) * 1000)),
+            authorization_ref=authorization_ref,
         )
 
     def bind_run(self, run_id: str) -> None:
@@ -238,7 +243,7 @@ class ToolCatalog:
             return ("web", str(arguments.get("url") or ""), None)
         return None
 
-    def _authorize(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> None:
+    def _authorize(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> str:
         # Deterministic risk floor (M1.4): scan first, hard-block cannot be
         # overridden by the approval callback.
         scan = None
@@ -253,8 +258,15 @@ class ToolCatalog:
             )
             if scan.action == "block":
                 reasons = "; ".join(m.reason for m in scan.matches if m.action == "block") or "policy"
-                raise ToolApprovalDenied(f"risk scanner blocked {definition.name}: {reasons}")
+                denial_ref = "policy:" + hashlib.sha256(
+                    stable_json(scan.model_dump()).encode("utf-8")
+                ).hexdigest()
+                raise ToolApprovalDenied(
+                    f"risk scanner blocked {definition.name}: {reasons}",
+                    authorization_ref=denial_ref,
+                )
         approval_granted = definition.permission == "read"
+        authorization_ref = "automatic-read"
         if not approval_granted:
             risk = scan.risk_level if scan is not None else RISK_BY_PERMISSION[definition.permission]
             host_effect = scan is not None and any(
@@ -272,6 +284,7 @@ class ToolCatalog:
                 dict(arguments),
                 reason,
             )
+            authorization_ref = request.request_id
             approval_granted = self.approval_callback is not None and self.approval_callback(request)
         if definition.security_server is not None and definition.security_tool is not None:
             action = str(arguments.get("action") or "call")
@@ -301,13 +314,16 @@ class ToolCatalog:
             )
             if not decision.allowed:
                 raise ToolApprovalDenied(
-                    f"MCP security policy {decision.disposition} for {definition.name}: {decision.reason}"
+                    f"MCP security policy {decision.disposition} for {definition.name}: {decision.reason}",
+                    authorization_ref=authorization_ref,
                 )
-            return
+            return authorization_ref
         if not approval_granted:
             raise ToolApprovalDenied(
-                f"approval denied or unavailable for {definition.name} ({definition.permission})"
+                f"approval denied or unavailable for {definition.name} ({definition.permission})",
+                authorization_ref=authorization_ref,
             )
+        return authorization_ref
 
     def _add(self, definition: ToolDefinition) -> None:
         if definition.name in self._tools:
@@ -632,15 +648,19 @@ class ToolCatalog:
         path = Path(str(value["path"])).expanduser().resolve(strict=False)
         content = str(value["content"])
         append = bool(value.get("append"))
-        # Strong write path (M1.1): atomic replace + before_hash + PathLease +
-        # patch journal via ToolExecutor.write_direct. Only for full overwrite;
-        # append has no atomic-replace semantics so it keeps the plain path.
-        if self._write_executor is not None and self._run_id is not None and not append:
+        # Strong write path (M1.1): every approved write, including append, is
+        # converted into one atomic full-content replacement with before/after
+        # hashes, a PathLease, and a patch-journal record.  No accepted write
+        # may bypass mutation evidence merely because the requested operation
+        # was append.
+        if self._write_executor is not None and self._run_id is not None:
             if path.exists() and not path.is_file():
                 raise ToolRuntimeError(f"write target is not a regular file: {path}")
+            original = path.read_text(encoding="utf-8") if append and path.is_file() else ""
+            updated = original + content if append else content
             result = self._write_executor.write_direct(
                 target=str(path),
-                content=content,
+                content=updated,
                 run_id=self._run_id,
             )
             if result.get("status") != "ok":
@@ -650,7 +670,7 @@ class ToolCatalog:
             return {
                 "path": str(path),
                 "bytes": len(content.encode("utf-8")),
-                "append": False,
+                "append": append,
                 "patch_id": result.get("patch_id"),
                 "before_hash": result.get("before_hash"),
                 "after_hash": result.get("after_hash"),

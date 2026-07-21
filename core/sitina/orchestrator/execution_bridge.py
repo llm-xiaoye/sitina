@@ -17,6 +17,9 @@ terminalize as SUCCEEDED when result.accepted is True.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
+from pathlib import Path
 import re
 from typing import Any, Callable, Mapping, Sequence
 
@@ -33,6 +36,18 @@ class ExecutionBinding:
     approved_scope: tuple[str, ...]
     policy_hash: str
     run_id: str
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("winner_output_hash", self.winner_output_hash),
+            ("policy_hash", self.policy_hash),
+        ):
+            if not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"{name} must be an exact SHA-256 hash")
+        if not self.run_id or not self.approved_scope:
+            raise ValueError("execution binding requires run_id and approved_scope")
+        if any(not isinstance(value, str) or not value.strip() for value in self.approved_scope):
+            raise ValueError("execution approved_scope entries must be non-empty paths")
 
 
 @dataclass(frozen=True)
@@ -62,6 +77,39 @@ class ExecutionResult:
     verification: VerificationVerdict | None = None
     redaction_ok: bool = False
     notes: tuple[str, ...] = ()
+    patch_manifest_ref: str | None = None
+    patch_manifest_hash: str | None = None
+
+    @property
+    def execution_attempt_id(self) -> str:
+        raw = json.dumps(
+            {
+                "run_id": self.binding.run_id,
+                "attempt": self.attempts,
+                "workspace": self.workspace,
+                "diff_paths": list(self.diff_paths),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "execution-attempt:" + hashlib.sha256(raw).hexdigest()
+
+    @property
+    def result_id(self) -> str:
+        raw = json.dumps(
+            {
+                "execution_attempt_id": self.execution_attempt_id,
+                "status": self.status,
+                "accepted": self.accepted,
+                "patch_manifest_hash": self.patch_manifest_hash,
+                "test_evidence_hash": self.verification.test_evidence_hash
+                if self.verification
+                else None,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "execution-result:" + hashlib.sha256(raw).hexdigest()
 
     def as_event(self) -> dict[str, Any]:
         return {
@@ -72,6 +120,8 @@ class ExecutionResult:
             "approved_scope": list(self.binding.approved_scope),
             "policy_hash": self.binding.policy_hash,
             "run_id": self.binding.run_id,
+            "execution_attempt_id": self.execution_attempt_id,
+            "result_id": self.result_id,
             "attempts": self.attempts,
             "workspace": self.workspace,
             "diff_paths": list(self.diff_paths),
@@ -80,6 +130,8 @@ class ExecutionResult:
             "verification_accepted": self.verification.accepted if self.verification else None,
             "test_evidence_ref": self.verification.test_evidence_ref if self.verification else None,
             "test_evidence_hash": self.verification.test_evidence_hash if self.verification else None,
+            "patch_manifest_ref": self.patch_manifest_ref,
+            "patch_manifest_hash": self.patch_manifest_hash,
             "notes": list(self.notes),
         }
 
@@ -106,6 +158,23 @@ def run_safe_execution(
     """
     if max_attempts < 1:
         raise ExecutionBridgeError("max_attempts must be >= 1")
+    workspace_path = Path(workspace).expanduser().resolve(strict=False)
+    approved_roots = tuple(
+        (
+            Path(value).expanduser()
+            if Path(value).expanduser().is_absolute()
+            else workspace_path / Path(value).expanduser()
+        ).resolve(strict=False)
+        for value in binding.approved_scope
+    )
+
+    def _approved(path_value: str) -> bool:
+        candidate = Path(path_value).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace_path / candidate
+        candidate = candidate.resolve(strict=False)
+        return any(candidate == root or root in candidate.parents for root in approved_roots)
+
     notes: list[str] = []
     last_diff: tuple[str, ...] = ()
 
@@ -117,8 +186,19 @@ def run_safe_execution(
             rollback(attempt)
             continue
 
-        diff_paths = tuple(collect_diff())
+        diff_paths = tuple(str(value) for value in collect_diff())
         last_diff = diff_paths
+
+        if not diff_paths or len(set(diff_paths)) != len(diff_paths) or any(
+            not _approved(value) for value in diff_paths
+        ):
+            notes.append(f"attempt{attempt}:scope_blocked")
+            rollback(attempt)
+            return ExecutionResult(
+                status="blocked", accepted=False, binding=binding, attempts=attempt,
+                workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                notes=tuple(notes),
+            )
 
         # H4: sensitive-content hard gate on the deliverable/diff BEFORE accept.
         # SL1 already blocks per-write; this is the deliverable-level boundary.
@@ -152,6 +232,14 @@ def run_safe_execution(
             and isinstance(verdict.test_evidence_hash, str)
             and bool(re.fullmatch(r"[0-9a-f]{64}", verdict.test_evidence_hash))
         )
+        if (
+            evidence_bound
+            and verdict.test_evidence_ref is not None
+            and verdict.test_evidence_ref.startswith("test-evidence:")
+            and verdict.test_evidence_ref.removeprefix("test-evidence:")
+            != verdict.test_evidence_hash
+        ):
+            evidence_bound = False
         if verdict.accepted and (not verdict.checked_tests or not evidence_bound):
             notes.append(f"attempt{attempt}:rejected:accept_without_test_evidence")
             rollback(attempt)

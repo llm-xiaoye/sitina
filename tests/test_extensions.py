@@ -259,6 +259,172 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(second_messages[-1]["role"], "tool")
         self.assertIn("confirmed fact", str(second_messages[-1]["content"]))
 
+    def test_embedded_runtime_reports_full_provider_usage_and_budget_callbacks(self) -> None:
+        events: list[tuple[str, object]] = []
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "done",
+                    (),
+                    "stop",
+                    {
+                        "physical_send_count": 1,
+                        "token_usage": {
+                            "input_tokens": 11,
+                            "output_tokens": 7,
+                            "cache_read_tokens": 3,
+                            "cache_write_tokens": 2,
+                            "total_tokens": 18,
+                        },
+                        "cost_micro_usd": 9,
+                    },
+                )
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            provider_preflight=lambda limit: events.append(("preflight", limit)),
+            provider_settlement=lambda metadata: events.append(("settled", dict(metadata))),
+        )
+        result = runtime.run_embedded("report usage", run_id="embedded-usage")
+        self.assertEqual(events[0], ("preflight", 4096))
+        self.assertEqual(events[1][0], "settled")
+        self.assertEqual(result["provider_input_tokens"], 11)
+        self.assertEqual(result["provider_output_tokens"], 7)
+        self.assertEqual(result["provider_cache_read_tokens"], 3)
+        self.assertEqual(result["provider_cache_write_tokens"], 2)
+        self.assertEqual(result["provider_token_total"], 18)
+        self.assertEqual(result["provider_cost_micro_usd"], 9)
+
+    def test_autonomous_audit_redacts_structured_payload_without_corrupting_json(self) -> None:
+        client = FakeToolClient(
+            [ProviderToolTurn("done", (), "stop", {"protocol": "mock"})]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        result = runtime.run('review token: abcdefgh\\"quoted-tail')
+        audit_path = self.manager.root / "runs" / f"{result['run_id']}.jsonl"
+        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(records)
+        self.assertNotIn("abcdefgh", json.dumps(records, ensure_ascii=False))
+        self.assertEqual(records[-1]["event"], "run_succeeded")
+
+    def test_embedded_runtime_records_ordered_authorized_file_mutations(self) -> None:
+        target = self.root / "execution" / "result.txt"
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "",
+                    (
+                        ProviderToolCall(
+                            "write-1",
+                            "sitina_write_file",
+                            {"path": str(target), "content": "first"},
+                        ),
+                    ),
+                    "tool_use",
+                    {"protocol": "mock"},
+                ),
+                ProviderToolTurn("done", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            approval_callback=lambda request: request.permission == "write",
+            workspace=self.root,
+            enforce_write_boundary=True,
+        )
+        result = runtime.run_embedded("write one file", run_id="mutation-ledger")
+        self.assertEqual(result["file_mutation_event_count"], 1)
+        self.assertEqual(result["unique_mutated_path_count"], 1)
+        event = result["mutation_events"][0]
+        self.assertEqual(event["sequence"], 1)
+        self.assertEqual(event["operation"], "create")
+        self.assertEqual(event["path"], str(target.resolve()))
+        self.assertRegex(event["authorization_ref"], r"^approval-")
+        self.assertRegex(event["after_hash"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(
+            result["accepted_file_operation_contract"],
+            ["create", "modify", "append"],
+        )
+        self.assertEqual(result["unsupported_file_operations"], ["delete", "rename"])
+
+    def test_embedded_runtime_routes_append_through_strong_mutation_evidence(self) -> None:
+        target = self.root / "execution" / "append.txt"
+        target.parent.mkdir(parents=True)
+        target.write_text("first\n", encoding="utf-8")
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "",
+                    (
+                        ProviderToolCall(
+                            "append-1",
+                            "sitina_write_file",
+                            {
+                                "path": str(target),
+                                "content": "second\n",
+                                "append": True,
+                            },
+                        ),
+                    ),
+                    "tool_use",
+                    {"protocol": "mock"},
+                ),
+                ProviderToolTurn("done", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            approval_callback=lambda request: request.permission == "write",
+            workspace=self.root,
+            enforce_write_boundary=True,
+        )
+        result = runtime.run_embedded("append one file", run_id="append-ledger")
+        self.assertEqual(target.read_text(encoding="utf-8"), "first\nsecond\n")
+        event = result["mutation_events"][0]
+        self.assertEqual(event["operation"], "append")
+        self.assertRegex(event["before_hash"], r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(event["after_hash"], r"^sha256:[0-9a-f]{64}$")
+        self.assertNotEqual(event["before_hash"], event["after_hash"])
+
+    def test_denied_process_attempt_is_counted_without_external_mutation(self) -> None:
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "",
+                    (ProviderToolCall("shell-1", "sitina_shell", {"command": "true"}),),
+                    "tool_use",
+                    {"protocol": "mock"},
+                ),
+                ProviderToolTurn("blocked safely", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            approval_callback=lambda _request: False,
+            workspace=self.root,
+        )
+        result = runtime.run_embedded("do not run process", run_id="denied-process")
+        self.assertEqual(result["denied_effect_attempt_count"], 1)
+        self.assertEqual(result["external_mutation_count"], 0)
+
     def test_production_autonomous_audit_keeps_bodies_in_cas_and_events_in_journal(self) -> None:
         authority_home = self.root / "autonomous-authority"
         authority_home.mkdir()
