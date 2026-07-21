@@ -133,6 +133,47 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _validate_sentinel_baseline(
+    path: Path,
+    *,
+    expected_schema: str,
+    production_home: Path,
+    goal_thread_id: str,
+    expected_report_hash: str | None,
+) -> tuple[Path, dict[str, Any]]:
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise SystemExit(f"sentinel baseline must not be a symlink: {expanded}")
+    resolved = expanded.resolve(strict=True)
+    if resolved.parent != CONTROL_ROOT.resolve(strict=True):
+        raise SystemExit(f"sentinel baseline is outside the control root: {resolved}")
+    value = _load_json(resolved)
+    if value.get("schema") != expected_schema:
+        raise SystemExit(f"sentinel baseline has wrong schema: {resolved}")
+    if value.get("production_home") != str(production_home.resolve(strict=True)):
+        raise SystemExit(f"sentinel baseline targets a different production home: {resolved}")
+    if value.get("goal_thread_id") != goal_thread_id:
+        raise SystemExit(f"sentinel baseline targets a different Goal: {resolved}")
+    if (
+        value.get("observation_mode") != "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE"
+        or value.get("hash_algorithm") != "sha256"
+    ):
+        raise SystemExit(f"sentinel baseline has an invalid observation contract: {resolved}")
+    report_hash = value.get("report_sha256")
+    if not isinstance(report_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", report_hash):
+        raise SystemExit(f"sentinel baseline has an invalid report hash: {resolved}")
+    core = dict(value)
+    core.pop("report_sha256", None)
+    actual = hashlib.sha256(
+        json.dumps(core, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if actual != report_hash:
+        raise SystemExit(f"sentinel baseline report hash mismatch: {resolved}")
+    if expected_report_hash is not None and expected_report_hash.removeprefix("sha256:") != report_hash:
+        raise SystemExit(f"sentinel baseline is not bound by the execution manifest: {resolved}")
+    return resolved, value
+
+
 def validate_control_plane(manifest_path: Path, config: dict[str, Any]) -> Any:
     previous_control_plane = os.environ.get("SITINA_CONTROL_PLANE_READONLY")
     os.environ["SITINA_CONTROL_PLANE_READONLY"] = "1"
@@ -217,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--live-approval")
     parser.add_argument("--execution-manifest", type=Path)
+    parser.add_argument("--production-sentinel", type=Path)
+    parser.add_argument("--production-mutable-sentinel", type=Path)
     arguments = parser.parse_args(argv)
     config = _load_json(CONFIG)
     suites = config["suites"]
@@ -231,6 +274,10 @@ def main(argv: list[str] | None = None) -> int:
     definition = suites[arguments.suite]
     manifest_path = arguments.execution_manifest or Path(definition.get("execution_manifest", PHASE_MINUS1_MANIFEST))
     manifest = validate_control_plane(manifest_path, config)
+    if manifest.production_home != Path(config["production_home"]).resolve(strict=True):
+        raise SystemExit("execution manifest and test configuration name different production homes")
+    if (arguments.production_sentinel or arguments.production_mutable_sentinel) and arguments.execution_manifest is None:
+        raise SystemExit("custom sentinel baselines require an explicit execution manifest")
     phase_token = "phase-minus1" if manifest.authorized_phase == "-1" else f"phase{manifest.authorized_phase.lower()}"
     result_path = CONTROL_ROOT / f"sitina-bplus-{phase_token}-test-results.json"
     suite_result_root = CONTROL_ROOT / f"sitina-bplus-{phase_token}-test-results"
@@ -240,13 +287,38 @@ def main(argv: list[str] | None = None) -> int:
     from home_factory import DisposableHomeFactory, capture_production_mutable_sentinel, capture_production_sentinel
 
     production = Path(config["production_home"])
-    initial = _load_json(INITIAL_SENTINEL)
+    sentinel_path = arguments.production_sentinel or INITIAL_SENTINEL
+    mutable_sentinel_path = arguments.production_mutable_sentinel or MUTABLE_SENTINEL
+    if manifest.production_sentinel_hash is None:
+        raise SystemExit("execution manifest does not bind a production sentinel")
+    sentinel_path, initial = _validate_sentinel_baseline(
+        sentinel_path,
+        expected_schema="PRODUCTION_SENTINEL_V1",
+        production_home=production,
+        goal_thread_id=GOAL_THREAD_ID,
+        expected_report_hash=manifest.production_sentinel_hash,
+    )
     before = capture_production_sentinel(production, GOAL_THREAD_ID)
     if before["report_sha256"] != initial["report_sha256"]:
         raise SystemExit("production sentinel differs before test execution")
-    if not MUTABLE_SENTINEL.is_file():
+    if not mutable_sentinel_path.is_file():
         raise SystemExit("extended Production mutable-root sentinel baseline is missing")
-    mutable_initial = _load_json(MUTABLE_SENTINEL)
+    resolved_manifest = manifest_path.resolve(strict=True)
+    legacy_unbound_mutable = (
+        resolved_manifest == PHASE_MINUS1_MANIFEST.resolve(strict=True)
+        and mutable_sentinel_path.resolve(strict=True) == MUTABLE_SENTINEL.resolve(strict=True)
+    )
+    if manifest.production_mutable_sentinel_hash is None and not legacy_unbound_mutable:
+        raise SystemExit("execution manifest does not bind the mutable production sentinel")
+    mutable_sentinel_path, mutable_initial = _validate_sentinel_baseline(
+        mutable_sentinel_path,
+        expected_schema="PRODUCTION_MUTABLE_SENTINEL_V2",
+        production_home=production,
+        goal_thread_id=GOAL_THREAD_ID,
+        expected_report_hash=manifest.production_mutable_sentinel_hash,
+    )
+    if mutable_initial.get("base_v1_report_sha256") != initial["report_sha256"]:
+        raise SystemExit("mutable sentinel baseline is not based on the selected V1 sentinel")
     mutable_before = capture_production_mutable_sentinel(production, GOAL_THREAD_ID)
     if mutable_before["report_sha256"] != mutable_initial["report_sha256"]:
         raise SystemExit("extended Production mutable-root sentinel differs before test execution")
@@ -370,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
         "production_mutable_sentinel_before": mutable_before["report_sha256"],
         "production_mutable_sentinel_after": mutable_after["report_sha256"],
         "production_sentinel_unchanged": sentinel_unchanged,
+        "production_sentinel_baseline": str(sentinel_path),
+        "production_mutable_sentinel_baseline": str(mutable_sentinel_path),
         "execution_manifest_hash": manifest.manifest_hash,
     }
     _write_json_new_or_replace(result_path, result)

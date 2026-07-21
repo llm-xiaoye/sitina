@@ -89,6 +89,49 @@ class BootstrapManifestTests(unittest.TestCase):
 
 
 class ExecutionManifestTests(unittest.TestCase):
+    def test_optional_production_sentinel_bindings_are_validated_and_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            production = root / "production"
+            test_home = root / "tests"
+            source = root / "source"
+            production.mkdir()
+            test_home.mkdir()
+            source.mkdir()
+            value = {
+                "schema": "EXECUTION_MANIFEST_V1",
+                "execution_id": "exec-sentinel",
+                "authorization": {
+                    "authorized_phase": "6",
+                    "authorized_task_range": "step6-gate",
+                    "approval_reference": "owner:step6",
+                    "required_stop_point": "STEP6_ACCEPTANCE",
+                    "stable_command_id": "command-step6",
+                    "stable_request_hash": SHA,
+                },
+                "roots": {
+                    "production_home": str(production),
+                    "test_home_root": str(test_home),
+                    "authorized_mutation_roots": [str(source)],
+                },
+                "hashes": {
+                    "baseline_manifest_hash": SHA,
+                    "bootstrap_foundation_record_hash": SHA,
+                    "python_profile_hash": SHA,
+                    "dependency_lock_hash": SHA,
+                    "plan_suite_hash": SHA,
+                    "production_sentinel_hash": "sha256:" + SHA,
+                    "production_mutable_sentinel_hash": "sha256:" + "1" * 64,
+                },
+                "exact_authorized_files": [],
+            }
+            manifest = ExecutionManifestV1.from_mapping(value)
+            self.assertEqual(manifest.production_sentinel_hash, "sha256:" + SHA)
+            self.assertEqual(manifest.production_mutable_sentinel_hash, "sha256:" + "1" * 64)
+            value["hashes"]["production_mutable_sentinel_hash"] = "not-a-hash"
+            with self.assertRaises(ManifestValidationError):
+                ExecutionManifestV1.from_mapping(value)
+
     def test_production_test_home_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             production = Path(temporary) / "production"

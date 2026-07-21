@@ -315,6 +315,8 @@ class ExecutionManifestV1:
     python_profile_hash: str
     dependency_lock_hash: str
     plan_suite_hash: str
+    production_sentinel_hash: str | None
+    production_mutable_sentinel_hash: str | None
     approval_reference: str
     required_stop_point: str
     stable_command_id: str
@@ -361,6 +363,16 @@ class ExecutionManifestV1:
         }
         for name, field_value in hash_fields.items():
             _validate_sha256(field_value, name)
+        optional_hash_fields: dict[str, str | None] = {}
+        for name in ("production_sentinel_hash", "production_mutable_sentinel_hash"):
+            field_value = hashes.get(name)
+            if field_value is None:
+                optional_hash_fields[name] = None
+                continue
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ManifestValidationError(f"missing or invalid field: {name}")
+            _validate_sha256(field_value, name)
+            optional_hash_fields[name] = field_value
         stable_request_hash = _require_text(authorization, "stable_request_hash")
         _validate_sha256(stable_request_hash, "stable_request_hash")
         return cls(
@@ -376,6 +388,7 @@ class ExecutionManifestV1:
             stable_command_id=_require_text(authorization, "stable_command_id"),
             stable_request_hash=stable_request_hash,
             manifest_hash=sha256_prefixed(canonical_json_bytes(dict(value))),
+            **optional_hash_fields,
             **hash_fields,
         )
 

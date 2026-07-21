@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import io
 import os
 import runpy
@@ -121,7 +122,48 @@ class LayeredRunnerTests(unittest.TestCase):
         self.assertIn("_unittest_selector", source)
         self.assertIn("suite_result_root", source)
         self.assertIn("--execution-manifest", source)
+        self.assertIn("--production-sentinel", source)
+        self.assertIn("--production-mutable-sentinel", source)
         self.assertNotIn("--record-legacy-baseline", source)
+
+    def test_sentinel_baseline_validation_binds_schema_goal_home_and_manifest_hash(self) -> None:
+        namespace = runpy.run_path(str(RUNNER), run_name="sentinel_baseline_probe")
+        validate = namespace["_validate_sentinel_baseline"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            production = root / "production"
+            production.mkdir()
+            validate.__globals__["CONTROL_ROOT"] = root
+            core = {
+                "schema": "PRODUCTION_SENTINEL_V1",
+                "goal_thread_id": "goal-test",
+                "production_home": str(production.resolve()),
+                "observation_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+                "hash_algorithm": "sha256",
+                "categories": [],
+            }
+            report_hash = hashlib.sha256(
+                json.dumps(core, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            baseline = root / "sentinel.json"
+            baseline.write_text(json.dumps({**core, "report_sha256": report_hash}), encoding="utf-8")
+            resolved, value = validate(
+                baseline,
+                expected_schema="PRODUCTION_SENTINEL_V1",
+                production_home=production,
+                goal_thread_id="goal-test",
+                expected_report_hash="sha256:" + report_hash,
+            )
+            self.assertEqual(resolved, baseline.resolve())
+            self.assertEqual(value["report_sha256"], report_hash)
+            with self.assertRaisesRegex(SystemExit, "not bound"):
+                validate(
+                    baseline,
+                    expected_schema="PRODUCTION_SENTINEL_V1",
+                    production_home=production,
+                    goal_thread_id="goal-test",
+                    expected_report_hash="sha256:" + "f" * 64,
+                )
 
     def test_child_process_sees_disposable_home(self) -> None:
         home = Path(os.environ["SITINA_HOME"]).resolve()
