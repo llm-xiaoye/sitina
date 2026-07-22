@@ -1,0 +1,252 @@
+{
+  "schema": "SITINA_STEP6_EXECUTION_SANDBOX_RELIABILITY_EVIDENCE_V3",
+  "captured_at_utc": "2026-07-22T11:52:31Z",
+  "verdict": "STEP6_REVIEW_CANDIDATE",
+  "scope": "LOCAL_SOFTWARE_RELIABILITY_ONLY",
+  "supersession": {
+    "supersedes": "docs/step6-execution-sandbox-reliability-evidence-v2.json",
+    "supersedes_candidate_commit": "fbe3e854bd0585b380c57d8aa711be4970a61a35",
+    "reason": "Later reviews first demonstrated target-controlled completion counterfeiting and then found that Python 3.12 FunctionDef.type_params escaped the claimed closed AST subset. Earlier passes and real-Sitina approvals are historical only and are not reused by this candidate.",
+    "previous_pass_reused": false
+  },
+  "source": {
+    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "branch": "codex/step6-execution-sandbox",
+    "parent_commit": "2b9eb3aa014957d680be093dc455473162267438",
+    "implementation_diff_sha256": "3c5122343a692ac9b34461e1b61cfba7b14ff85431af1d2ee2357bd403b7f931",
+    "implementation_changed_file_count": 3,
+    "implementation_insertions": 507,
+    "implementation_deletions": 35,
+    "files": [
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox.py",
+        "sha256": "2727f010c7aa4eb5c763c4e5fa7191a26a2b53f7a4d13e41fa9b45ae18dfd62b"
+      },
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox_worker.py",
+        "sha256": "620b718a53248ad87aa940365ae225bc18eb037331c0f86846bd8db2322eceb7"
+      },
+      {
+        "path": "tests/test_execution_sandbox.py",
+        "sha256": "88840644de4308307a35f01c6f29f482fe9df742a7f57cb56b920c687499ee09"
+      }
+    ]
+  },
+  "pure_doctest_contract": {
+    "id": "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1",
+    "bound_into_sealed_test_plan": true,
+    "signing_supervisor_imports_or_executes_target_code": false,
+    "signing_supervisor_validates_exact_source_bytes_and_ast": true,
+    "item_revalidates_same_source_hash_and_ast": true,
+    "module_execution": "SINGLE_READ_UTF8_BYTES_TO_MODULETYPE_COMPILE_EXEC",
+    "path_loader_used": false,
+    "pyc_used": false,
+    "bytecode_cache_writes_enabled": false,
+    "function_type_params": "FAIL_CLOSED_UNSUPPORTED_WHEN_NONEMPTY",
+    "imports_attributes_reflection_private_names_process_signals_descriptors": "FAIL_CLOSED_UNSUPPORTED",
+    "structured_observations_constructed_outside_target_process": true,
+    "target_result_channel_access": "NONE_RAW_STDOUT_STDERR_ONLY",
+    "target_lifecycle_channel_access": "NONE",
+    "completion_owner": "SIGNING_SUPERVISOR_NEVER_EXECUTES_TARGET_CODE",
+    "executor_reports_aggregate_test_verdict": false,
+    "parent_verdict": "The parent validates plan hash, exact schema, cardinality, order and identities; compares raw observations with sealed expectations; and independently derives all counts and acceptance.",
+    "generic_unittest": "FAIL_CLOSED_UNSUPPORTED"
+  },
+  "regression_validity": {
+    "head_2b9eb3a_normalized_reserved_exit": {
+      "accepted": true,
+      "executed": 1,
+      "passed": 1,
+      "runner_return_code": 0
+    },
+    "head_2b9eb3a_preexisting_pyc_substitution": {
+      "accepted": true,
+      "executed": 1,
+      "passed": 1,
+      "runner_return_code": 0
+    },
+    "head_fbe3e85_function_type_params": {
+      "source": "def value[T: __import__('os')](): ...",
+      "accepted": true,
+      "collected": 1,
+      "executed": 1,
+      "passed": 1,
+      "runner_return_code": 0
+    },
+    "final_cases": [
+      "module initialization writes normalized expected stdout then os._exit(70): fail closed with zero executed",
+      "module initialization completes inherited READY/challenge/ACK then os._exit(70): fail closed with zero executed",
+      "module initialization self-generates SIGSTOP then os._exit(70): fail closed with zero executed",
+      "valid preexisting pyc differs from checked source bytes: checked source executes and the doctest fails normally",
+      "Python 3.12 FunctionDef has nonempty type_params: fail closed with zero executed before target compilation"
+    ]
+  },
+  "directed_regressions": {
+    "suite": "tests.test_execution_sandbox",
+    "tests": 25,
+    "passed": 25,
+    "failures": 0,
+    "errors": 0
+  },
+  "isolated_gates": {
+    "suite_registry": "tests/test_suites.json",
+    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "fresh_nonproduction_homes": true,
+    "execution_activation_gate": {
+      "collected": 57,
+      "executed": 57,
+      "passed": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collection_complete": true,
+      "execution_complete": true,
+      "accepted": true,
+      "stdout_sha256": "82edfbb60a5d8400cbd53599f9e3dc9a2b95a2713aa84a20aab6a4aac4581928"
+    },
+    "unit_fast": {
+      "tests": 217,
+      "passed": 217,
+      "failures": 0,
+      "errors": 0,
+      "stdout_sha256": "031451f86ae1a86585870688b82a57f3e16841e43249c8056f9a86934e8b2719"
+    },
+    "integration_isolated": {
+      "tests": 226,
+      "passed": 226,
+      "failures": 0,
+      "errors": 0,
+      "stdout_sha256": "d45d57495c8fe4df4c75718e74fb36512f44b6756470e0792fb2ebcb878c98e8"
+    },
+    "all_registered_unique_selectors": {
+      "selector_occurrences": 174,
+      "unique_selectors": 166,
+      "tests": 1019,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5,
+      "skip_reason": "Five historical Phase -1 acceptance observations are conditional on SITINA_BPLUS_TEST_LAYER=legacy_readonly_observation.",
+      "stdout_sha256": "3ee19eb780ae0fc4bdc791533ee60cfb322937f180ceb073417e58f724ce5edf"
+    },
+    "isolation_observations": {
+      "external_attempt_count": 0,
+      "production_path_attempt_count": 0,
+      "temporary_test_roots_removed": true,
+      "temporary_controller_roots_removed": true,
+      "production_fence_disabled_or_bypassed": false
+    }
+  },
+  "production_sentinels": {
+    "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+    "production_home": "/Users/moss/SitinaHub",
+    "goal_thread_id": "019f5c6b-3083-7860-b45b-c8b487c4e3ab",
+    "v1_before": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "v1_after_tests": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "v1_after_readonly_review": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "v1_after_atomic_amend": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "mutable_v2_before": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "mutable_v2_after_tests": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "mutable_v2_after_readonly_review": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "mutable_v2_after_atomic_amend": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "post_amend_capture_at_utc": "2026-07-22T11:56:08Z",
+    "unchanged": true
+  },
+  "real_sitina_readonly_review": {
+    "review_packet": {
+      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-type-params-review-packet-20260722T114902Z.json",
+      "sha256": "81eba91d5ebaf8778afc31731636bb5c3d28fb8805039e955ee24d3d91235425"
+    },
+    "runtime": "sitina-autonomous-extensions-v1",
+    "model": "deepseek-v4-pro",
+    "run_id": "agent-run-1d6b846984b740c6bd26294efa860fc3",
+    "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-1d6b846984b740c6bd26294efa860fc3.jsonl",
+    "audit_sha256": "9b1afa1cee360b1654def6de53bdcbf50ddce1045ed55d28466b797f8aec593c",
+    "provider_calls": 2,
+    "input_tokens": 5191,
+    "output_tokens": 990,
+    "total_tokens": 6181,
+    "cache_read_tokens": 2304,
+    "cache_write_tokens": 2887,
+    "tool_calls": 1,
+    "tool_permissions": [
+      "read"
+    ],
+    "file_mutation_event_count": 0,
+    "external_mutation_count": 0,
+    "terminal_state": "SUCCEEDED",
+    "verdict": "PASS",
+    "blockers": [],
+    "may_amend_commit": true
+  },
+  "diagnostic_nonpasses_not_counted_as_pass": [
+    {
+      "stage": "reserved success exit baseline and red regression",
+      "classification": "COUNT_INTEGRITY_FAILURE_NOT_TEST_PASS",
+      "detail": "The old normalized sample was accepted; the first end-to-end red run also showed an unexecuted item counted as executed. Neither result was counted as a pass."
+    },
+    {
+      "stage": "target-owned lifecycle socket red regression",
+      "classification": "FORGED_COMPLETION_ACCEPTED_NOT_TEST_PASS",
+      "detail": "The target completed READY/challenge/ACK itself and was accepted before contract narrowing. This remained a failing regression."
+    },
+    {
+      "stage": "target-owned SIGSTOP red regression",
+      "classification": "FORGED_COMPLETION_ACCEPTED_NOT_TEST_PASS",
+      "detail": "The target generated the observed stop state itself and was accepted before the signal design was removed. This remained a failing regression."
+    },
+    {
+      "stage": "first static-contract smoke",
+      "classification": "QUALIFICATION_IMPORT_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "The first draft omitted the stdlib ast import and failed before assertions. Its four errors were not counted as test passes."
+    },
+    {
+      "stage": "first final sentinel command wrapper",
+      "classification": "OUTPUT_COLLECTION_PRECONDITION_FAILURE_NOT_SENTINEL_PASS",
+      "detail": "The capture command exited before printing the hashes to the caller. The corrected read-only capture was run again and only that result is recorded."
+    },
+    {
+      "stage": "first post-commit sentinel import",
+      "classification": "MODULE_PATH_PRECONDITION_FAILURE_NOT_SENTINEL_PASS",
+      "detail": "The read-only capture helper could not import the Sitina package and terminated before capture. It was not counted as a sentinel pass."
+    },
+    {
+      "stage": "second post-commit sentinel output collection",
+      "classification": "OUTPUT_COLLECTION_PRECONDITION_FAILURE_NOT_SENTINEL_PASS",
+      "detail": "The capture session did not return hash output to the caller. It was not counted as a sentinel pass; a fresh read-only capture was run and returned both expected hashes with exit code zero."
+    },
+    {
+      "stage": "first directed type-params run",
+      "classification": "PRODUCTION_FENCE_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "The inherited protected controller home denied subprocess startup before assertions."
+    },
+    {
+      "stage": "type-params red regression",
+      "classification": "UNSAFE_TARGET_ACCEPTED_NOT_TEST_PASS",
+      "detail": "The fbe3e85 candidate accepted and executed the generic function. This confirmed blocker was not counted as a passing result."
+    },
+    {
+      "stage": "first unit_fast fixture",
+      "classification": "INCOMPLETE_FIXTURE_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "An empty home lacked required copied configuration and foundation module paths; its one failure and 22 errors were excluded."
+    },
+    {
+      "stage": "second unit_fast fixture launch",
+      "classification": "CONTROLLER_FENCE_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "The complete fixture was created and removed, but the outer controller still inherited the protected home and could not spawn the test process."
+    }
+  ],
+  "static_checks": {
+    "git_diff_check": "PASS",
+    "python_syntax": "PASS",
+    "json_syntax": "PASS"
+  },
+  "safety_state": {
+    "production_deployment_modified": false,
+    "feature_flags_changed": false,
+    "production_sentinel_or_baseline_installed_or_promoted": false,
+    "production_canary_run": false,
+    "production_data_deleted_or_moved": false,
+    "review_temp_home_removed": true,
+    "step7_started": false
+  }
+}

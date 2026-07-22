@@ -3,7 +3,10 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import base64
+import importlib.util
 import json
+import os
+import py_compile
 import shutil
 import sys
 import tempfile
@@ -78,6 +81,20 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertTrue(trust["one_seatbelt_process_per_attempted_item"])
         self.assertTrue(trust["structured_observations_constructed_outside_target_process"])
         self.assertEqual(trust["target_result_channel_access"], "NONE_RAW_STDOUT_STDERR_ONLY")
+        self.assertEqual(trust["target_lifecycle_channel_access"], "NONE")
+        self.assertEqual(
+            trust["execution_contract"],
+            "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1",
+        )
+        self.assertEqual(
+            trust["target_source_execution"],
+            "SINGLE_READ_BYTES_COMPILE_EXEC_NO_PATH_LOADER_OR_PYC",
+        )
+        self.assertEqual(
+            trust["completion_owner"],
+            "SIGNING_SUPERVISOR_NEVER_EXECUTES_TARGET_CODE",
+        )
+        self.assertFalse(trust["target_can_access_completion_primitive"])
         self.assertFalse(trust["target_receives_sealed_expected_output"])
         self.assertTrue(
             evidence.sandbox_capability_id.startswith(
@@ -88,6 +105,60 @@ class ExecutionSandboxTests(unittest.TestCase):
             dataclasses.replace(evidence, controller_attestation_hash="0" * 64)
         with self.assertRaisesRegex(ValueError, "controller attestation"):
             dataclasses.replace(evidence, controller_protocol_key_hash="0" * 64)
+
+    def test_preexisting_pyc_cannot_replace_hash_bound_source_bytes(self) -> None:
+        target = self.workspace / "stale_bytecode.py"
+        cached_source = (
+            "def value():\n"
+            "    \"\"\"\n"
+            "    >>> value()\n"
+            "    1\n"
+            "    \"\"\"\n"
+            "    return 1\n"
+        )
+        checked_source = cached_source.replace("return 1", "return 2")
+        self.assertEqual(len(cached_source), len(checked_source))
+        target.write_text(cached_source, encoding="utf-8")
+        source_timestamp = 1_700_000_000
+        os.utime(target, (source_timestamp, source_timestamp))
+        cache = Path(importlib.util.cache_from_source(str(target)))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        py_compile.compile(str(target), cfile=str(cache), doraise=True)
+        target.write_text(checked_source, encoding="utf-8")
+        os.utime(target, (source_timestamp, source_timestamp))
+
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-source-bytes-ignore-pyc"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 1)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertEqual(evidence.failed_test_count, 1)
+        self.assertEqual(evidence.error_test_count, 0)
+        self.assertEqual(evidence.runner_return_code, 0)
+
+    def test_function_type_params_fail_closed_before_execution(self) -> None:
+        target = self.workspace / "function_type_params.py"
+        target.write_text(
+            "def value[T: __import__('os')]():\n"
+            "    \"\"\"\n"
+            "    >>> value()\n"
+            "    1\n"
+            "    \"\"\"\n"
+            "    return 1\n",
+            encoding="utf-8",
+        )
+
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-function-type-params"
+        )
+        self.assertFalse(evidence.accepted, evidence.mapping())
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0, evidence.mapping())
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
 
     def test_generic_unittest_fails_closed_before_assertions_run(self) -> None:
         target = self.workspace / "test_skipped.py"
@@ -190,6 +261,88 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertFalse(evidence.accepted)
         self.assertEqual(evidence.collected_test_count, 1)
         self.assertEqual(evidence.executed_test_count, 0)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
+
+    def test_target_cannot_forge_framework_completion_with_reserved_exit(self) -> None:
+        target = self.workspace / "reserved_success_exit.py"
+        target.write_text(
+            "import os\n"
+            "def value():\n"
+            "    \"\"\"\n"
+            "    >>> value()\n"
+            "    1\n"
+            "    \"\"\"\n"
+            "    return 2\n"
+            "os.write(1, b'1\\n')\n"
+            "os._exit(70)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-reserved-success-early-exit"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertEqual(evidence.executed_test_count, 0, evidence.mapping())
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
+
+    def test_target_cannot_complete_inherited_framework_control_protocol(self) -> None:
+        target = self.workspace / "forged_framework_control.py"
+        target.write_text(
+            "import base64, hashlib, json, os, socket, sys\n"
+            "def value():\n"
+            "    \"\"\"\n"
+            "    >>> value()\n"
+            "    1\n"
+            "    \"\"\"\n"
+            "    return 2\n"
+            "encoded = sys.argv[sys.argv.index('--execute-item') + 1]\n"
+            "request = json.loads(base64.urlsafe_b64decode(encoded))\n"
+            "control = socket.socket(fileno=request['framework_control_fd'])\n"
+            "os.write(1, b'1\\n')\n"
+            "control.sendall(b'SITINA_ITEM_FRAMEWORK_COMPLETE_V1\\n')\n"
+            "challenge = b''\n"
+            "while len(challenge) < 32:\n"
+            "    challenge += control.recv(32 - len(challenge))\n"
+            "ack = b'SITINA_ITEM_FRAMEWORK_ACK_V1:' + hashlib.sha256(challenge).hexdigest().encode() + b'\\n'\n"
+            "control.sendall(ack)\n"
+            "os._exit(70)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-forged-framework-control"
+        )
+        self.assertFalse(evidence.accepted, evidence.mapping())
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0, evidence.mapping())
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
+
+    def test_target_cannot_forge_framework_completion_with_sigstop(self) -> None:
+        target = self.workspace / "forged_framework_sigstop.py"
+        target.write_text(
+            "import os, signal\n"
+            "def value():\n"
+            "    \"\"\"\n"
+            "    >>> value()\n"
+            "    1\n"
+            "    \"\"\"\n"
+            "    return 2\n"
+            "os.write(1, b'1\\n')\n"
+            "os.kill(os.getpid(), signal.SIGSTOP)\n"
+            "os._exit(70)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-forged-framework-sigstop"
+        )
+        self.assertFalse(evidence.accepted, evidence.mapping())
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0, evidence.mapping())
         self.assertEqual(evidence.passed_test_count, 0)
         self.assertGreater(evidence.error_test_count, 0)
         self.assertNotEqual(evidence.runner_return_code, 0)

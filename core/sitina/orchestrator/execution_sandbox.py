@@ -4,10 +4,11 @@ The parent controller owns planning, process lifecycle, protocol cardinality,
 schema/count validation and final attestation.  An exact capability/hash-bound
 supervisor owns the one-use HMAC key but never imports or executes target code.
 For tests it launches one Seatbelt-confined process per sealed item and builds
-the structured observation outside those processes from their exact mapping,
-raw stdout/stderr and exit status.  Target code receives neither the signing
-key nor a structured result channel, so frame inspection cannot reach the
-signing process's interpreter, call stack, address space or accepted protocol.
+the structured observation outside those processes from their exact mapping
+and raw stdout/stderr.  A hash-bound UTF-8 PURE_DOCTEST AST subset excludes
+imports, reflection, process control, descriptors, and observer primitives;
+the exact admitted bytes are compiled directly without a path loader or pyc.
+Target code receives neither the signing key nor a structured result channel.
 """
 from __future__ import annotations
 
@@ -127,7 +128,8 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
     planned_targets: list[dict[str, object]] = []
     collected = 0
     for ordinal, path in enumerate(paths):
-        source = path.read_text(encoding="utf-8", errors="strict")
+        source_bytes = path.read_bytes()
+        source = source_bytes.decode("utf-8", errors="strict")
         tree = ast.parse(source, filename=str(path))
         mode = "unittest" if "test_" in path.name else "doctest"
         planned_ids: list[str] = []
@@ -200,7 +202,7 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
                 "index": ordinal,
                 "path": str(path),
                 "mode": mode,
-                "source_hash": _sha256_bytes(source.encode("utf-8")),
+                "source_hash": _sha256_bytes(source_bytes),
                 "expected_count": expected_count,
                 "planned_test_ids": planned_ids,
                 "planned_examples": planned_examples,
@@ -208,6 +210,7 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
         )
     plan: dict[str, object] = {
         "schema": "SITINA_TRUSTED_TEST_PLAN_V1",
+        "execution_contract": "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1",
         "targets": planned_targets,
         "collected_test_count": collected,
     }
@@ -398,14 +401,20 @@ class TestEvidence:
                 "trusted_controller_computes_counts_from_item_observations": True,
                 "executor_reports_aggregate_test_verdict": False,
                 "generic_unittest_result_source": "FAIL_CLOSED_UNSUPPORTED",
-                "supported_result_source": "SUPERVISOR_OBSERVED_DOCTEST_PROCESS_IO_V1",
+                "supported_result_source": "SUPERVISOR_OBSERVED_PURE_DOCTEST_BYTES_V2",
                 "signing_supervisor_is_exact_hash_bound_tcb": True,
                 "signing_supervisor_executes_target_code": False,
                 "target_executor_is_separate_process": True,
                 "one_seatbelt_process_per_attempted_item": True,
                 "structured_observations_constructed_outside_target_process": True,
                 "target_result_channel_access": "NONE_RAW_STDOUT_STDERR_ONLY",
-                "item_exception_source": "OS_PROCESS_EXIT_AND_RAW_STDERR",
+                "target_lifecycle_channel_access": "NONE",
+                "execution_contract": "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1",
+                "target_source_execution": "SINGLE_READ_BYTES_COMPILE_EXEC_NO_PATH_LOADER_OR_PYC",
+                "completion_owner": "SIGNING_SUPERVISOR_NEVER_EXECUTES_TARGET_CODE",
+                "target_can_access_completion_primitive": False,
+                "target_exit_status_alone_can_signal_completion": False,
+                "item_exception_source": "SUPERVISOR_OBSERVED_PURE_DOCTEST_EXIT_AND_RAW_STDERR",
                 "target_receives_sealed_expected_output": False,
                 "target_protocol_key_exposure": "NEVER_PASSED_TO_EXECUTOR_PROCESS",
                 "authenticated_channel": "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256_SEPARATE_SUPERVISOR_PROCESS",
@@ -527,9 +536,10 @@ def _evaluated_test_observations(
     """Validate raw observations and independently derive every test count.
 
     Target processes never report structured observations, pass/fail or
-    aggregate counts.  The signing supervisor constructs item observations
-    from OS-visible process I/O, and only this parent controller compares them
-    with sealed expected values.
+    aggregate counts.  The signing supervisor admits only exact hash-bound
+    PURE_DOCTEST source bytes, constructs item observations from OS-visible
+    process I/O, and only this parent controller compares them with sealed
+    expected values.
     """
 
     if (
@@ -1100,10 +1110,7 @@ class ExecutionSandboxRunner:
             )
             raw_targets: list[dict[str, str]] = []
             for path in targets:
-                source = path.read_text(encoding="utf-8", errors="strict")
                 mode = "unittest" if "test_" in path.name else "doctest"
-                if mode == "doctest" and ">>>" not in source:
-                    continue
                 raw_targets.append({"path": str(path), "mode": mode})
             if not raw_targets:
                 raise ExecutionSandboxError("no executable test evidence")

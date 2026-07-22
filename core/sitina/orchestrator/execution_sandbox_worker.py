@@ -3,10 +3,13 @@
 The parent binds this file's hash into a one-use capability.  This module must
 not import Sitina or any third-party package.  Target modules run only in
 per-item Seatbelt processes and never share the supervisor's result channel.
+The supervisor statically enforces a restricted pure-doctest contract before
+launch, so target code cannot address process or observer control primitives.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import contextlib
 import ctypes
@@ -14,7 +17,6 @@ import doctest
 import errno
 import hashlib
 import hmac
-import importlib.util
 import io
 import json
 import os
@@ -26,6 +28,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 from pathlib import Path
 
 
@@ -133,14 +136,20 @@ def _apply_limits(raw: object) -> None:
         resource.setrlimit(limit_kind, (value, hard))
 
 
-def _module(path: Path, ordinal: int):
+def _module(source_bytes: bytes, path: Path, ordinal: int, source_hash: str):
+    """Execute exactly the already-validated source bytes without a path loader."""
+
+    if hashlib.sha256(source_bytes).hexdigest() != source_hash:
+        raise RuntimeError("sandbox item source bytes changed after validation")
     name = f"_sitina_sandbox_target_{ordinal}"
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load sandbox target: {path.name}")
-    module = importlib.util.module_from_spec(spec)
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    module.__package__ = ""
+    module.__loader__ = None
+    module.__spec__ = None
     sys.modules[name] = module
-    spec.loader.exec_module(module)
+    code = compile(source_bytes, str(path), "exec", dont_inherit=True)
+    exec(code, module.__dict__)
     return module
 
 
@@ -171,6 +180,290 @@ def _exception_only(error: BaseException) -> tuple[str, str]:
     return f"{error_type.__module__}.{error_type.__qualname__}", "".join(rendered)
 
 
+_CONTRACT_SAFE_CALLS = frozenset(
+    {
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "dict",
+        "divmod",
+        "float",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "pow",
+        "repr",
+        "reversed",
+        "round",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+        "zip",
+    }
+)
+_CONTRACT_SAFE_EXCEPTIONS = frozenset(
+    {"AssertionError", "RuntimeError", "TypeError", "ValueError", "ZeroDivisionError"}
+)
+_CONTRACT_BINARY_OPERATORS = (
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.LShift,
+    ast.RShift,
+    ast.BitOr,
+    ast.BitXor,
+    ast.BitAnd,
+)
+_CONTRACT_UNARY_OPERATORS = (ast.Invert, ast.Not, ast.UAdd, ast.USub)
+_CONTRACT_BOOLEAN_OPERATORS = (ast.And, ast.Or)
+_CONTRACT_COMPARISON_OPERATORS = (
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.Is,
+    ast.IsNot,
+    ast.In,
+    ast.NotIn,
+)
+
+
+def _contract_name(value: str) -> str:
+    if not value.isidentifier() or value.startswith("_"):
+        raise RuntimeError("sandbox pure-doctest contract rejects private names")
+    return value
+
+
+def _assigned_contract_names(statements: list[ast.stmt]) -> set[str]:
+    names: set[str] = set()
+    for statement in statements:
+        if isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    names.add(_contract_name(target.id))
+        elif isinstance(statement, ast.If):
+            names.update(_assigned_contract_names(statement.body))
+            names.update(_assigned_contract_names(statement.orelse))
+    return names
+
+
+def _validate_contract_expression(node: ast.expr, allowed_names: set[str]) -> None:
+    if isinstance(node, ast.Constant):
+        if not isinstance(node.value, (type(None), bool, int, float, complex, str, bytes)):
+            raise RuntimeError("sandbox pure-doctest constant is unsupported")
+        return
+    if isinstance(node, ast.Name):
+        name = _contract_name(node.id)
+        if name not in allowed_names:
+            raise RuntimeError(f"sandbox pure-doctest name is unsupported: {name}")
+        return
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        for item in node.elts:
+            _validate_contract_expression(item, allowed_names)
+        return
+    if isinstance(node, ast.Dict):
+        for key, value in zip(node.keys, node.values, strict=True):
+            if key is None:
+                raise RuntimeError("sandbox pure-doctest dictionary expansion is unsupported")
+            _validate_contract_expression(key, allowed_names)
+            _validate_contract_expression(value, allowed_names)
+        return
+    if isinstance(node, ast.BinOp) and isinstance(node.op, _CONTRACT_BINARY_OPERATORS):
+        _validate_contract_expression(node.left, allowed_names)
+        _validate_contract_expression(node.right, allowed_names)
+        return
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, _CONTRACT_UNARY_OPERATORS):
+        _validate_contract_expression(node.operand, allowed_names)
+        return
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, _CONTRACT_BOOLEAN_OPERATORS):
+        for value in node.values:
+            _validate_contract_expression(value, allowed_names)
+        return
+    if isinstance(node, ast.Compare) and all(
+        isinstance(operator, _CONTRACT_COMPARISON_OPERATORS)
+        for operator in node.ops
+    ):
+        _validate_contract_expression(node.left, allowed_names)
+        for comparator in node.comparators:
+            _validate_contract_expression(comparator, allowed_names)
+        return
+    if isinstance(node, ast.IfExp):
+        _validate_contract_expression(node.test, allowed_names)
+        _validate_contract_expression(node.body, allowed_names)
+        _validate_contract_expression(node.orelse, allowed_names)
+        return
+    if isinstance(node, ast.Subscript):
+        _validate_contract_expression(node.value, allowed_names)
+        _validate_contract_expression(node.slice, allowed_names)
+        return
+    if isinstance(node, ast.Slice):
+        for value in (node.lower, node.upper, node.step):
+            if value is not None:
+                _validate_contract_expression(value, allowed_names)
+        return
+    if isinstance(node, ast.JoinedStr):
+        for value in node.values:
+            if isinstance(value, ast.FormattedValue):
+                _validate_contract_expression(value.value, allowed_names)
+                if value.format_spec is not None:
+                    _validate_contract_expression(value.format_spec, allowed_names)
+            elif not isinstance(value, ast.Constant):
+                raise RuntimeError("sandbox pure-doctest formatted string is unsupported")
+        return
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        callable_name = _contract_name(node.func.id)
+        if callable_name not in allowed_names:
+            raise RuntimeError(f"sandbox pure-doctest call is unsupported: {callable_name}")
+        if any(keyword.arg is None for keyword in node.keywords):
+            raise RuntimeError("sandbox pure-doctest call expansion is unsupported")
+        for argument in node.args:
+            _validate_contract_expression(argument, allowed_names)
+        for keyword in node.keywords:
+            _contract_name(str(keyword.arg))
+            _validate_contract_expression(keyword.value, allowed_names)
+        return
+    raise RuntimeError(
+        f"sandbox pure-doctest expression is unsupported: {type(node).__name__}"
+    )
+
+
+def _validate_contract_statements(
+    statements: list[ast.stmt],
+    *,
+    allowed_names: set[str],
+    expression_statements: bool,
+) -> None:
+    local_names = allowed_names | _assigned_contract_names(statements)
+    for statement in statements:
+        if isinstance(statement, ast.Expr):
+            if isinstance(statement.value, ast.Constant) and isinstance(
+                statement.value.value, str
+            ):
+                continue
+            if not expression_statements:
+                raise RuntimeError("sandbox pure-doctest import-time expression is unsupported")
+            _validate_contract_expression(statement.value, local_names)
+            continue
+        if isinstance(statement, ast.Assign):
+            if not statement.targets or any(
+                not isinstance(target, ast.Name) for target in statement.targets
+            ):
+                raise RuntimeError("sandbox pure-doctest assignment target is unsupported")
+            for target in statement.targets:
+                assert isinstance(target, ast.Name)
+                _contract_name(target.id)
+            _validate_contract_expression(statement.value, local_names)
+            continue
+        if isinstance(statement, ast.Return):
+            if statement.value is not None:
+                _validate_contract_expression(statement.value, local_names)
+            continue
+        if isinstance(statement, ast.Raise):
+            if (
+                statement.cause is not None
+                or not isinstance(statement.exc, ast.Call)
+                or not isinstance(statement.exc.func, ast.Name)
+                or statement.exc.func.id not in _CONTRACT_SAFE_EXCEPTIONS
+            ):
+                raise RuntimeError("sandbox pure-doctest raise is unsupported")
+            _validate_contract_expression(statement.exc, local_names)
+            continue
+        if isinstance(statement, ast.If):
+            _validate_contract_expression(statement.test, local_names)
+            _validate_contract_statements(
+                statement.body,
+                allowed_names=local_names,
+                expression_statements=expression_statements,
+            )
+            _validate_contract_statements(
+                statement.orelse,
+                allowed_names=local_names,
+                expression_statements=expression_statements,
+            )
+            continue
+        if isinstance(statement, ast.Pass):
+            continue
+        raise RuntimeError(
+            f"sandbox pure-doctest statement is unsupported: {type(statement).__name__}"
+        )
+
+
+def _validate_pure_doctest_contract(source: str, path: Path) -> None:
+    """Admit only code that cannot address process or observer primitives."""
+
+    tree = ast.parse(source, filename=str(path), mode="exec")
+    function_nodes = [
+        statement for statement in tree.body if isinstance(statement, ast.FunctionDef)
+    ]
+    function_names = {_contract_name(statement.name) for statement in function_nodes}
+    if len(function_names) != len(function_nodes):
+        raise RuntimeError("sandbox pure-doctest function names are not unique")
+    module_names = function_names | _assigned_contract_names(tree.body)
+    allowed_module_names = module_names | _CONTRACT_SAFE_CALLS | _CONTRACT_SAFE_EXCEPTIONS
+    for statement in tree.body:
+        if isinstance(statement, ast.FunctionDef):
+            if getattr(statement, "type_params", ()):
+                raise RuntimeError("sandbox pure-doctest type parameters are unsupported")
+            if statement.decorator_list or statement.returns is not None:
+                raise RuntimeError("sandbox pure-doctest function metadata is unsupported")
+            arguments = (
+                list(statement.args.posonlyargs)
+                + list(statement.args.args)
+                + list(statement.args.kwonlyargs)
+            )
+            if statement.args.vararg is not None or statement.args.kwarg is not None:
+                raise RuntimeError("sandbox pure-doctest variadic function is unsupported")
+            if any(argument.annotation is not None for argument in arguments):
+                raise RuntimeError("sandbox pure-doctest annotations are unsupported")
+            argument_names = {_contract_name(argument.arg) for argument in arguments}
+            if len(argument_names) != len(arguments):
+                raise RuntimeError("sandbox pure-doctest arguments are not unique")
+            function_names_in_scope = allowed_module_names | argument_names
+            for default in list(statement.args.defaults) + [
+                item for item in statement.args.kw_defaults if item is not None
+            ]:
+                _validate_contract_expression(default, allowed_module_names)
+            _validate_contract_statements(
+                statement.body,
+                allowed_names=function_names_in_scope,
+                expression_statements=True,
+            )
+            continue
+        _validate_contract_statements(
+            [statement],
+            allowed_names=allowed_module_names,
+            expression_statements=False,
+        )
+    parser = doctest.DocTestParser()
+    for documented in ast.walk(tree):
+        if not isinstance(
+            documented,
+            (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        ):
+            continue
+        docstring = ast.get_docstring(documented, clean=False)
+        if not docstring:
+            continue
+        for example in parser.get_examples(docstring):
+            example_tree = ast.parse(example.source, filename=str(path), mode="exec")
+            _validate_contract_statements(
+                example_tree.body,
+                allowed_names=allowed_module_names,
+                expression_statements=True,
+            )
+
+
 def _validated_test_targets(
     request: dict[str, object],
 ) -> tuple[list[tuple[dict[str, object], dict[str, object]]], list[str], str]:
@@ -184,7 +477,12 @@ def _validated_test_targets(
         raise RuntimeError("sandbox worker has no test targets")
     if not isinstance(read_roots, list) or not read_roots:
         raise RuntimeError("sandbox worker has no read roots")
-    if not isinstance(plan, dict) or plan.get("schema") != "SITINA_TRUSTED_TEST_PLAN_V1":
+    if (
+        not isinstance(plan, dict)
+        or plan.get("schema") != "SITINA_TRUSTED_TEST_PLAN_V1"
+        or plan.get("execution_contract")
+        != "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1"
+    ):
         raise RuntimeError("sandbox worker has no trusted TestPlan")
     if not isinstance(plan_hash, str) or hashlib.sha256(_canonical(plan)).hexdigest() != plan_hash:
         raise RuntimeError("sandbox trusted TestPlan hash mismatch")
@@ -213,13 +511,19 @@ def _validated_test_targets(
         path = Path(str(raw.get("path")))
         if not path.is_absolute() or path.is_symlink() or not path.is_file():
             raise RuntimeError("sandbox test target is not an absolute regular file")
+        source_bytes = path.read_bytes()
         if (
             planned.get("index") != ordinal
             or planned.get("path") != str(path)
             or planned.get("mode") != raw.get("mode")
-            or planned.get("source_hash") != hashlib.sha256(path.read_bytes()).hexdigest()
+            or planned.get("source_hash") != hashlib.sha256(source_bytes).hexdigest()
         ):
             raise RuntimeError("sandbox target does not match sealed TestPlan")
+        try:
+            source = source_bytes.decode("utf-8", errors="strict")
+            _validate_pure_doctest_contract(source, path)
+        except (SyntaxError, UnicodeError) as error:
+            raise RuntimeError("sandbox pure-doctest source is invalid") from error
         expected_count = planned.get("expected_count")
         planned_ids = planned.get("planned_test_ids")
         planned_examples = planned.get("planned_examples")
@@ -293,9 +597,10 @@ def _execute_prior_example(test: doctest.DocTest, example_number: int) -> None:
 def _item_executor_main(encoded_request: str) -> int:
     """Run one sealed item with no structured result channel to the supervisor.
 
-    The process has only raw stdout/stderr.  The signing supervisor owns the
-    mapping from this exact process to the sealed item and constructs the
-    observation after the process exits.
+    The process provides only raw stdout/stderr.  The external supervisor has
+    already admitted the source under a restricted pure-doctest contract, so
+    target code cannot address exit, signal, descriptor, import, reflection, or
+    result-channel primitives.  The supervisor alone constructs completion.
     """
 
     raw_write = os.write
@@ -303,6 +608,7 @@ def _item_executor_main(encoded_request: str) -> int:
     enumerate_threads = threading.enumerate
     executor_thread_id = threading.get_ident()
     try:
+        sys.dont_write_bytecode = True
         request = _decode_request(encoded_request)
         if set(request) != {
             "schema",
@@ -322,6 +628,7 @@ def _item_executor_main(encoded_request: str) -> int:
             or set(target) != {"index", "path", "source_hash"}
             or not isinstance(target.get("index"), int)
             or isinstance(target.get("index"), bool)
+            or not isinstance(target.get("source_hash"), str)
             or not isinstance(fingerprints, list)
             or not fingerprints
             or any(not isinstance(value, str) for value in fingerprints)
@@ -337,15 +644,19 @@ def _item_executor_main(encoded_request: str) -> int:
         for root in reversed(read_roots):
             sys.path.insert(0, root)
         path = Path(str(target.get("path")))
-        if (
-            not path.is_absolute()
-            or path.is_symlink()
-            or not path.is_file()
-            or hashlib.sha256(path.read_bytes()).hexdigest() != target.get("source_hash")
-        ):
+        if not path.is_absolute() or path.is_symlink() or not path.is_file():
             raise RuntimeError("sandbox item target identity is invalid")
+        source_bytes = path.read_bytes()
+        source_hash = str(target["source_hash"])
+        if hashlib.sha256(source_bytes).hexdigest() != source_hash:
+            raise RuntimeError("sandbox item target identity is invalid")
+        try:
+            source = source_bytes.decode("utf-8", errors="strict")
+            _validate_pure_doctest_contract(source, path)
+        except (SyntaxError, UnicodeError) as error:
+            raise RuntimeError("sandbox item pure-doctest source is invalid") from error
         finder = _TRUSTED_DOCTEST_FINDER(exclude_empty=True)
-        module = _module(path, int(target["index"]))
+        module = _module(source_bytes, path, int(target["index"]), source_hash)
         flattened = [
             (test, number, example)
             for test in finder.find(module)
@@ -385,10 +696,11 @@ def _item_executor_main(encoded_request: str) -> int:
         rendered = output.getvalue().encode("utf-8")
         if rendered:
             raw_write(1, rendered)
+        exit_status = ITEM_SUCCESS_EXIT
         if error_record is not None:
             raw_write(2, error_record["exception_text"].encode("utf-8"))
-            raw_exit(ITEM_EXCEPTION_EXIT)
-        raw_exit(ITEM_SUCCESS_EXIT)
+            exit_status = ITEM_EXCEPTION_EXIT
+        raw_exit(exit_status)
     except BaseException as error:
         detail = f"{type(error).__name__}:{str(error)[:500]}".encode(
             "utf-8", errors="replace"
