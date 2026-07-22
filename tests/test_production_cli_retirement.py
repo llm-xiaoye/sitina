@@ -41,11 +41,13 @@ class ProductionCliRetirementTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_protected_home_blocks_every_cli_surface_that_depends_on_retired_state(self) -> None:
+        # `agent` is intentionally NOT here: the current `sitina agent` builds
+        # the Journal/CAS-native AutonomousRuntime and depends on no retired
+        # Legacy state, so it is the supported production coder entry (M1.6).
         commands = (
             ["goal", "list"],
             ["backlog", "list"],
             ["plan", "show", "goal-old"],
-            ["agent", "legacy autonomous task"],
             ["obsidian", "search", "needle"],
             ["worktree", "prepare"],
             ["run", "graph", "run-old"],

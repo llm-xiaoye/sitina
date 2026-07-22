@@ -271,9 +271,11 @@ class ConversationRouter:
             ("comparison_markers", "多方案比较与取舍"),
             ("verification_markers", "需要交叉验证或审计"),
             ("planning_markers", "需要完整规划或架构设计"),
+            ("execution_markers", "需要执行:写代码/改文件/操作电脑"),
         )
         for key, reason in groups:
-            if self._matches(text, self.config[key]):
+            markers = self.config.get(key, [])
+            if isinstance(markers, list) and markers and self._matches(text, markers):
                 reasons.append(reason)
                 evidence_codes.append(key)
         conflict_markers = self.config.get("conflicting_constraint_markers", [])

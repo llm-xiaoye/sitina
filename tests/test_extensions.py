@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -7,6 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sitina import cli
 from sitina.cas.local import LocalCAS
 from sitina.extensions.manager import ExtensionInstallError, ExtensionManager, PermissionGrantRequired
 from sitina.extensions.runtime import AutonomousRuntime, JournalAutonomousAudit
@@ -530,6 +533,79 @@ class ExtensionManagerTests(unittest.TestCase):
         lifecycle_cls.assert_not_called()
         # But the run is still fully journal-audited.
         self.assertTrue(audit.append.call_args_list)
+
+    def test_protected_cli_dispatches_journal_native_agent_and_passes_max_turns(self) -> None:
+        # Direct CLI half of M1.6: protected Legacy policy must not intercept
+        # the Journal/CAS-native standalone agent before AutonomousRuntime.
+        protected_home = self.root / "protected-home"
+        protected_home.mkdir()
+        (protected_home / ".sitina-clean-acceptance-v1").write_text(
+            "protected\n", encoding="utf-8"
+        )
+        (protected_home / "config").mkdir()
+        write_json(
+            protected_home / "config/sitina.yaml",
+            {
+                "state_source_of_truth": "canonical_journal",
+                "storage_authority": {
+                    "canonical_source": "journal",
+                    "content_source": "cas",
+                    "projection_role": "disposable_rebuildable_view",
+                    "legacy_enabled": False,
+                    "legacy_read_enabled": False,
+                    "legacy_fallback_enabled": False,
+                    "legacy_write_enabled": False,
+                    "active_business_jsonl_enabled": False,
+                    "missing_legacy_is_valid": True,
+                },
+            },
+        )
+        captured: dict[str, object] = {}
+
+        class ProbeAutonomousRuntime:
+            def __init__(inner_self, home: Path, **kwargs: object):
+                del inner_self
+                captured["home"] = Path(home)
+                captured.update(kwargs)
+
+            def run(inner_self, task: str) -> dict[str, object]:
+                del inner_self
+                captured["task"] = task
+                return {
+                    "terminal_state": "SUCCEEDED",
+                    "response": "journal-native-agent-ok",
+                }
+
+        output = io.StringIO()
+        with (
+            patch.object(cli, "SITINA_HOME", protected_home),
+            patch.object(cli, "AutonomousRuntime", ProbeAutonomousRuntime),
+            contextlib.redirect_stdout(output),
+        ):
+            code = cli.main(["agent", "--max-turns", "7", "review", "the", "change"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["terminal_state"], "SUCCEEDED")
+        self.assertEqual(captured["home"], protected_home)
+        self.assertEqual(captured["max_turns"], 7)
+        self.assertEqual(captured["task"], "review the change")
+        self.assertFalse((protected_home / "data/sitina.db").exists())
+        retired_files = {
+            "active_conversation.json",
+            "autonomy.json",
+            "blackboard.json",
+            "handoffs.json",
+            "leases.json",
+            "run_state.json",
+            "side_effects.json",
+        }
+        self.assertFalse(
+            any(
+                path.name in retired_files
+                for path in (protected_home / "state").glob("*")
+            )
+        )
 
     def test_dynamic_stdio_mcp_lists_then_calls_tools_through_shell_approval(self) -> None:
         source = self.root / "mcp-plugin"

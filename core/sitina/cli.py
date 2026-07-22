@@ -1054,6 +1054,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
             approval_callback=approval_callback,
             workspace=Path(args.workspace).expanduser() if args.workspace else SITINA_HOME,
             max_tokens=args.max_tokens,
+            max_turns=args.max_turns,
         )
         result = runtime.run(" ".join(args.task))
     except (ExtensionInstallError, ValueError, OSError, RuntimeError) as error:
@@ -1878,6 +1879,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_provider.add_argument("--mock-script")
     p.add_argument("--workspace")
     p.add_argument("--max-tokens", type=int, default=4096)
+    p.add_argument("--max-turns", type=int, default=50, help="hard cap on agent tool-loop turns (graceful stop)")
     p.add_argument("--approve-risky", action="store_true", help="approve every risky tool call in this run")
     p.add_argument("task", nargs="+")
     p.set_defaults(func=cmd_agent)
@@ -2294,8 +2296,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     policy = LegacyRuntimePolicy.load(SITINA_HOME)
+    # NOTE: cmd_agent was removed from this set. It was grouped here because the
+    # OLD agent depended on retired Legacy state files; the current cmd_agent
+    # builds the Journal/CAS-native AutonomousRuntime and touches none of them.
+    # It is now the explicit production coder entry (M1.6, journal-audit-only).
     legacy_only_handlers = {
-        cmd_agent,
         cmd_goal,
         cmd_backlog,
         cmd_plan,

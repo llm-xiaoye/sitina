@@ -8,7 +8,7 @@ from sitina.conversation.models import ChatMode, ChatSession, ConversationTurn, 
 from sitina.conversation.router import ConversationRouter
 
 
-HOME = Path("/Users/moss/SitinaHub")
+HOME = Path(__file__).resolve().parents[1]
 
 
 class ConversationRouterTests(unittest.TestCase):
@@ -51,6 +51,24 @@ class ConversationRouterTests(unittest.TestCase):
     def test_security_audit_routes_auto_to_multi(self) -> None:
         decision = self.router.decide(ChatMode.AUTO, "对这套认证方案做安全审计", self.snapshot())
         self.assertIs(decision.resolved_mode, ChatMode.MULTI)
+
+    def test_execution_requests_route_auto_to_multi_by_direct_contract(self) -> None:
+        cases = (
+            "帮我改一下这段代码",
+            "修复这个测试失败",
+            "运行测试并告诉我结果",
+            "run the tests for this module",
+        )
+        self.assertTrue(self.router.config.get("execution_markers"))
+        for message in cases:
+            with self.subTest(message=message):
+                decision = self.router.decide(ChatMode.AUTO, message, self.snapshot())
+                self.assertIs(decision.resolved_mode, ChatMode.MULTI)
+                self.assertIn("需要执行:写代码/改文件/操作电脑", decision.reasons)
+                self.assertIn(
+                    "execution_markers",
+                    tuple(dict(decision.observability or {}).get("evidence_codes") or ()),
+                )
 
     def test_multiple_dependent_deliverables_route_auto_to_multi(self) -> None:
         decision = self.router.decide(

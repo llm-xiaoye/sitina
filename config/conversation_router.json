@@ -25,6 +25,16 @@
     "架构设计", "系统架构", "迁移建议", "迁移计划", "实施方案", "完整规划",
     "architecture design", "migration plan", "implementation plan"
   ],
+  "execution_markers": [
+    "创建一个", "创建个", "新建一个", "帮我创建", "帮我改", "改一下", "修复这", "修复一下",
+    "重构这", "实现一个", "帮我实现", "写一个", "写个", "删除这", "帮我删",
+    "重命名", "安装这", "帮我安装", "部署到", "生成文件", "改代码", "操作电脑",
+    "跑一下", "跑测试", "运行测试", "运行脚本", "执行脚本", "执行命令",
+    "帮我写", "帮我修复", "帮我重构",
+    "create a ", "fix the ", "refactor the", "implement a ", "write a ",
+    "delete the ", "install the ", "deploy the", "commit the", "edit the ",
+    "build the ", "run the tests", "run the script"
+  ],
   "conflicting_constraint_markers": [
     "冲突约束", "互相冲突", "既要", "同时满足", "conflicting constraints"
   ],
