@@ -312,16 +312,53 @@ class ExecutionBridgeTests(unittest.TestCase):
                     ],
                     content_refs={str(target.resolve()): "content:" + digest},
                 )
+            for operation in ("delete", "rename"):
+                with self.subTest(operation=operation), self.assertRaisesRegex(
+                    ExecutionPatchError,
+                    "destructive mutation is outside the accepted Step6 contract",
+                ):
+                    build_patch_manifest(
+                        run_id="run-" + operation,
+                        execution_attempt_id="execution-attempt:" + "d" * 64,
+                        workspace=workspace,
+                        diff_paths=[str(target)],
+                        mutation_events=[{**base_event, "operation": operation}],
+                        content_refs={str(target.resolve()): "content:" + digest},
+                    )
+
+    def test_patch_replay_rejects_tampered_destructive_operation(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            workspace.mkdir()
+            target = workspace / "result.txt"
+            target.write_text("result", encoding="utf-8")
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            manifest, _manifest_hash = build_patch_manifest(
+                run_id="run-tampered-operation",
+                execution_attempt_id="execution-attempt:" + "e" * 64,
+                workspace=workspace,
+                diff_paths=[str(target)],
+                mutation_events=[
+                    {
+                        "sequence": 1,
+                        "operation": "create",
+                        "path": str(target.resolve()),
+                        "before_hash": None,
+                        "after_hash": digest,
+                        "authorization_ref": "approval-result",
+                        "denied": False,
+                    }
+                ],
+                content_refs={str(target.resolve()): "content:" + digest},
+            )
+            manifest["entries"][0]["operation"] = "delete"
             with self.assertRaisesRegex(
-                ExecutionPatchError, "unsupported or unaudited mutation"
+                ExecutionPatchError, "operation contract is invalid"
             ):
-                build_patch_manifest(
-                    run_id="run-delete",
-                    execution_attempt_id="execution-attempt:" + "d" * 64,
-                    workspace=workspace,
-                    diff_paths=[str(target)],
-                    mutation_events=[{**base_event, "operation": "delete"}],
-                    content_refs={str(target.resolve()): "content:" + digest},
+                replay_patch_manifest(
+                    manifest,
+                    destination=Path(parent) / "tampered-operation",
+                    load_content=lambda _reference: target.read_bytes(),
                 )
 
 

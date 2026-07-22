@@ -1,4 +1,14 @@
-"""Capability-bound macOS OS sandbox for executing untrusted test code."""
+"""Capability-bound macOS OS sandbox for executing untrusted test code.
+
+The parent controller owns planning, process lifecycle, protocol cardinality,
+schema/count validation and final attestation.  The measured worker owns test
+execution.  A controller-provided one-use HMAC key is consumed by the worker
+before target import, so target code that merely controls worker stdin/stdout
+cannot manufacture an authenticated result.  This is still a shared Python
+address-space TCB: arbitrary frame/process-memory compromise of the measured
+worker is outside the claimed boundary and is recorded as a design limit, not
+as hardware-grade isolation.
+"""
 from __future__ import annotations
 
 import ast
@@ -7,6 +17,7 @@ import contextlib
 import datetime as dt
 import doctest
 import hashlib
+import hmac
 import json
 import os
 import platform
@@ -230,6 +241,7 @@ class TestEvidence:
     sandbox_provider_id: str
     sandbox_capability_id: str
     controller_protocol_response_present: bool
+    controller_protocol_key_hash: str
     controller_response_hash: str
     controller_attestation_hash: str
     cwd: str
@@ -252,6 +264,7 @@ class TestEvidence:
             self.worker_hash,
             self.argv_hash,
             self.sandbox_policy_hash,
+            self.controller_protocol_key_hash,
             self.controller_response_hash,
             self.controller_attestation_hash,
             self.stdout_hash,
@@ -305,6 +318,7 @@ class TestEvidence:
                     "controller_identity": self.sandbox_capability_id,
                     "diff_hash": self.diff_hash_before,
                     "test_plan_hash": self.test_plan_hash,
+                    "protocol_key_hash": self.controller_protocol_key_hash,
                     "response_hash": self.controller_response_hash,
                     "worker_hash": self.worker_hash,
                     "argv_hash": self.argv_hash,
@@ -342,9 +356,18 @@ class TestEvidence:
             "sandbox_provider_id": self.sandbox_provider_id,
             "sandbox_capability_id": self.sandbox_capability_id,
             "controller_protocol_response_present": self.controller_protocol_response_present,
+            "controller_protocol_key_hash": self.controller_protocol_key_hash,
             "controller_response_hash": self.controller_response_hash,
             "controller_attestation_hash": self.controller_attestation_hash,
             "controller_attestation_valid": self.controller_attestation_valid,
+            "trust_boundary": {
+                "schema": "SITINA_SANDBOX_TRUST_BOUNDARY_V1",
+                "trusted_controller_owns_plan_protocol_and_verdict": True,
+                "worker_is_exact_hash_bound_tcb": True,
+                "target_protocol_key_exposure": "NOT_PASSED_TO_TARGET",
+                "authenticated_channel": "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256",
+                "same_process_frame_or_memory_compromise_covered": False,
+            },
             "cwd": self.cwd,
             "read_roots": list(self.read_roots),
             "write_roots": list(self.write_roots),
@@ -434,6 +457,7 @@ class _Invocation:
     policy_hash: str
     capability_id: str
     controller_protocol_response_present: bool
+    controller_protocol_key_hash: str
     controller_response_hash: str
     controller_attestation_hash: str
     duration_milliseconds: int
@@ -534,6 +558,7 @@ def _validated_test_response(
 class ExecutionSandboxRunner:
     WORKER_MARKER = "SITINA_SANDBOX_WORKER_RESULT:"
     WORKER_PROOF_MARKER = "SITINA_SANDBOX_WORKER_PROOF:"
+    WORKER_KEY_MARKER = "SITINA_SANDBOX_CONTROLLER_KEY:"
     WORKER_CHALLENGE_MARKER = "SITINA_SANDBOX_PARENT_CHALLENGE:"
 
     def __init__(
@@ -706,6 +731,19 @@ class ExecutionSandboxRunner:
                     raise ExecutionSandboxUnavailable("OS sandbox runner could not start") from error
             if process.stdin is None or process.stdout is None:
                 raise ExecutionSandboxUnavailable("sandbox protocol pipes are unavailable")
+            protocol_key = os.urandom(32)
+            protocol_key_hash = _sha256_bytes(protocol_key)
+            try:
+                process.stdin.write(
+                    (self.WORKER_KEY_MARKER + protocol_key.hex() + "\n").encode("ascii")
+                )
+                process.stdin.flush()
+            except (BrokenPipeError, OSError) as error:
+                self._signal_sandbox(process, signal.SIGTERM)
+                process.wait()
+                raise ExecutionSandboxUnavailable(
+                    "sandbox worker did not accept its controller key"
+                ) from error
             deadline = time.monotonic() + self.limits.wall_seconds
             stdout_buffer = bytearray()
             line_buffer = bytearray()
@@ -751,9 +789,11 @@ class ExecutionSandboxRunner:
                                 continue
                             response = candidate
                             challenge = os.urandom(32).hex()
-                            expected_proof = _sha256_bytes(
-                                challenge.encode("ascii") + b"\0" + _canonical(candidate)
-                            )
+                            expected_proof = hmac.new(
+                                protocol_key,
+                                challenge.encode("ascii") + b"\0" + _canonical(candidate),
+                                hashlib.sha256,
+                            ).hexdigest()
                             try:
                                 process.stdin.write(
                                     (self.WORKER_CHALLENGE_MARKER + challenge + "\n").encode("ascii")
@@ -807,6 +847,7 @@ class ExecutionSandboxRunner:
                     "controller_identity": controller_identity,
                     "diff_hash": diff_hash,
                     "test_plan_hash": test_plan_hash,
+                    "protocol_key_hash": protocol_key_hash,
                     "response_hash": controller_response_hash,
                     "worker_hash": self.worker_hash,
                     "argv_hash": argv_hash,
@@ -826,6 +867,7 @@ class ExecutionSandboxRunner:
             policy_hash=policy_hash,
             capability_id=controller_identity,
             controller_protocol_response_present=response is not None,
+            controller_protocol_key_hash=protocol_key_hash,
             controller_response_hash=controller_response_hash,
             controller_attestation_hash=controller_attestation_hash,
             duration_milliseconds=duration_ms,
@@ -1004,6 +1046,7 @@ class ExecutionSandboxRunner:
                 sandbox_provider_id=provider_id,
                 sandbox_capability_id=invocation.capability_id,
                 controller_protocol_response_present=invocation.controller_protocol_response_present,
+                controller_protocol_key_hash=invocation.controller_protocol_key_hash,
                 controller_response_hash=invocation.controller_response_hash,
                 controller_attestation_hash=invocation.controller_attestation_hash,
                 cwd=str(cwd),

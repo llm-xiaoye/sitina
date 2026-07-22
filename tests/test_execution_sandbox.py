@@ -61,10 +61,17 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertEqual(evidence.error_test_count, 0)
         self.assertEqual(evidence.diff_hash_before, evidence.diff_hash_after)
         self.assertEqual(evidence.sandbox_provider_id, "macos-seatbelt-sandbox-exec-v1")
+        self.assertRegex(evidence.controller_protocol_key_hash, r"^[0-9a-f]{64}$")
         self.assertRegex(evidence.controller_response_hash, r"^[0-9a-f]{64}$")
         self.assertRegex(evidence.controller_attestation_hash, r"^[0-9a-f]{64}$")
         self.assertTrue(evidence.controller_protocol_response_present)
         self.assertTrue(evidence.controller_attestation_valid)
+        trust = evidence.mapping()["trust_boundary"]
+        self.assertEqual(
+            trust["authenticated_channel"],
+            "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256",
+        )
+        self.assertFalse(trust["same_process_frame_or_memory_compromise_covered"])
         self.assertTrue(
             evidence.sandbox_capability_id.startswith(
                 ("sandbox-execution:", "sandbox-direct-fixture:")
@@ -72,6 +79,8 @@ class ExecutionSandboxTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "controller attestation"):
             dataclasses.replace(evidence, controller_attestation_hash="0" * 64)
+        with self.assertRaisesRegex(ValueError, "controller attestation"):
+            dataclasses.replace(evidence, controller_protocol_key_hash="0" * 64)
 
     def test_skipped_unittest_is_real_nonpass_evidence(self) -> None:
         target = self.workspace / "test_skipped.py"
@@ -114,6 +123,36 @@ class ExecutionSandboxTests(unittest.TestCase):
             [target], run_id="sandbox-forged-worker-result"
         )
         self.assertFalse(evidence.accepted)
+        self.assertGreater(evidence.error_test_count, 0)
+
+    def test_target_cannot_authenticate_synchronous_forged_success(self) -> None:
+        target = self.workspace / "test_synchronous_forged_worker_result.py"
+        target.write_text(
+            "import base64, hashlib, json, os, sys, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_real_failure(self): self.fail('must be observed')\n"
+            "request = json.loads(base64.urlsafe_b64decode(sys.argv[sys.argv.index('--request') + 1]))\n"
+            "planned = request['test_plan']['targets'][0]\n"
+            "counts = {'collected': 1, 'executed': 1, 'passed': 1, 'failed': 0, "
+            "'skipped': 0, 'errors': 0, 'expected_failures': 0, 'unexpected_successes': 0}\n"
+            "response = {'schema': 'SITINA_SANDBOX_TEST_RESULT_V1', 'mode': 'tests', "
+            "'test_plan_hash': request['test_plan_hash'], 'counts': counts, "
+            "'targets': [{'path': planned['path'], 'mode': planned['mode'], 'counts': counts}], "
+            "'worker_ok': True}\n"
+            "canonical = json.dumps(response, sort_keys=True, separators=(',', ':')).encode()\n"
+            "encoded = base64.urlsafe_b64encode(canonical).decode()\n"
+            "os.write(1, ('SITINA_SANDBOX_WORKER_RESULT:' + encoded + '\\n').encode())\n"
+            "challenge = os.read(0, 256).split(b':', 1)[1].strip()\n"
+            "unkeyed = hashlib.sha256(challenge + b'\\0' + canonical).hexdigest()\n"
+            "os.write(1, ('SITINA_SANDBOX_WORKER_PROOF:' + unkeyed + '\\n').encode())\n"
+            "os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-synchronous-forged-worker-result"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertFalse(evidence.controller_protocol_response_present)
         self.assertGreater(evidence.error_test_count, 0)
 
     def test_target_cannot_replace_unittest_loader_or_runner(self) -> None:

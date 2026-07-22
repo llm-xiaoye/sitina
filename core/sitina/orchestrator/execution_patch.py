@@ -1,4 +1,12 @@
-"""Deterministic, content-addressed delivery manifest for accepted executions."""
+"""Deterministic, content-addressed delivery manifest for accepted executions.
+
+The accepted execution surface is intentionally non-destructive: create,
+modify and append are representable; successful delete and rename operations
+are outside the Step6 contract and must fail closed.  Supporting either later
+requires a new manifest schema with tombstone/source/destination identity and
+an independently approved tool capability.  Do not reinterpret absence as a
+delete or a pair of writes as a rename under this schema.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +20,11 @@ from typing import Callable, Mapping, Sequence
 
 class ExecutionPatchError(RuntimeError):
     pass
+
+
+ACCEPTED_MUTATION_OPERATIONS = frozenset({"create", "modify", "append"})
+UNSUPPORTED_DESTRUCTIVE_OPERATIONS = frozenset({"delete", "rename"})
+REPLAY_ENTRY_OPERATIONS = frozenset({"create", "modify"})
 
 
 def _canonical(value: object) -> bytes:
@@ -49,11 +62,22 @@ def build_patch_manifest(
     successful_events = [
         item for item in normalized_events if item.get("denied") is False
     ]
-    allowed_operations = {"create", "modify", "append"}
     if not successful_events:
         raise ExecutionPatchError("patch manifest has no successful mutation events")
+    destructive = sorted(
+        {
+            str(item.get("operation"))
+            for item in successful_events
+            if item.get("operation") in UNSUPPORTED_DESTRUCTIVE_OPERATIONS
+        }
+    )
+    if destructive:
+        raise ExecutionPatchError(
+            "successful destructive mutation is outside the accepted Step6 contract: "
+            + ",".join(destructive)
+        )
     if any(
-        item.get("operation") not in allowed_operations
+        item.get("operation") not in ACCEPTED_MUTATION_OPERATIONS
         or not isinstance(item.get("path"), str)
         or not item.get("path")
         or not isinstance(item.get("authorization_ref"), str)
@@ -180,6 +204,14 @@ def replay_patch_manifest(
     for raw_entry in entries:
         if not isinstance(raw_entry, Mapping):
             raise ExecutionPatchError("patch manifest entry is invalid")
+        operation = raw_entry.get("operation")
+        mutation_operations = raw_entry.get("mutation_operations")
+        if operation not in REPLAY_ENTRY_OPERATIONS or not isinstance(
+            mutation_operations, list
+        ) or not mutation_operations or any(
+            value not in ACCEPTED_MUTATION_OPERATIONS for value in mutation_operations
+        ):
+            raise ExecutionPatchError("patch replay operation contract is invalid")
         relative = raw_entry.get("path")
         if not isinstance(relative, str) or not relative or relative in seen:
             raise ExecutionPatchError("patch manifest path is invalid or duplicated")

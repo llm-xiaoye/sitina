@@ -12,6 +12,7 @@ import ctypes
 import doctest
 import errno
 import hashlib
+import hmac
 import importlib.util
 import io
 import json
@@ -28,6 +29,7 @@ from pathlib import Path
 
 RESULT_MARKER = "SITINA_SANDBOX_WORKER_RESULT:"
 PROOF_MARKER = "SITINA_SANDBOX_WORKER_PROOF:"
+KEY_MARKER = "SITINA_SANDBOX_CONTROLLER_KEY:"
 CHALLENGE_MARKER = "SITINA_SANDBOX_PARENT_CHALLENGE:"
 
 _TRUSTED_TEST_LOADER = unittest.TestLoader
@@ -378,11 +380,13 @@ def main(argv: list[str] | None = None) -> int:
     protocol_output = sys.__stdout__
     encode_response = base64.urlsafe_b64encode
     response_digest = hashlib.sha256
+    keyed_digest = hmac.digest
     json_dumps = json.dumps
     enumerate_threads = threading.enumerate
     controller_thread_id = threading.get_ident()
     result_marker = RESULT_MARKER
     proof_marker = PROOF_MARKER
+    key_prefix = KEY_MARKER.encode("ascii")
     challenge_prefix = CHALLENGE_MARKER.encode("ascii")
 
     def canonicalize(value: object) -> bytes:
@@ -401,6 +405,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--request", required=True)
     arguments = parser.parse_args(argv)
     request = _decode_request(arguments.request)
+    key_line = protocol_input.readline(256)
+    if not key_line.startswith(key_prefix):
+        return 3
+    encoded_key = key_line[len(key_prefix):].strip()
+    if len(encoded_key) != 64 or any(value not in b"0123456789abcdef" for value in encoded_key):
+        return 3
+    protocol_key = bytes.fromhex(encoded_key.decode("ascii"))
     response: dict[str, object]
     try:
         _apply_limits(request.get("resource_limits"))
@@ -443,7 +454,11 @@ def main(argv: list[str] | None = None) -> int:
     # protocol even if it exits before it can emit a forged proof.
     if untrusted_threads():
         return 4
-    proof = response_digest(challenge + b"\0" + canonical_response).hexdigest()
+    proof = keyed_digest(
+        protocol_key,
+        challenge + b"\0" + canonical_response,
+        "sha256",
+    ).hex()
     protocol_output.write(proof_marker + proof + "\n")
     protocol_output.flush()
     return 0 if response.get("worker_ok") is True else 2
