@@ -1,0 +1,184 @@
+{
+  "schema": "SITINA_STEP6_EXECUTION_SANDBOX_RELIABILITY_EVIDENCE_V2",
+  "captured_at_utc": "2026-07-22T10:25:11Z",
+  "verdict": "STEP6_PASS",
+  "scope": "LOCAL_SOFTWARE_RELIABILITY_ONLY",
+  "source": {
+    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "branch": "codex/step6-execution-sandbox",
+    "parent_commit": "7a1fcc82fc0d15547fe1d5f3ace9bf31ca16fc80",
+    "implementation_diff_sha256": "c737c9f466667cf50077d7c5f131d16a25849de5b38c2f28b31f10af0aed69d0",
+    "implementation_changed_file_count": 3,
+    "implementation_insertions": 438,
+    "implementation_deletions": 98,
+    "files": [
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox.py",
+        "sha256": "247b717a4336bd58484bf6a5cca3d31dc7c732c1ada6ff53373173a61a2c858f"
+      },
+      {
+        "path": "core/sitina/orchestrator/execution_sandbox_worker.py",
+        "sha256": "12caa23ad57ecc1aaa5addf838cc6ddc5fe0e32a41e70a78962511c26c4e9ab3"
+      },
+      {
+        "path": "tests/test_execution_sandbox.py",
+        "sha256": "1035f3146ed1771b070f74b0d1b16ae0d1b5c677ec51c8ac4c827a85387eac8f"
+      }
+    ]
+  },
+  "result_source_boundary": {
+    "signing_supervisor_imports_or_executes_target_code": false,
+    "one_seatbelt_process_per_attempted_item": true,
+    "structured_observations_constructed_outside_target_process": true,
+    "target_output_surface": "RAW_STDOUT_STDERR_AND_OS_EXIT_STATUS_ONLY",
+    "target_receives_sealed_expected_output": false,
+    "target_receives_sealed_expected_exception": false,
+    "target_receives_sealed_plan_hash": false,
+    "target_receives_controller_hmac_key": false,
+    "target_has_supervisor_result_channel": false,
+    "supervisor_observation_inputs": [
+      "exact process-to-item mapping",
+      "raw stdout",
+      "raw stderr",
+      "OS exit status"
+    ],
+    "executor_reports_aggregate_test_verdict": false,
+    "parent_verdict": "The parent validates the sealed plan hash and exact observation schema, cardinality, order and identity, then independently compares raw observations with sealed expectations and derives all counts and acceptance.",
+    "generic_unittest": "FAIL_CLOSED_UNSUPPORTED"
+  },
+  "directed_regressions": {
+    "suite": "tests.test_execution_sandbox",
+    "tests": 20,
+    "passed": 20,
+    "failures": 0,
+    "errors": 0,
+    "new_result_integrity_case": "A target reconstructs a complete matching structured observation, emits the old accepted marker and exits zero; the external supervisor ignores that target-authored structure and the real failing doctest is not accepted."
+  },
+  "isolated_gates": {
+    "suite_registry": "tests/test_suites.json",
+    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "fresh_nonproduction_homes": true,
+    "execution_activation_gate": {
+      "collected": 52,
+      "executed": 52,
+      "passed": 52,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collection_complete": true,
+      "execution_complete": true,
+      "accepted": true,
+      "stdout_sha256": "d0da342d74859f0a67a095fa4f9fbf7ab03ea7f0d258ec8c1a9dc3f9f3d2e314"
+    },
+    "unit_fast": {
+      "tests": 217,
+      "passed": 217,
+      "failures": 0,
+      "errors": 0,
+      "stdout_sha256": "1ec8c60158c4f323c713b74619875115a1ab20da678617cd5c0976c6dc5d76b6"
+    },
+    "integration_isolated": {
+      "tests": 221,
+      "passed": 221,
+      "failures": 0,
+      "errors": 0,
+      "stdout_sha256": "ac8cff290a7cb3ccec39c9563231238d5427741795f44e7319fabce7e2c94963"
+    },
+    "all_registered_unique_selectors": {
+      "selector_occurrences": 174,
+      "unique_selectors": 166,
+      "tests": 1014,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5,
+      "skip_reason": "Five historical Phase -1 acceptance observations are conditional on SITINA_BPLUS_TEST_LAYER=legacy_readonly_observation.",
+      "stdout_sha256": "87d40993596acbe60c70cbe29b9b4f00c53cfc41cc3f57bff76bef712d68e504"
+    },
+    "isolation_observations": {
+      "external_attempt_count": 0,
+      "production_path_attempt_count": 0,
+      "temporary_test_roots_removed": true,
+      "temporary_controller_roots_removed": true,
+      "production_fence_disabled_or_bypassed": false
+    }
+  },
+  "production_sentinels": {
+    "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+    "production_home": "/Users/moss/SitinaHub",
+    "v1_before": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "v1_after_tests": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "v1_after_readonly_review": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
+    "mutable_v2_before": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "mutable_v2_after_tests": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "mutable_v2_after_readonly_review": "7f5420deed23aa3fb5ee4727c17ad8c5cd7d9b03a8a1befc0cdcaef913f2965e",
+    "unchanged": true
+  },
+  "real_sitina_readonly_review": {
+    "review_packet": {
+      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-result-integrity-review-packet-v2-20260722T101836Z.json",
+      "sha256": "a29d7ba86ff2ad3e9a4291031bf194e25e228e018bf27110201e13cc4b65d41a"
+    },
+    "runtime": "sitina-autonomous-extensions-v1",
+    "model": "deepseek-v4-pro",
+    "run_id": "agent-run-fb35b38cb95342ada8c587372b1e27aa",
+    "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-fb35b38cb95342ada8c587372b1e27aa.jsonl",
+    "audit_sha256": "27bfd1cc770c97f5be80a9c6261282c37ef372b0b54ad4c95fb177e002c682a9",
+    "provider_calls": 2,
+    "input_tokens": 4748,
+    "output_tokens": 774,
+    "total_tokens": 5522,
+    "cache_read_tokens": 2304,
+    "cache_write_tokens": 2444,
+    "tool_calls": 1,
+    "tool_permissions": [
+      "read"
+    ],
+    "file_mutation_event_count": 0,
+    "external_mutation_count": 0,
+    "terminal_state": "SUCCEEDED",
+    "verdict": "PASS",
+    "blockers": [],
+    "may_commit": true
+  },
+  "diagnostic_nonpasses": [
+    {
+      "stage": "first isolated harness startup",
+      "classification": "IMPORT_PRECONDITION_FAILURE_NOT_TEST_PASS",
+      "detail": "The outer harness omitted the source module path and stopped before test execution."
+    },
+    {
+      "stage": "second isolated harness startup",
+      "classification": "EXPECTED_PRODUCTION_FENCE_DENIAL_NOT_TEST_PASS",
+      "detail": "The outer controller inherited the protected default home and the frozen fence denied subprocess startup. A new disjoint controller SITINA_HOME enabled the isolated run without disabling or bypassing the fence."
+    },
+    {
+      "stage": "first real Sitina read-only review",
+      "classification": "PROVIDER_OUTPUT_LIMIT_FAILURE_NOT_REVIEW_PASS",
+      "run_id": "agent-run-46605fd471ba4ebbac699d553e3a1d32",
+      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-46605fd471ba4ebbac699d553e3a1d32.jsonl",
+      "audit_sha256": "d1513fd1da9550321b2e2f88cba02f8a7f71ca8be7cecde704ea722ecb09e045",
+      "input_tokens": 4919,
+      "output_tokens": 1299,
+      "total_tokens": 6218,
+      "detail": "The read completed but the Provider exhausted its output limit without final text, so the runtime failed closed and no verdict was used."
+    },
+    {
+      "stage": "first final sentinel summary formatting",
+      "classification": "SUMMARY_FIELD_PRECONDITION_FAILURE_NOT_SENTINEL_PASS",
+      "detail": "The read-only capture completed, but the display expression requested an absent non-hash statistic. The corrected hash-only capture completed and matched the pre-test values."
+    }
+  ],
+  "static_checks": {
+    "git_diff_check": "PASS",
+    "python_syntax": "PASS",
+    "json_syntax": "PASS"
+  },
+  "safety_state": {
+    "production_deployment_modified": false,
+    "feature_flags_changed": false,
+    "production_sentinel_or_baseline_installed_or_promoted": false,
+    "production_canary_run": false,
+    "production_data_deleted_or_moved": false,
+    "review_temp_home_removed": true
+  }
+}

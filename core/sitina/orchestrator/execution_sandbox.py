@@ -3,9 +3,11 @@
 The parent controller owns planning, process lifecycle, protocol cardinality,
 schema/count validation and final attestation.  An exact capability/hash-bound
 supervisor owns the one-use HMAC key but never imports or executes target code.
-It launches a Seatbelt-confined executor that loads targets without receiving
-the key.  Target frame inspection therefore cannot reach the signing process's
-interpreter, call stack or address space.
+For tests it launches one Seatbelt-confined process per sealed item and builds
+the structured observation outside those processes from their exact mapping,
+raw stdout/stderr and exit status.  Target code receives neither the signing
+key nor a structured result channel, so frame inspection cannot reach the
+signing process's interpreter, call stack, address space or accepted protocol.
 """
 from __future__ import annotations
 
@@ -396,10 +398,15 @@ class TestEvidence:
                 "trusted_controller_computes_counts_from_item_observations": True,
                 "executor_reports_aggregate_test_verdict": False,
                 "generic_unittest_result_source": "FAIL_CLOSED_UNSUPPORTED",
-                "supported_result_source": "DOCTEST_ITEM_OBSERVATIONS_V1",
+                "supported_result_source": "SUPERVISOR_OBSERVED_DOCTEST_PROCESS_IO_V1",
                 "signing_supervisor_is_exact_hash_bound_tcb": True,
                 "signing_supervisor_executes_target_code": False,
                 "target_executor_is_separate_process": True,
+                "one_seatbelt_process_per_attempted_item": True,
+                "structured_observations_constructed_outside_target_process": True,
+                "target_result_channel_access": "NONE_RAW_STDOUT_STDERR_ONLY",
+                "item_exception_source": "OS_PROCESS_EXIT_AND_RAW_STDERR",
+                "target_receives_sealed_expected_output": False,
                 "target_protocol_key_exposure": "NEVER_PASSED_TO_EXECUTOR_PROCESS",
                 "authenticated_channel": "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256_SEPARATE_SUPERVISOR_PROCESS",
                 "target_cannot_frame_introspect_signing_supervisor": True,
@@ -519,8 +526,10 @@ def _evaluated_test_observations(
 ) -> dict[str, int] | None:
     """Validate raw observations and independently derive every test count.
 
-    The executor never reports pass/fail or aggregate counts.  Only this parent
-    controller compares sealed expected values with one observation per item.
+    Target processes never report structured observations, pass/fail or
+    aggregate counts.  The signing supervisor constructs item observations
+    from OS-visible process I/O, and only this parent controller compares them
+    with sealed expected values.
     """
 
     if (
@@ -730,8 +739,8 @@ class ExecutionSandboxRunner:
     def _signal_sandbox(process: subprocess.Popen[bytes], requested_signal: signal.Signals) -> None:
         """Signal the whole sandbox, with a safe exact-PID Darwin fallback.
 
-        The trusted supervisor owns one Seatbelt executor whose kernel
-        RLIMIT_NPROC=1 and profile deny descendants.  Some Darwin releases
+        The trusted supervisor owns at most one active Seatbelt item process;
+        each has kernel RLIMIT_NPROC=1 and a profile denying descendants.  Some Darwin releases
         return EPERM for killpg() across the Seatbelt boundary; the exact
         supervisor PID remains the safe fallback target.
         """

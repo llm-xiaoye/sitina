@@ -1,7 +1,8 @@
-"""Trusted stdlib-only worker executed inside the OS sandbox.
+"""Trusted stdlib-only signing supervisor and Seatbelt item worker.
 
 The parent binds this file's hash into a one-use capability.  This module must
-not import Sitina or any third-party package before kernel limits are applied.
+not import Sitina or any third-party package.  Target modules run only in
+per-item Seatbelt processes and never share the supervisor's result channel.
 """
 from __future__ import annotations
 
@@ -33,6 +34,10 @@ PROOF_MARKER = "SITINA_SANDBOX_WORKER_PROOF:"
 EXECUTOR_RESULT_MARKER = "SITINA_SANDBOX_EXECUTOR_RESULT:"
 KEY_MARKER = "SITINA_SANDBOX_CONTROLLER_KEY:"
 CHALLENGE_MARKER = "SITINA_SANDBOX_PARENT_CHALLENGE:"
+
+ITEM_SUCCESS_EXIT = 70
+ITEM_EXCEPTION_EXIT = 71
+ITEM_FAILURE_EXIT = 72
 
 _TRUSTED_DOCTEST_FINDER = doctest.DocTestFinder
 
@@ -166,63 +171,11 @@ def _exception_only(error: BaseException) -> tuple[str, str]:
     return f"{error_type.__module__}.{error_type.__qualname__}", "".join(rendered)
 
 
-def _run_doctest_observations(
-    path: Path,
-    ordinal: int,
-    planned_examples: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    """Return raw per-example observations without computing a verdict."""
+def _validated_test_targets(
+    request: dict[str, object],
+) -> tuple[list[tuple[dict[str, object], dict[str, object]]], list[str], str]:
+    """Validate the sealed plan without importing or executing a target."""
 
-    finder = _TRUSTED_DOCTEST_FINDER(exclude_empty=True)
-    find = finder.find
-    module = _module(path, ordinal)
-    found = find(module)
-    flattened = [
-        (test, example_number, example)
-        for test in found
-        for example_number, example in enumerate(test.examples)
-    ]
-    planned_fingerprints = [
-        item.get("fingerprint") if isinstance(item, dict) else None
-        for item in planned_examples
-    ]
-    actual_fingerprints = [_example_fingerprint(example) for _test, _number, example in flattened]
-    if actual_fingerprints != planned_fingerprints:
-        raise RuntimeError("doctest discovery does not match sealed TestPlan")
-    observations: list[dict[str, object]] = []
-    for index, (test, example_number, example) in enumerate(flattened):
-        option_flags = 0
-        for flag, enabled in example.options.items():
-            option_flags = option_flags | flag if enabled else option_flags & ~flag
-        attempted = not bool(option_flags & doctest.SKIP)
-        output = doctest._SpoofOut()
-        exception_type: str | None = None
-        exception_text: str | None = None
-        if attempted:
-            filename = f"<doctest {test.name}[{example_number}]>"
-            compile_flags = doctest._extract_future_flags(test.globs)
-            try:
-                with contextlib.redirect_stdout(output):
-                    exec(
-                        compile(example.source, filename, "single", compile_flags, True),
-                        test.globs,
-                    )
-            except BaseException as error:
-                exception_type, exception_text = _exception_only(error)
-        observations.append(
-            {
-                "index": index,
-                "fingerprint": actual_fingerprints[index],
-                "attempted": attempted,
-                "stdout": output.getvalue(),
-                "exception_type": exception_type,
-                "exception_text": exception_text,
-            }
-        )
-    return observations
-
-
-def _run_tests(request: dict[str, object]) -> dict[str, object]:
     raw_targets = request.get("targets")
     read_roots = request.get("read_roots")
     plan = request.get("test_plan")
@@ -241,10 +194,8 @@ def _run_tests(request: dict[str, object]) -> dict[str, object]:
     expected_total = plan.get("collected_test_count")
     if not isinstance(expected_total, int) or isinstance(expected_total, bool) or expected_total <= 0:
         raise RuntimeError("sandbox trusted TestPlan has no executable tests")
-    for root in reversed(read_roots):
-        if not isinstance(root, str):
-            raise RuntimeError("sandbox read root is invalid")
-        sys.path.insert(0, root)
+    if any(not isinstance(root, str) for root in read_roots):
+        raise RuntimeError("sandbox read root is invalid")
 
     if any(
         not isinstance(planned, dict) or planned.get("mode") != "doctest"
@@ -252,7 +203,8 @@ def _run_tests(request: dict[str, object]) -> dict[str, object]:
     ):
         raise RuntimeError("generic unittest result source is unsupported and fails closed")
 
-    target_observations: list[dict[str, object]] = []
+    validated: list[tuple[dict[str, object], dict[str, object]]] = []
+    validated_total = 0
     for ordinal, (raw, planned) in enumerate(zip(raw_targets, planned_targets, strict=True)):
         if not isinstance(raw, dict) or raw.get("mode") != "doctest":
             raise RuntimeError("sandbox test target is invalid")
@@ -282,21 +234,170 @@ def _run_tests(request: dict[str, object]) -> dict[str, object]:
             or len(planned_examples) != expected_count
         ):
             raise RuntimeError("sandbox trusted TestPlan counts are invalid")
-        # Keep target chatter separate from the single authenticated protocol
-        # line emitted through sys.__stdout__ by _executor_main().
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            examples = _run_doctest_observations(path, ordinal, planned_examples)
-        target_observations.append(
-            {"path": str(path), "mode": raw["mode"], "examples": examples}
-        )
-    if sum(len(item["examples"]) for item in target_observations) != expected_total:
+        for index, example in enumerate(planned_examples):
+            if (
+                not isinstance(example, dict)
+                or example.get("index") != index
+                or not isinstance(example.get("fingerprint"), str)
+                or not isinstance(example.get("want"), str)
+                or not (example.get("exc_msg") is None or isinstance(example.get("exc_msg"), str))
+                or not isinstance(example.get("options"), list)
+            ):
+                raise RuntimeError("sandbox trusted TestPlan example is invalid")
+        validated.append((raw, planned))
+        validated_total += expected_count
+    if validated_total != expected_total:
         raise RuntimeError("sandbox collected count does not match sealed TestPlan")
-    return {
-        "schema": "SITINA_SANDBOX_TEST_OBSERVATIONS_V1",
-        "mode": "tests",
-        "test_plan_hash": plan_hash,
-        "observations": target_observations,
-    }
+    return validated, list(read_roots), plan_hash
+
+
+def _option_flags(raw: object) -> int:
+    if not isinstance(raw, list):
+        raise RuntimeError("sandbox doctest options are invalid")
+    flags = 0
+    for item in raw:
+        if (
+            not isinstance(item, list)
+            or len(item) != 2
+            or not isinstance(item[0], int)
+            or isinstance(item[0], bool)
+            or not isinstance(item[1], bool)
+        ):
+            raise RuntimeError("sandbox doctest option is invalid")
+        flags = flags | item[0] if item[1] else flags & ~item[0]
+    return flags
+
+
+def _execute_prior_example(test: doctest.DocTest, example_number: int) -> None:
+    example = test.examples[example_number]
+    option_flags = 0
+    for flag, enabled in example.options.items():
+        option_flags = option_flags | flag if enabled else option_flags & ~flag
+    if option_flags & doctest.SKIP:
+        return
+    output = doctest._SpoofOut()
+    filename = f"<doctest {test.name}[{example_number}]>"
+    compile_flags = doctest._extract_future_flags(test.globs)
+    try:
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            exec(
+                compile(example.source, filename, "single", compile_flags, True),
+                test.globs,
+            )
+    except BaseException:
+        # Doctest continues after both expected and unexpected exceptions.  The
+        # supervisor independently observes every prior item in its own run.
+        pass
+
+
+def _item_executor_main(encoded_request: str) -> int:
+    """Run one sealed item with no structured result channel to the supervisor.
+
+    The process has only raw stdout/stderr.  The signing supervisor owns the
+    mapping from this exact process to the sealed item and constructs the
+    observation after the process exits.
+    """
+
+    raw_write = os.write
+    raw_exit = os._exit
+    enumerate_threads = threading.enumerate
+    executor_thread_id = threading.get_ident()
+    try:
+        request = _decode_request(encoded_request)
+        if set(request) != {
+            "schema",
+            "target",
+            "example_index",
+            "fingerprints",
+            "read_roots",
+            "resource_limits",
+        } or request.get("schema") != "SITINA_SANDBOX_DOCTEST_ITEM_REQUEST_V1":
+            raise RuntimeError("sandbox item request is invalid")
+        target = request.get("target")
+        fingerprints = request.get("fingerprints")
+        read_roots = request.get("read_roots")
+        example_index = request.get("example_index")
+        if (
+            not isinstance(target, dict)
+            or set(target) != {"index", "path", "source_hash"}
+            or not isinstance(target.get("index"), int)
+            or isinstance(target.get("index"), bool)
+            or not isinstance(fingerprints, list)
+            or not fingerprints
+            or any(not isinstance(value, str) for value in fingerprints)
+            or not isinstance(example_index, int)
+            or isinstance(example_index, bool)
+            or not 0 <= example_index < len(fingerprints)
+            or not isinstance(read_roots, list)
+            or not read_roots
+            or any(not isinstance(root, str) for root in read_roots)
+        ):
+            raise RuntimeError("sandbox item binding is invalid")
+        _apply_limits(request.get("resource_limits"))
+        for root in reversed(read_roots):
+            sys.path.insert(0, root)
+        path = Path(str(target.get("path")))
+        if (
+            not path.is_absolute()
+            or path.is_symlink()
+            or not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != target.get("source_hash")
+        ):
+            raise RuntimeError("sandbox item target identity is invalid")
+        finder = _TRUSTED_DOCTEST_FINDER(exclude_empty=True)
+        module = _module(path, int(target["index"]))
+        flattened = [
+            (test, number, example)
+            for test in finder.find(module)
+            for number, example in enumerate(test.examples)
+        ]
+        actual_fingerprints = [
+            _example_fingerprint(example) for _test, _number, example in flattened
+        ]
+        if actual_fingerprints != fingerprints:
+            raise RuntimeError("sandbox item discovery does not match sealed fingerprints")
+        test, example_number, example = flattened[example_index]
+        for prior_number in range(example_number):
+            _execute_prior_example(test, prior_number)
+        option_flags = 0
+        for flag, enabled in example.options.items():
+            option_flags = option_flags | flag if enabled else option_flags & ~flag
+        if option_flags & doctest.SKIP:
+            raise RuntimeError("sandbox supervisor launched a skipped item")
+        output = doctest._SpoofOut()
+        filename = f"<doctest {test.name}[{example_number}]>"
+        compile_flags = doctest._extract_future_flags(test.globs)
+        error_record: dict[str, str] | None = None
+        try:
+            with contextlib.redirect_stdout(output):
+                exec(
+                    compile(example.source, filename, "single", compile_flags, True),
+                    test.globs,
+                )
+        except BaseException as error:
+            error_type, error_text = _exception_only(error)
+            error_record = {"exception_type": error_type, "exception_text": error_text}
+        lingering = [
+            item for item in enumerate_threads() if item.ident != executor_thread_id
+        ]
+        if lingering:
+            raise RuntimeError("target left background threads active")
+        rendered = output.getvalue().encode("utf-8")
+        if rendered:
+            raw_write(1, rendered)
+        if error_record is not None:
+            raw_write(2, error_record["exception_text"].encode("utf-8"))
+            raw_exit(ITEM_EXCEPTION_EXIT)
+        raw_exit(ITEM_SUCCESS_EXIT)
+    except BaseException as error:
+        detail = f"{type(error).__name__}:{str(error)[:500]}".encode(
+            "utf-8", errors="replace"
+        )
+        try:
+            raw_write(2, detail + b"\n")
+        finally:
+            raw_exit(ITEM_FAILURE_EXIT)
+    return ITEM_FAILURE_EXIT
 
 
 def _denied(callable_) -> bool:
@@ -351,7 +452,7 @@ def _run_probe(request: dict[str, object]) -> dict[str, object]:
 
 
 def _executor_main(encoded_request: str) -> int:
-    """Execute targets without ever receiving controller signing material."""
+    """Run the target-free qualification probe inside Seatbelt."""
 
     protocol_output = sys.__stdout__
     encode_response = base64.urlsafe_b64encode
@@ -372,12 +473,10 @@ def _executor_main(encoded_request: str) -> int:
     try:
         _apply_limits(request.get("resource_limits"))
         mode = request.get("mode")
-        if mode == "tests":
-            response = _run_tests(request)
-        elif mode == "probe":
+        if mode == "probe":
             response = _run_probe(request)
         else:
-            raise RuntimeError("sandbox executor mode is invalid")
+            raise RuntimeError("structured executor protocol is probe-only")
         response["worker_ok"] = True
     except BaseException as error:
         response = {
@@ -405,7 +504,12 @@ def _executor_main(encoded_request: str) -> int:
     return 0 if response.get("worker_ok") is True else 2
 
 
-def _executor_binding(request: dict[str, object]) -> tuple[list[str], int, int]:
+def _executor_binding(
+    request: dict[str, object],
+    *,
+    payload: dict[str, object] | None = None,
+    option: str = "--execute-request",
+) -> tuple[list[str], int, int]:
     binding = request.get("executor")
     if not isinstance(binding, dict) or set(binding) != {
         "schema",
@@ -449,7 +553,11 @@ def _executor_binding(request: dict[str, object]) -> tuple[list[str], int, int]:
         or file_bytes <= 0
     ):
         raise RuntimeError("sandbox executor bounds are invalid")
-    encoded_request = base64.urlsafe_b64encode(_canonical(request)).decode("ascii")
+    if option not in {"--execute-request", "--execute-item"}:
+        raise RuntimeError("sandbox executor option is invalid")
+    encoded_request = base64.urlsafe_b64encode(
+        _canonical(request if payload is None else payload)
+    ).decode("ascii")
     command = [
         str(sandbox_executable),
         "-p",
@@ -457,15 +565,17 @@ def _executor_binding(request: dict[str, object]) -> tuple[list[str], int, int]:
         str(python_executable),
         "-I",
         "-S",
+        "-u",
         str(worker_path),
-        "--execute-request",
+        option,
         encoded_request,
     ]
     return command, wall_seconds, file_bytes
 
 
-def _run_separate_executor(request: dict[str, object]) -> dict[str, object]:
-    command, wall_seconds, file_bytes = _executor_binding(request)
+def _run_bounded_executor(
+    command: list[str], wall_seconds: int, file_bytes: int
+) -> tuple[int, bytes, bytes, bool]:
     process = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,
@@ -512,6 +622,18 @@ def _run_separate_executor(request: dict[str, object]) -> dict[str, object]:
     stderr = bytes(buffers[process.stderr.fileno()])
     process.stdout.close()
     process.stderr.close()
+    return return_code, stdout, stderr, invalid
+
+
+def _run_protocol_executor(request: dict[str, object]) -> dict[str, object]:
+    """Run the target-free probe protocol inside Seatbelt."""
+
+    if request.get("mode") != "probe":
+        raise RuntimeError("structured executor protocol is probe-only")
+    command, wall_seconds, file_bytes = _executor_binding(request)
+    return_code, stdout, stderr, invalid = _run_bounded_executor(
+        command, wall_seconds, file_bytes
+    )
     lines = stdout.splitlines()
     payloads = [line[len(EXECUTOR_RESULT_MARKER):] for line in lines if line.startswith(EXECUTOR_RESULT_MARKER.encode("ascii"))]
     if (
@@ -540,11 +662,163 @@ def _run_separate_executor(request: dict[str, object]) -> dict[str, object]:
     return response
 
 
+def _run_observed_item(
+    request: dict[str, object],
+    *,
+    raw: dict[str, object],
+    planned: dict[str, object],
+    example: dict[str, object],
+    read_roots: list[str],
+) -> dict[str, object]:
+    planned_examples = planned.get("planned_examples")
+    if not isinstance(planned_examples, list):
+        raise RuntimeError("sandbox item plan is invalid")
+    fingerprints = [
+        item.get("fingerprint") if isinstance(item, dict) else None
+        for item in planned_examples
+    ]
+    if any(not isinstance(value, str) for value in fingerprints):
+        raise RuntimeError("sandbox item fingerprints are invalid")
+    item_request: dict[str, object] = {
+        "schema": "SITINA_SANDBOX_DOCTEST_ITEM_REQUEST_V1",
+        "target": {
+            "index": planned["index"],
+            "path": raw["path"],
+            "source_hash": planned["source_hash"],
+        },
+        "example_index": example["index"],
+        "fingerprints": fingerprints,
+        "read_roots": read_roots,
+        "resource_limits": request["resource_limits"],
+    }
+    command, wall_seconds, file_bytes = _executor_binding(
+        request, payload=item_request, option="--execute-item"
+    )
+    return_code, stdout, stderr, invalid = _run_bounded_executor(
+        command, wall_seconds, file_bytes
+    )
+    if invalid:
+        raise RuntimeError("sandbox item observation exceeded its bound")
+    try:
+        observed_stdout = stdout.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise RuntimeError("sandbox item stdout is not UTF-8") from error
+    observation: dict[str, object] = {
+        "index": example["index"],
+        "fingerprint": example["fingerprint"],
+        "attempted": True,
+        "stdout": observed_stdout,
+        "exception_type": None,
+        "exception_text": None,
+    }
+    if return_code == ITEM_SUCCESS_EXIT:
+        if stderr:
+            raise RuntimeError("sandbox successful item wrote stderr")
+        return observation
+    if return_code == ITEM_EXCEPTION_EXIT:
+        try:
+            exception_text = stderr.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise RuntimeError("sandbox item exception stderr is not UTF-8") from error
+        if not exception_text:
+            raise RuntimeError("sandbox item exception stderr is empty")
+        # The supervisor constructs the structured observation solely from
+        # the OS-visible process mapping, exit status, stdout and stderr.  No
+        # target-writable marker or JSON result channel is accepted.
+        observation["exception_type"] = "observed.sandbox_item_exception"
+        observation["exception_text"] = exception_text
+        return observation
+    stderr_detail = stderr.decode("utf-8", errors="replace")[:500]
+    stdout_detail = stdout.decode("utf-8", errors="replace")[:500]
+    raise RuntimeError(
+        "sandbox item did not reach the trusted observer boundary: "
+        f"return_code={return_code}; stdout={stdout_detail!r}; stderr={stderr_detail!r}"
+    )
+
+
+def _run_observed_tests(request: dict[str, object]) -> dict[str, object]:
+    """Construct observations outside every target process.
+
+    Each attempted item is mapped to one exact Seatbelt process.  That process
+    owns only raw stdout/stderr and an exit status; it never has the signed
+    response pipe, the controller key, or a structured observation channel.
+    """
+
+    targets, read_roots, plan_hash = _validated_test_targets(request)
+    limits = request.get("resource_limits")
+    if (
+        not isinstance(limits, dict)
+        or not isinstance(limits.get("cpu_seconds"), int)
+        or isinstance(limits.get("cpu_seconds"), bool)
+        or int(limits["cpu_seconds"]) <= 0
+    ):
+        raise RuntimeError("sandbox aggregate CPU bound is invalid")
+    cpu_budget = float(limits["cpu_seconds"])
+    initial_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    initial_cpu = float(initial_usage.ru_utime + initial_usage.ru_stime)
+
+    def assert_cpu_budget() -> None:
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        consumed = float(usage.ru_utime + usage.ru_stime) - initial_cpu
+        if consumed > cpu_budget:
+            raise RuntimeError("sandbox item processes exceeded aggregate CPU bound")
+
+    target_observations: list[dict[str, object]] = []
+    for raw, planned in targets:
+        planned_examples = planned["planned_examples"]
+        assert isinstance(planned_examples, list)
+        examples: list[dict[str, object]] = []
+        for example in planned_examples:
+            assert isinstance(example, dict)
+            if _option_flags(example.get("options")) & doctest.SKIP:
+                examples.append(
+                    {
+                        "index": example["index"],
+                        "fingerprint": example["fingerprint"],
+                        "attempted": False,
+                        "stdout": "",
+                        "exception_type": None,
+                        "exception_text": None,
+                    }
+                )
+                continue
+            observed = _run_observed_item(
+                request,
+                raw=raw,
+                planned=planned,
+                example=example,
+                read_roots=read_roots,
+            )
+            assert_cpu_budget()
+            examples.append(observed)
+        target_observations.append(
+            {"path": raw["path"], "mode": raw["mode"], "examples": examples}
+        )
+    response: dict[str, object] = {
+        "schema": "SITINA_SANDBOX_TEST_OBSERVATIONS_V1",
+        "mode": "tests",
+        "test_plan_hash": plan_hash,
+        "observations": target_observations,
+        "worker_ok": True,
+    }
+    if (
+        not isinstance(limits.get("file_bytes"), int)
+        or len(_canonical(response)) > int(limits["file_bytes"])
+    ):
+        raise RuntimeError("sandbox observed response exceeds its bound")
+    return response
+
+
+def _run_separate_executor(request: dict[str, object]) -> dict[str, object]:
+    if request.get("mode") == "tests":
+        return _run_observed_tests(request)
+    return _run_protocol_executor(request)
+
+
 def main(argv: list[str] | None = None) -> int:
     # These protocol primitives and the one-use key live only in this signing
-    # supervisor.  The separate executor process receives neither stdin nor
-    # environment state from this protocol and is the only process that loads
-    # target modules.
+    # supervisor.  Target modules run only in per-item Seatbelt processes that
+    # have raw stdout/stderr but never this supervisor's signed result channel.
     protocol_input = sys.__stdin__.buffer
     protocol_output = sys.__stdout__
     encode_response = base64.urlsafe_b64encode
@@ -565,7 +839,10 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--request")
     mode.add_argument("--execute-request")
+    mode.add_argument("--execute-item")
     arguments = parser.parse_args(argv)
+    if arguments.execute_item is not None:
+        return _item_executor_main(arguments.execute_item)
     if arguments.execute_request is not None:
         return _executor_main(arguments.execute_request)
     request = _decode_request(arguments.request)

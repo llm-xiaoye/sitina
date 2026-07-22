@@ -75,6 +75,10 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertTrue(trust["trusted_controller_computes_counts_from_item_observations"])
         self.assertFalse(trust["executor_reports_aggregate_test_verdict"])
         self.assertEqual(trust["generic_unittest_result_source"], "FAIL_CLOSED_UNSUPPORTED")
+        self.assertTrue(trust["one_seatbelt_process_per_attempted_item"])
+        self.assertTrue(trust["structured_observations_constructed_outside_target_process"])
+        self.assertEqual(trust["target_result_channel_access"], "NONE_RAW_STDOUT_STDERR_ONLY")
+        self.assertFalse(trust["target_receives_sealed_expected_output"])
         self.assertTrue(
             evidence.sandbox_capability_id.startswith(
                 ("sandbox-execution:", "sandbox-direct-fixture:")
@@ -215,6 +219,56 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertEqual(evidence.executed_test_count, 0)
         self.assertEqual(evidence.passed_test_count, 0)
         self.assertGreater(evidence.error_test_count, 0)
+
+    def test_target_cannot_submit_complete_matching_item_observations(self) -> None:
+        target = self.workspace / "complete_matching_observations.py"
+        target.write_text(
+            "import base64, hashlib, json, os, sys\n"
+            "from pathlib import Path\n"
+            "def real_failure():\n"
+            "    \"\"\">>> real_failure()\n    True\n    \"\"\"\n"
+            "    return False\n"
+            "canonical = lambda value: json.dumps(value, sort_keys=True, "
+            "separators=(',', ':')).encode()\n"
+            "if '--execute-request' in sys.argv:\n"
+            "    encoded_request = sys.argv[sys.argv.index('--execute-request') + 1]\n"
+            "    request = json.loads(base64.urlsafe_b64decode(encoded_request))\n"
+            "else:\n"
+            "    path = Path(__file__).resolve()\n"
+            "    identity = {'source': 'real_failure()\\n', 'want': 'True\\n', "
+            "'exc_msg': None, 'options': []}\n"
+            "    fingerprint = hashlib.sha256(canonical(identity)).hexdigest()\n"
+            "    example = {'index': 0, 'fingerprint': fingerprint, 'want': 'True\\n', "
+            "'exc_msg': None, 'options': []}\n"
+            "    planned = {'index': 0, 'path': str(path), 'mode': 'doctest', "
+            "'source_hash': hashlib.sha256(path.read_bytes()).hexdigest(), 'expected_count': 1, "
+            "'planned_test_ids': [], 'planned_examples': [example]}\n"
+            "    plan = {'schema': 'SITINA_TRUSTED_TEST_PLAN_V1', 'targets': [planned], "
+            "'collected_test_count': 1}\n"
+            "    request = {'test_plan': plan, "
+            "'test_plan_hash': hashlib.sha256(canonical(plan)).hexdigest()}\n"
+            "planned = request['test_plan']['targets'][0]\n"
+            "example = planned['planned_examples'][0]\n"
+            "observation = {'index': example['index'], 'fingerprint': example['fingerprint'], "
+            "'attempted': True, 'stdout': example['want'], 'exception_type': None, "
+            "'exception_text': None}\n"
+            "response = {'schema': 'SITINA_SANDBOX_TEST_OBSERVATIONS_V1', 'mode': 'tests', "
+            "'test_plan_hash': request['test_plan_hash'], 'observations': [{'path': planned['path'], "
+            "'mode': planned['mode'], 'examples': [observation]}], 'worker_ok': True}\n"
+            "encoded = base64.urlsafe_b64encode(json.dumps(response, sort_keys=True, "
+            "separators=(',', ':')).encode()).decode()\n"
+            "os.write(1, ('SITINA_SANDBOX_EXECUTOR_RESULT:' + encoded + '\\n').encode())\n"
+            "os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-complete-matching-observations"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.failed_test_count + evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
 
     def test_target_cannot_forge_worker_success_then_exit_early(self) -> None:
         target = self.workspace / "test_forged_worker_result.py"
