@@ -1,13 +1,11 @@
 """Capability-bound macOS OS sandbox for executing untrusted test code.
 
 The parent controller owns planning, process lifecycle, protocol cardinality,
-schema/count validation and final attestation.  The measured worker owns test
-execution.  A controller-provided one-use HMAC key is consumed by the worker
-before target import, so target code that merely controls worker stdin/stdout
-cannot manufacture an authenticated result.  This is still a shared Python
-address-space TCB: arbitrary frame/process-memory compromise of the measured
-worker is outside the claimed boundary and is recorded as a design limit, not
-as hardware-grade isolation.
+schema/count validation and final attestation.  An exact capability/hash-bound
+supervisor owns the one-use HMAC key but never imports or executes target code.
+It launches a Seatbelt-confined executor that loads targets without receiving
+the key.  Target frame inspection therefore cannot reach the signing process's
+interpreter, call stack or address space.
 """
 from __future__ import annotations
 
@@ -131,6 +129,7 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
         tree = ast.parse(source, filename=str(path))
         mode = "unittest" if "test_" in path.name else "doctest"
         planned_ids: list[str] = []
+        planned_examples: list[dict[str, object]] = []
         if mode == "unittest":
             test_classes = _test_case_classes(tree)
             for node in sorted(
@@ -153,16 +152,46 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
                     )
             expected_count = len(planned_ids)
         else:
-            expected_count = 0
-            for node in ast.walk(tree):
-                if not isinstance(
-                    node,
-                    (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
-                ):
-                    continue
+            documented_nodes = sorted(
+                (
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(
+                        node,
+                        (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+                    )
+                ),
+                key=lambda node: (
+                    int(getattr(node, "lineno", 0)),
+                    int(getattr(node, "col_offset", 0)),
+                    type(node).__name__,
+                    str(getattr(node, "name", "")),
+                ),
+            )
+            for node in documented_nodes:
                 docstring = ast.get_docstring(node, clean=False)
                 if docstring:
-                    expected_count += len(parser.get_examples(docstring))
+                    for example in parser.get_examples(docstring):
+                        options = [
+                            [int(flag), bool(enabled)]
+                            for flag, enabled in sorted(example.options.items())
+                        ]
+                        identity = {
+                            "source": example.source,
+                            "want": example.want,
+                            "exc_msg": example.exc_msg,
+                            "options": options,
+                        }
+                        planned_examples.append(
+                            {
+                                "index": len(planned_examples),
+                                "fingerprint": _sha256_bytes(_canonical(identity)),
+                                "want": example.want,
+                                "exc_msg": example.exc_msg,
+                                "options": options,
+                            }
+                        )
+            expected_count = len(planned_examples)
         collected += expected_count
         planned_targets.append(
             {
@@ -172,6 +201,7 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
                 "source_hash": _sha256_bytes(source.encode("utf-8")),
                 "expected_count": expected_count,
                 "planned_test_ids": planned_ids,
+                "planned_examples": planned_examples,
             }
         )
     plan: dict[str, object] = {
@@ -362,11 +392,17 @@ class TestEvidence:
             "controller_attestation_valid": self.controller_attestation_valid,
             "trust_boundary": {
                 "schema": "SITINA_SANDBOX_TRUST_BOUNDARY_V1",
-                "trusted_controller_owns_plan_protocol_and_verdict": True,
-                "worker_is_exact_hash_bound_tcb": True,
-                "target_protocol_key_exposure": "NOT_PASSED_TO_TARGET",
-                "authenticated_channel": "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256",
-                "same_process_frame_or_memory_compromise_covered": False,
+                "trusted_controller_owns_sealed_plan_protocol_and_verdict": True,
+                "trusted_controller_computes_counts_from_item_observations": True,
+                "executor_reports_aggregate_test_verdict": False,
+                "generic_unittest_result_source": "FAIL_CLOSED_UNSUPPORTED",
+                "supported_result_source": "DOCTEST_ITEM_OBSERVATIONS_V1",
+                "signing_supervisor_is_exact_hash_bound_tcb": True,
+                "signing_supervisor_executes_target_code": False,
+                "target_executor_is_separate_process": True,
+                "target_protocol_key_exposure": "NEVER_PASSED_TO_EXECUTOR_PROCESS",
+                "authenticated_channel": "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256_SEPARATE_SUPERVISOR_PROCESS",
+                "target_cannot_frame_introspect_signing_supervisor": True,
             },
             "cwd": self.cwd,
             "read_roots": list(self.read_roots),
@@ -475,50 +511,29 @@ _TEST_COUNT_FIELDS = (
 )
 
 
-def _validated_counts(value: object) -> dict[str, int] | None:
-    if not isinstance(value, dict) or set(value) != set(_TEST_COUNT_FIELDS):
-        return None
-    if any(
-        not isinstance(value[name], int)
-        or isinstance(value[name], bool)
-        or value[name] < 0
-        for name in _TEST_COUNT_FIELDS
-    ):
-        return None
-    counts = {name: int(value[name]) for name in _TEST_COUNT_FIELDS}
-    classified = sum(
-        counts[name]
-        for name in (
-            "passed",
-            "failed",
-            "skipped",
-            "errors",
-            "expected_failures",
-            "unexpected_successes",
-        )
-    )
-    if counts["executed"] != classified or counts["collected"] != counts["executed"]:
-        return None
-    return counts
-
-
-def _validated_test_response(
+def _evaluated_test_observations(
     response: Mapping[str, Any],
     *,
     test_plan: Mapping[str, object],
     test_plan_hash: str,
 ) -> dict[str, int] | None:
+    """Validate raw observations and independently derive every test count.
+
+    The executor never reports pass/fail or aggregate counts.  Only this parent
+    controller compares sealed expected values with one observation per item.
+    """
+
     if (
         set(response)
-        != {"schema", "mode", "test_plan_hash", "counts", "targets", "worker_ok"}
-        or response.get("schema") != "SITINA_SANDBOX_TEST_RESULT_V1"
+        != {"schema", "mode", "test_plan_hash", "observations", "worker_ok"}
+        or response.get("schema") != "SITINA_SANDBOX_TEST_OBSERVATIONS_V1"
         or response.get("mode") != "tests"
         or response.get("test_plan_hash") != test_plan_hash
         or response.get("worker_ok") is not True
     ):
         return None
     planned_targets = test_plan.get("targets")
-    result_targets = response.get("targets")
+    result_targets = response.get("observations")
     if (
         not isinstance(planned_targets, list)
         or not isinstance(result_targets, list)
@@ -527,10 +542,11 @@ def _validated_test_response(
         return None
     aggregate = {name: 0 for name in _TEST_COUNT_FIELDS}
     seen_paths: set[str] = set()
+    checker = doctest.OutputChecker()
     for planned, result in zip(planned_targets, result_targets, strict=True):
         if not isinstance(planned, dict) or not isinstance(result, dict):
             return None
-        allowed = {"path", "mode", "counts"}
+        allowed = {"path", "mode", "examples"}
         if set(result) != allowed:
             return None
         path = planned.get("path")
@@ -539,20 +555,87 @@ def _validated_test_response(
             or path in seen_paths
             or result.get("path") != path
             or result.get("mode") != planned.get("mode")
+            or planned.get("mode") != "doctest"
         ):
             return None
         seen_paths.add(path)
-        target_counts = _validated_counts(result.get("counts"))
-        if target_counts is None or target_counts["collected"] != planned.get("expected_count"):
+        planned_examples = planned.get("planned_examples")
+        observations = result.get("examples")
+        if (
+            not isinstance(planned_examples, list)
+            or not isinstance(observations, list)
+            or len(observations) != len(planned_examples)
+            or planned.get("expected_count") != len(planned_examples)
+        ):
             return None
-        for name in _TEST_COUNT_FIELDS:
-            aggregate[name] += target_counts[name]
-    totals = _validated_counts(response.get("counts"))
-    if totals is None or totals != aggregate:
+        aggregate["collected"] += len(planned_examples)
+        for expected, observed in zip(planned_examples, observations, strict=True):
+            if not isinstance(expected, dict) or not isinstance(observed, dict):
+                return None
+            if set(observed) != {
+                "index",
+                "fingerprint",
+                "attempted",
+                "stdout",
+                "exception_type",
+                "exception_text",
+            }:
+                return None
+            exception_type = observed.get("exception_type")
+            exception_text = observed.get("exception_text")
+            if (
+                observed.get("index") != expected.get("index")
+                or observed.get("fingerprint") != expected.get("fingerprint")
+                or not isinstance(observed.get("attempted"), bool)
+                or not isinstance(observed.get("stdout"), str)
+                or not (
+                    (exception_type is None and exception_text is None)
+                    or (isinstance(exception_type, str) and isinstance(exception_text, str))
+                )
+            ):
+                return None
+            raw_options = expected.get("options")
+            if not isinstance(raw_options, list) or any(
+                not isinstance(item, list)
+                or len(item) != 2
+                or not isinstance(item[0], int)
+                or isinstance(item[0], bool)
+                or not isinstance(item[1], bool)
+                for item in raw_options
+            ):
+                return None
+            option_flags = 0
+            for flag, enabled in raw_options:
+                option_flags = option_flags | flag if enabled else option_flags & ~flag
+            aggregate["executed"] += 1
+            if not observed["attempted"]:
+                if not option_flags & doctest.SKIP or exception_type is not None or observed["stdout"]:
+                    return None
+                aggregate["skipped"] += 1
+                continue
+            expected_exception = expected.get("exc_msg")
+            if exception_type is not None:
+                if not isinstance(expected_exception, str):
+                    aggregate["errors"] += 1
+                    continue
+                matched = checker.check_output(expected_exception, exception_text, option_flags)
+                if not matched and option_flags & doctest.IGNORE_EXCEPTION_DETAIL:
+                    matched = checker.check_output(
+                        doctest._strip_exception_details(expected_exception),
+                        doctest._strip_exception_details(exception_text),
+                        option_flags,
+                    )
+                aggregate["passed" if matched else "failed"] += 1
+                continue
+            want = expected.get("want")
+            if not isinstance(want, str) or expected_exception is not None:
+                aggregate["failed"] += 1
+                continue
+            matched = checker.check_output(want, observed["stdout"], option_flags)
+            aggregate["passed" if matched else "failed"] += 1
+    if aggregate["collected"] != test_plan.get("collected_test_count"):
         return None
-    if totals["collected"] != test_plan.get("collected_test_count"):
-        return None
-    return totals
+    return aggregate
 
 
 class ExecutionSandboxRunner:
@@ -593,6 +676,23 @@ class ExecutionSandboxRunner:
             self.python_executable, self.worker_path, read_roots, write_roots
         )
 
+    def _executor_binding(
+        self,
+        read_roots: tuple[Path, ...],
+        write_roots: tuple[Path, ...],
+    ) -> dict[str, str]:
+        profile = frozen_sandbox_profile(
+            self.python_executable, self.worker_path, read_roots, write_roots
+        )
+        return {
+            "schema": "SITINA_SANDBOX_EXECUTOR_BINDING_V1",
+            "sandbox_executable": str(self.sandbox_executable),
+            "python_executable": str(self.python_executable),
+            "worker_path": str(self.worker_path),
+            "sandbox_policy": profile,
+            "sandbox_policy_hash": _sha256_bytes(profile.encode("utf-8")),
+        }
+
     def _capability(
         self,
         *,
@@ -630,10 +730,10 @@ class ExecutionSandboxRunner:
     def _signal_sandbox(process: subprocess.Popen[bytes], requested_signal: signal.Signals) -> None:
         """Signal the whole sandbox, with a safe exact-PID Darwin fallback.
 
-        The worker's kernel RLIMIT_NPROC=1 and the qualified Seatbelt profile
-        both deny descendants.  Some Darwin releases nevertheless return EPERM
-        for killpg() across the Seatbelt boundary; in that case the runner PID
-        is the entire sandbox process tree and is safe to signal directly.
+        The trusted supervisor owns one Seatbelt executor whose kernel
+        RLIMIT_NPROC=1 and profile deny descendants.  Some Darwin releases
+        return EPERM for killpg() across the Seatbelt boundary; the exact
+        supervisor PID remains the safe fallback target.
         """
 
         try:
@@ -664,14 +764,12 @@ class ExecutionSandboxRunner:
             **request,
             "test_plan_hash": test_plan_hash,
             "resource_limits": self.limits.mapping(),
+            "executor": self._executor_binding(read_roots, write_roots),
         }
         encoded_request = base64.urlsafe_b64encode(_canonical(request)).decode("ascii")
         profile = self._profile(read_roots, write_roots)
         policy_hash = _sha256_bytes(profile.encode("utf-8"))
         argv = (
-            str(self.sandbox_executable),
-            "-p",
-            profile,
             str(self.python_executable),
             "-I",
             "-S",
@@ -923,7 +1021,11 @@ class ExecutionSandboxRunner:
         response = probe.response or {}
         results = response.get("results") if isinstance(response.get("results"), dict) else {}
         if probe.return_code != 0 or response.get("worker_ok") is not True:
-            raise ExecutionSandboxUnavailable("sandbox qualification worker failed")
+            error_type = str(response.get("error_type") or "missing-response")[:120]
+            error_detail = str(response.get("error") or "")[:500]
+            raise ExecutionSandboxUnavailable(
+                f"sandbox qualification worker failed: {error_type}: {error_detail}"
+            )
         guarantees = {
             "network_denied": bool(results.get("socket") and results.get("dns")),
             "process_spawn_denied": bool(results.get("subprocess")),
@@ -1012,13 +1114,13 @@ class ExecutionSandboxRunner:
                 scratch=scratch,
             )
             response = invocation.response or {}
-            validated_counts = _validated_test_response(
+            evaluated_counts = _evaluated_test_observations(
                 response,
                 test_plan=test_plan,
                 test_plan_hash=test_plan_hash,
             )
-            counts = validated_counts or {}
-            worker_ok = validated_counts is not None and invocation.return_code == 0
+            counts = evaluated_counts or {"collected": int(test_plan["collected_test_count"])}
+            worker_ok = evaluated_counts is not None and invocation.return_code == 0
             diff_after, _after_hashes = hash_diff(evidence_paths)
             finished_at = _utc_now()
             duration_ms = int((time.monotonic() - total_started) * 1000)
@@ -1028,7 +1130,7 @@ class ExecutionSandboxRunner:
                 diff_hash_before=diff_before,
                 diff_hash_after=diff_after,
                 target_hashes=target_hashes,
-                collected_test_count=int(counts.get("collected", 0) or 0),
+                collected_test_count=int(counts.get("collected", test_plan["collected_test_count"]) or 0),
                 executed_test_count=int(counts.get("executed", 0) or 0),
                 passed_test_count=int(counts.get("passed", 0) or 0),
                 failed_test_count=int(counts.get("failed", 0) or 0),

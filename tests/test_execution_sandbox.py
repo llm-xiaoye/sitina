@@ -69,9 +69,12 @@ class ExecutionSandboxTests(unittest.TestCase):
         trust = evidence.mapping()["trust_boundary"]
         self.assertEqual(
             trust["authenticated_channel"],
-            "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256",
+            "ONE_USE_CONTROLLER_KEYED_HMAC_SHA256_SEPARATE_SUPERVISOR_PROCESS",
         )
-        self.assertFalse(trust["same_process_frame_or_memory_compromise_covered"])
+        self.assertTrue(trust["target_cannot_frame_introspect_signing_supervisor"])
+        self.assertTrue(trust["trusted_controller_computes_counts_from_item_observations"])
+        self.assertFalse(trust["executor_reports_aggregate_test_verdict"])
+        self.assertEqual(trust["generic_unittest_result_source"], "FAIL_CLOSED_UNSUPPORTED")
         self.assertTrue(
             evidence.sandbox_capability_id.startswith(
                 ("sandbox-execution:", "sandbox-direct-fixture:")
@@ -82,7 +85,7 @@ class ExecutionSandboxTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "controller attestation"):
             dataclasses.replace(evidence, controller_protocol_key_hash="0" * 64)
 
-    def test_skipped_unittest_is_real_nonpass_evidence(self) -> None:
+    def test_generic_unittest_fails_closed_before_assertions_run(self) -> None:
         target = self.workspace / "test_skipped.py"
         target.write_text(
             "import unittest\n"
@@ -96,8 +99,122 @@ class ExecutionSandboxTests(unittest.TestCase):
         )
         self.assertFalse(evidence.accepted)
         self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertEqual(evidence.skipped_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
+
+    def test_failing_doctest_is_computed_as_a_real_failure_by_parent(self) -> None:
+        target = self.workspace / "failing.py"
+        target.write_text(
+            "def add(a, b):\n"
+            "    \"\"\">>> add(2, 3)\n    4\n    \"\"\"\n"
+            "    return a + b\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-failing-doctest"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
         self.assertEqual(evidence.executed_test_count, 1)
-        self.assertEqual(evidence.skipped_test_count, 1)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertEqual(evidence.failed_test_count, 1)
+        self.assertEqual(evidence.error_test_count, 0)
+        self.assertEqual(evidence.runner_return_code, 0)
+
+    def test_expected_doctest_exception_is_compared_by_parent(self) -> None:
+        target = self.workspace / "expected_exception.py"
+        target.write_text(
+            "def boom():\n"
+            "    \"\"\"\n"
+            "    >>> boom()\n"
+            "    Traceback (most recent call last):\n"
+            "    ...\n"
+            "    ValueError: sealed boom\n"
+            "    \"\"\"\n"
+            "    raise ValueError('sealed boom')\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-expected-doctest-exception"
+        )
+        self.assertTrue(evidence.accepted)
+        self.assertEqual(evidence.passed_test_count, 1)
+        self.assertEqual(evidence.error_test_count, 0)
+
+    def test_unexpected_doctest_exception_is_parent_error_evidence(self) -> None:
+        target = self.workspace / "unexpected_exception.py"
+        target.write_text(
+            "def boom():\n"
+            "    \"\"\">>> boom()\n    1\n    \"\"\"\n"
+            "    raise RuntimeError('unexpected')\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-unexpected-doctest-exception"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 1)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertEqual(evidence.error_test_count, 1)
+        self.assertEqual(evidence.runner_return_code, 0)
+
+    def test_zero_test_target_is_rejected_before_sandbox_start(self) -> None:
+        target = self.workspace / "empty.py"
+        target.write_text("VALUE = 1\n", encoding="utf-8")
+        with self.assertRaisesRegex(ExecutionSandboxError, "zero executable tests"):
+            ExecutionSandboxRunner(home=self.home).run_tests(
+                [target], run_id="sandbox-zero-tests"
+            )
+
+    def test_target_early_exit_never_counts_as_an_assertion_pass(self) -> None:
+        target = self.workspace / "early_exit.py"
+        target.write_text(
+            "import os\n"
+            "def value():\n"
+            "    \"\"\">>> value()\n    1\n    \"\"\"\n"
+            "    return 1\n"
+            "os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-early-exit"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
+        self.assertNotEqual(evidence.runner_return_code, 0)
+
+    def test_incomplete_item_observations_fail_closed(self) -> None:
+        target = self.workspace / "incomplete_observations.py"
+        target.write_text(
+            "import base64, json, os, sys\n"
+            "def value():\n"
+            "    \"\"\">>> value()\n    1\n    \"\"\"\n"
+            "    return 1\n"
+            "encoded_request = sys.argv[sys.argv.index('--execute-request') + 1]\n"
+            "request = json.loads(base64.urlsafe_b64decode(encoded_request))\n"
+            "response = {'schema': 'SITINA_SANDBOX_TEST_OBSERVATIONS_V1', 'mode': 'tests', "
+            "'test_plan_hash': request['test_plan_hash'], 'observations': [], 'worker_ok': True}\n"
+            "encoded = base64.urlsafe_b64encode(json.dumps(response, sort_keys=True, "
+            "separators=(',', ':')).encode()).decode()\n"
+            "os.write(1, ('SITINA_SANDBOX_EXECUTOR_RESULT:' + encoded + '\\n').encode())\n"
+            "os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-incomplete-observations"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertEqual(evidence.collected_test_count, 1)
+        self.assertEqual(evidence.executed_test_count, 0)
+        self.assertEqual(evidence.passed_test_count, 0)
+        self.assertGreater(evidence.error_test_count, 0)
 
     def test_target_cannot_forge_worker_success_then_exit_early(self) -> None:
         target = self.workspace / "test_forged_worker_result.py"
@@ -152,8 +269,79 @@ class ExecutionSandboxTests(unittest.TestCase):
             [target], run_id="sandbox-synchronous-forged-worker-result"
         )
         self.assertFalse(evidence.accepted)
-        self.assertFalse(evidence.controller_protocol_response_present)
+        self.assertTrue(evidence.controller_protocol_response_present)
+        self.assertEqual(evidence.passed_test_count, 0)
         self.assertGreater(evidence.error_test_count, 0)
+
+    def test_target_cannot_frame_walk_to_sign_a_forged_pass(self) -> None:
+        target = self.workspace / "test_frame_walk_forged_worker_result.py"
+        target.write_text(
+            "import base64, hashlib, hmac, json, os, sys, unittest\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_real_failure(self): self.fail('must be observed')\n"
+            "protocol_key = None\n"
+            "request = None\n"
+            "for current in sys._current_frames().values():\n"
+            "    while current is not None:\n"
+            "        local_key = current.f_locals.get('protocol_key')\n"
+            "        local_request = current.f_locals.get('request')\n"
+            "        if isinstance(local_key, bytes) and isinstance(local_request, dict):\n"
+            "            protocol_key = local_key\n"
+            "            request = local_request\n"
+            "            break\n"
+            "        current = current.f_back\n"
+            "    if protocol_key is not None:\n"
+            "        break\n"
+            "if protocol_key is not None:\n"
+            "    planned = request['test_plan']['targets'][0]\n"
+            "    counts = {'collected': 1, 'executed': 1, 'passed': 1, 'failed': 0, "
+            "'skipped': 0, 'errors': 0, 'expected_failures': 0, 'unexpected_successes': 0}\n"
+            "    response = {'schema': 'SITINA_SANDBOX_TEST_RESULT_V1', 'mode': 'tests', "
+            "'test_plan_hash': request['test_plan_hash'], 'counts': counts, "
+            "'targets': [{'path': planned['path'], 'mode': planned['mode'], 'counts': counts}], "
+            "'worker_ok': True}\n"
+            "    canonical = json.dumps(response, sort_keys=True, separators=(',', ':')).encode()\n"
+            "    encoded = base64.urlsafe_b64encode(canonical).decode()\n"
+            "    os.write(1, ('SITINA_SANDBOX_WORKER_RESULT:' + encoded + '\\n').encode())\n"
+            "    challenge = os.read(0, 256).split(b':', 1)[1].strip()\n"
+            "    proof = hmac.digest(protocol_key, challenge + b'\\0' + canonical, 'sha256').hex()\n"
+            "    os.write(1, ('SITINA_SANDBOX_WORKER_PROOF:' + proof + '\\n').encode())\n"
+            "    os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-frame-walk-forged-worker-result"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertGreater(evidence.failed_test_count + evidence.error_test_count, 0)
+
+    def test_target_cannot_forge_inner_result_and_exit_zero(self) -> None:
+        target = self.workspace / "inner_result_forgery.py"
+        target.write_text(
+            "import base64, json, os, sys\n"
+            "def real_failure():\n"
+            "    \"\"\">>> real_failure()\n    True\n    \"\"\"\n"
+            "    return False\n"
+            "encoded_request = sys.argv[sys.argv.index('--execute-request') + 1]\n"
+            "request = json.loads(base64.urlsafe_b64decode(encoded_request))\n"
+            "planned = request['test_plan']['targets'][0]\n"
+            "counts = {'collected': 1, 'executed': 1, 'passed': 1, 'failed': 0, "
+            "'skipped': 0, 'errors': 0, 'expected_failures': 0, 'unexpected_successes': 0}\n"
+            "response = {'schema': 'SITINA_SANDBOX_TEST_RESULT_V1', 'mode': 'tests', "
+            "'test_plan_hash': request['test_plan_hash'], 'counts': counts, "
+            "'targets': [{'path': planned['path'], 'mode': planned['mode'], 'counts': counts}], "
+            "'worker_ok': True}\n"
+            "canonical = json.dumps(response, sort_keys=True, separators=(',', ':')).encode()\n"
+            "encoded = base64.urlsafe_b64encode(canonical).decode()\n"
+            "os.write(1, ('SITINA_SANDBOX_EXECUTOR_RESULT:' + encoded + '\\n').encode())\n"
+            "os._exit(0)\n",
+            encoding="utf-8",
+        )
+        evidence = ExecutionSandboxRunner(home=self.home).run_tests(
+            [target], run_id="sandbox-inner-result-forgery"
+        )
+        self.assertFalse(evidence.accepted)
+        self.assertGreater(evidence.failed_test_count + evidence.error_test_count, 0)
 
     def test_target_cannot_replace_unittest_loader_or_runner(self) -> None:
         target = self.workspace / "test_replaced_unittest_runtime.py"
@@ -218,12 +406,13 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertGreater(evidence.failed_test_count + evidence.error_test_count, 0)
 
     def test_target_leaving_background_thread_is_rejected(self) -> None:
-        target = self.workspace / "test_background_thread.py"
+        target = self.workspace / "background_thread.py"
         target.write_text(
-            "import threading, time, unittest\n"
-            "class T(unittest.TestCase):\n"
-            "    def test_starts_thread(self):\n"
-            "        threading.Thread(target=lambda: time.sleep(30), daemon=True).start()\n",
+            "import threading, time\n"
+            "def value():\n"
+            "    \"\"\">>> value()\n    1\n    \"\"\"\n"
+            "    return 1\n"
+            "threading.Thread(target=lambda: time.sleep(30), daemon=True).start()\n",
             encoding="utf-8",
         )
         evidence = ExecutionSandboxRunner(home=self.home).run_tests(
@@ -284,17 +473,26 @@ class ExecutionSandboxTests(unittest.TestCase):
             profile = frozen_sandbox_profile(
                 python, worker, (self.workspace,), (self.home.parent,)
             )
+            executor = {
+                "schema": "SITINA_SANDBOX_EXECUTOR_BINDING_V1",
+                "sandbox_executable": str(runner),
+                "python_executable": str(python),
+                "worker_path": str(worker),
+                "sandbox_policy": profile,
+                "sandbox_policy_hash": hashlib.sha256(profile.encode("utf-8")).hexdigest(),
+            }
             request = base64.urlsafe_b64encode(
                 json.dumps(
                     {
                         "resource_limits": dict(limits),
                         "test_plan_hash": test_plan_hash,
+                        "executor": executor,
                     },
                     sort_keys=True,
                 ).encode("utf-8")
             ).decode("ascii")
             argv = (
-                str(runner), "-p", profile, str(python), "-I", "-S", str(worker), "--request", request
+                str(python), "-I", "-S", str(worker), "--request", request
             )
             capability = issue_frozen_sandbox_execution_capability(
                 None,

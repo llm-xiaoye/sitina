@@ -102,11 +102,13 @@ class FrozenNetworkEgressCapability:
 
 @dataclass(frozen=True)
 class FrozenSandboxExecutionCapability:
-    """One-use authority for one exact OS-sandbox runner invocation.
+    """One-use authority for one exact signing-supervisor invocation.
 
     This does not authorize a shell or a generic subprocess.  It binds the
-    frozen-home escape hatch to immutable code/policy/input identities and the
-    exact argv/cwd/read/write/resource scope used by the sandbox launcher.
+    frozen-home escape hatch to immutable supervisor, sandbox, policy and input
+    identities plus the exact argv/cwd/read/write/resource scope.  The trusted
+    supervisor is the only direct child; it launches the bound Seatbelt
+    executor without ever importing target code.
     """
 
     capability_id: str
@@ -117,6 +119,8 @@ class FrozenSandboxExecutionCapability:
     test_plan_hash: str
     runner_executable: str
     runner_executable_hash: str
+    sandbox_executable: str
+    sandbox_executable_hash: str
     python_executable_hash: str
     worker_path: str
     worker_hash: str
@@ -200,7 +204,7 @@ def issue_frozen_sandbox_execution_capability(
     now: int | None = None,
     fixture_authorization: bool = False,
 ) -> FrozenSandboxExecutionCapability:
-    """Issue a one-use capability for an exact Seatbelt runner command."""
+    """Issue a one-use capability for an exact measured supervisor command."""
 
     moment = int(time.time()) if now is None else int(now)
     canonical_home = Path(home).expanduser().resolve(strict=True)
@@ -264,31 +268,43 @@ def issue_frozen_sandbox_execution_capability(
         tuple(Path(path) for path in writes),
     )
     expected_prefix = (
-        str(runner),
-        "-p",
-        expected_profile,
         str(python),
         "-I",
         "-S",
         str(worker),
         "--request",
     )
-    if len(argv) != 9 or tuple(argv[:8]) != expected_prefix:
+    if len(argv) != 6 or tuple(argv[:5]) != expected_prefix:
         raise LegacyWriteDenied("sandbox execution is not the exact trusted worker command")
     if hashlib.sha256(expected_profile.encode("utf-8")).hexdigest() != sandbox_policy_hash:
         raise LegacyWriteDenied("sandbox execution policy hash does not match the trusted policy")
     try:
-        request = json.loads(base64.urlsafe_b64decode(argv[8].encode("ascii")))
+        request = json.loads(base64.urlsafe_b64decode(argv[5].encode("ascii")))
     except Exception as error:
         raise LegacyWriteDenied("sandbox execution worker request is invalid") from error
+    expected_executor_profile = frozen_sandbox_profile(
+        python,
+        worker,
+        tuple(Path(path) for path in reads),
+        tuple(Path(path) for path in writes),
+    )
+    expected_executor = {
+        "schema": "SITINA_SANDBOX_EXECUTOR_BINDING_V1",
+        "sandbox_executable": str(runner),
+        "python_executable": str(python),
+        "worker_path": str(worker),
+        "sandbox_policy": expected_executor_profile,
+        "sandbox_policy_hash": hashlib.sha256(expected_executor_profile.encode("utf-8")).hexdigest(),
+    }
     if (
         not isinstance(request, dict)
         or request.get("resource_limits") != dict(normalized_limits)
         or request.get("test_plan_hash") != test_plan_hash
+        or request.get("executor") != expected_executor
     ):
         raise LegacyWriteDenied("sandbox execution worker request is not resource-bound")
 
-    runner_hash = _sha256_regular_file(runner)
+    sandbox_hash = _sha256_regular_file(runner)
     python_hash = _sha256_regular_file(python)
     worker_hash = _sha256_regular_file(worker)
     argv_hash = hashlib.sha256(_canonical(list(argv))).hexdigest()
@@ -299,8 +315,10 @@ def issue_frozen_sandbox_execution_capability(
         "run_id": run_id,
         "diff_hash": diff_hash,
         "test_plan_hash": test_plan_hash,
-        "runner_executable": str(runner),
-        "runner_executable_hash": runner_hash,
+        "runner_executable": str(python),
+        "runner_executable_hash": python_hash,
+        "sandbox_executable": str(runner),
+        "sandbox_executable_hash": sandbox_hash,
         "python_executable_hash": python_hash,
         "worker_path": str(worker),
         "worker_hash": worker_hash,
@@ -323,8 +341,10 @@ def issue_frozen_sandbox_execution_capability(
         str(run_id),
         str(diff_hash),
         str(test_plan_hash),
+        str(python),
+        python_hash,
         str(runner),
-        runner_hash,
+        sandbox_hash,
         python_hash,
         str(worker),
         worker_hash,
@@ -365,11 +385,19 @@ def authorized_frozen_sandbox_execution(
         or test_plan_hash != capability.test_plan_hash
         or moment >= capability.expires_at
         or _sha256_regular_file(Path(capability.runner_executable)) != capability.runner_executable_hash
-        or len(capability.argv) < 4
-        or _sha256_regular_file(Path(capability.argv[3])) != capability.python_executable_hash
+        or _sha256_regular_file(Path(capability.sandbox_executable)) != capability.sandbox_executable_hash
+        or _sha256_regular_file(Path(capability.argv[0])) != capability.python_executable_hash
         or _sha256_regular_file(Path(capability.worker_path)) != capability.worker_hash
         or hashlib.sha256(_canonical(list(capability.argv))).hexdigest() != capability.argv_hash
-        or hashlib.sha256(capability.argv[2].encode("utf-8")).hexdigest() != capability.sandbox_policy_hash
+        or hashlib.sha256(
+            frozen_sandbox_profile(
+                Path(capability.runner_executable),
+                Path(capability.worker_path),
+                tuple(Path(path) for path in capability.read_roots),
+                tuple(Path(path) for path in capability.write_roots),
+            ).encode("utf-8")
+        ).hexdigest()
+        != capability.sandbox_policy_hash
     ):
         raise LegacyWriteDenied("frozen sandbox execution capability is invalid, expired, or out of scope")
     with _state_lock:

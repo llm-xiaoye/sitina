@@ -18,24 +18,23 @@ import io
 import json
 import os
 import resource
+import select
 import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
-import unittest
 from pathlib import Path
 
 
 RESULT_MARKER = "SITINA_SANDBOX_WORKER_RESULT:"
 PROOF_MARKER = "SITINA_SANDBOX_WORKER_PROOF:"
+EXECUTOR_RESULT_MARKER = "SITINA_SANDBOX_EXECUTOR_RESULT:"
 KEY_MARKER = "SITINA_SANDBOX_CONTROLLER_KEY:"
 CHALLENGE_MARKER = "SITINA_SANDBOX_PARENT_CHALLENGE:"
 
-_TRUSTED_TEST_LOADER = unittest.TestLoader
-_TRUSTED_TEXT_RUNNER = unittest.TextTestRunner
 _TRUSTED_DOCTEST_FINDER = doctest.DocTestFinder
-_TRUSTED_DOCTEST_RUNNER = doctest.DocTestRunner
 
 
 def _canonical(value: object) -> bytes:
@@ -140,81 +139,87 @@ def _module(path: Path, ordinal: int):
     return module
 
 
-def _run_doctest(path: Path, ordinal: int, expected_count: int) -> dict[str, int]:
+def _example_fingerprint(example: doctest.Example) -> str:
+    identity = {
+        "source": example.source,
+        "want": example.want,
+        "exc_msg": example.exc_msg,
+        "options": [
+            [int(flag), bool(enabled)]
+            for flag, enabled in sorted(example.options.items())
+        ],
+    }
+    return hashlib.sha256(_canonical(identity)).hexdigest()
+
+
+def _exception_only(error: BaseException) -> tuple[str, str]:
+    error_type = type(error)
+    rendered = traceback.format_exception_only(error_type, error)
+    if issubclass(error_type, SyntaxError):
+        prefixes = (
+            f"{error_type.__qualname__}:",
+            f"{error_type.__module__}.{error_type.__qualname__}:",
+        )
+        rendered = rendered[
+            next(index for index, line in enumerate(rendered) if line.startswith(prefixes)):
+        ]
+    return f"{error_type.__module__}.{error_type.__qualname__}", "".join(rendered)
+
+
+def _run_doctest_observations(
+    path: Path,
+    ordinal: int,
+    planned_examples: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return raw per-example observations without computing a verdict."""
+
     finder = _TRUSTED_DOCTEST_FINDER(exclude_empty=True)
-    runner = _TRUSTED_DOCTEST_RUNNER(verbose=False)
     find = finder.find
-    run = runner.run
-    summarize = runner.summarize
     module = _module(path, ordinal)
     found = find(module)
-    collected = sum(len(test.examples) for test in found)
-    if collected != expected_count:
+    flattened = [
+        (test, example_number, example)
+        for test in found
+        for example_number, example in enumerate(test.examples)
+    ]
+    planned_fingerprints = [
+        item.get("fingerprint") if isinstance(item, dict) else None
+        for item in planned_examples
+    ]
+    actual_fingerprints = [_example_fingerprint(example) for _test, _number, example in flattened]
+    if actual_fingerprints != planned_fingerprints:
         raise RuntimeError("doctest discovery does not match sealed TestPlan")
-    for test in found:
-        run(test, out=lambda _value: None)
-    summary = summarize(verbose=False)
-    return {
-        "collected": collected,
-        "executed": summary.attempted,
-        "passed": summary.attempted - summary.failed,
-        "failed": summary.failed,
-        "skipped": 0,
-        "errors": 0,
-        "expected_failures": 0,
-        "unexpected_successes": 0,
-    }
-
-
-def _flatten_test_ids(suite: object) -> list[str]:
-    if isinstance(suite, unittest.TestCase):
-        return [suite.id()]
-    result: list[str] = []
-    try:
-        children = list(suite)  # type: ignore[arg-type]
-    except TypeError as error:
-        raise RuntimeError("unittest discovery returned a non-suite object") from error
-    for child in children:
-        result.extend(_flatten_test_ids(child))
-    return result
-
-
-def _run_unittest(path: Path, ordinal: int, planned_ids: list[str]) -> dict[str, int]:
-    loader = _TRUSTED_TEST_LOADER()
-    runner = _TRUSTED_TEXT_RUNNER(stream=io.StringIO(), verbosity=0)
-    load = loader.loadTestsFromModule
-    run = runner.run
-    module = _module(path, ordinal)
-    suite = load(module)
-    actual_ids = _flatten_test_ids(suite)
-    if actual_ids != planned_ids:
-        raise RuntimeError("unittest discovery does not match sealed TestPlan")
-    collected = len(actual_ids)
-    result = run(suite)
-    failures = len(result.failures)
-    errors = len(result.errors)
-    skipped = len(result.skipped)
-    expected_failures = len(result.expectedFailures)
-    unexpected_successes = len(result.unexpectedSuccesses)
-    nonpass_ids = {
-        *(test.id() for test, _detail in result.failures),
-        *(test.id() for test, _detail in result.errors),
-        *(test.id() for test, _reason in result.skipped),
-        *(test.id() for test, _detail in result.expectedFailures),
-        *(test.id() for test in result.unexpectedSuccesses),
-    }
-    started = result.testsRun
-    passed = max(0, started - len(nonpass_ids))
-    return {
-        "collected": collected,
-        "executed": started,
-        "passed": passed,
-        "failed": failures,
-        "skipped": skipped,
-        "errors": errors,
-        "expected_failures": expected_failures,
-        "unexpected_successes": unexpected_successes,
-    }
+    observations: list[dict[str, object]] = []
+    for index, (test, example_number, example) in enumerate(flattened):
+        option_flags = 0
+        for flag, enabled in example.options.items():
+            option_flags = option_flags | flag if enabled else option_flags & ~flag
+        attempted = not bool(option_flags & doctest.SKIP)
+        output = doctest._SpoofOut()
+        exception_type: str | None = None
+        exception_text: str | None = None
+        if attempted:
+            filename = f"<doctest {test.name}[{example_number}]>"
+            compile_flags = doctest._extract_future_flags(test.globs)
+            try:
+                with contextlib.redirect_stdout(output):
+                    exec(
+                        compile(example.source, filename, "single", compile_flags, True),
+                        test.globs,
+                    )
+            except BaseException as error:
+                exception_type, exception_text = _exception_only(error)
+        observations.append(
+            {
+                "index": index,
+                "fingerprint": actual_fingerprints[index],
+                "attempted": attempted,
+                "stdout": output.getvalue(),
+                "exception_type": exception_type,
+                "exception_text": exception_text,
+            }
+        )
+    return observations
 
 
 def _run_tests(request: dict[str, object]) -> dict[str, object]:
@@ -241,19 +246,15 @@ def _run_tests(request: dict[str, object]) -> dict[str, object]:
             raise RuntimeError("sandbox read root is invalid")
         sys.path.insert(0, root)
 
-    totals = {
-        "collected": 0,
-        "executed": 0,
-        "passed": 0,
-        "failed": 0,
-        "skipped": 0,
-        "errors": 0,
-        "expected_failures": 0,
-        "unexpected_successes": 0,
-    }
-    target_results: list[dict[str, object]] = []
+    if any(
+        not isinstance(planned, dict) or planned.get("mode") != "doctest"
+        for planned in planned_targets
+    ):
+        raise RuntimeError("generic unittest result source is unsupported and fails closed")
+
+    target_observations: list[dict[str, object]] = []
     for ordinal, (raw, planned) in enumerate(zip(raw_targets, planned_targets, strict=True)):
-        if not isinstance(raw, dict) or raw.get("mode") not in {"doctest", "unittest"}:
+        if not isinstance(raw, dict) or raw.get("mode") != "doctest":
             raise RuntimeError("sandbox test target is invalid")
         if not isinstance(planned, dict):
             raise RuntimeError("sandbox trusted TestPlan target is invalid")
@@ -269,55 +270,32 @@ def _run_tests(request: dict[str, object]) -> dict[str, object]:
             raise RuntimeError("sandbox target does not match sealed TestPlan")
         expected_count = planned.get("expected_count")
         planned_ids = planned.get("planned_test_ids")
+        planned_examples = planned.get("planned_examples")
         if (
             not isinstance(expected_count, int)
             or isinstance(expected_count, bool)
             or expected_count < 0
             or not isinstance(planned_ids, list)
             or any(not isinstance(item, str) for item in planned_ids)
+            or planned_ids
+            or not isinstance(planned_examples, list)
+            or len(planned_examples) != expected_count
         ):
             raise RuntimeError("sandbox trusted TestPlan counts are invalid")
-        try:
-            # Keep target chatter separate from the single authenticated
-            # protocol line emitted through sys.__stdout__ by main().
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                counts = (
-                    _run_unittest(path, ordinal, planned_ids)
-                    if raw["mode"] == "unittest"
-                    else _run_doctest(path, ordinal, expected_count)
-                )
-        except BaseException as error:  # untrusted test failures become evidence, not worker escape
-            counts = {
-                "collected": 0,
-                "executed": 0,
-                "passed": 0,
-                "failed": 0,
-                "skipped": 0,
-                "errors": 1,
-                "expected_failures": 0,
-                "unexpected_successes": 0,
-            }
-            target_results.append(
-                {
-                    "path": str(path),
-                    "mode": raw["mode"],
-                    "counts": counts,
-                    "error_type": type(error).__name__,
-                    "error_trace_hash_input": "".join(traceback.format_exception_only(type(error), error))[:1000],
-                }
-            )
-        else:
-            target_results.append({"path": str(path), "mode": raw["mode"], "counts": counts})
-        for name in totals:
-            totals[name] += counts[name]
-    if totals["collected"] != expected_total:
+        # Keep target chatter separate from the single authenticated protocol
+        # line emitted through sys.__stdout__ by _executor_main().
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            examples = _run_doctest_observations(path, ordinal, planned_examples)
+        target_observations.append(
+            {"path": str(path), "mode": raw["mode"], "examples": examples}
+        )
+    if sum(len(item["examples"]) for item in target_observations) != expected_total:
         raise RuntimeError("sandbox collected count does not match sealed TestPlan")
     return {
-        "schema": "SITINA_SANDBOX_TEST_RESULT_V1",
+        "schema": "SITINA_SANDBOX_TEST_OBSERVATIONS_V1",
         "mode": "tests",
         "test_plan_hash": plan_hash,
-        "counts": totals,
-        "targets": target_results,
+        "observations": target_observations,
     }
 
 
@@ -372,46 +350,24 @@ def _run_probe(request: dict[str, object]) -> dict[str, object]:
     return {"schema": "SITINA_SANDBOX_PROBE_RESULT_V1", "mode": "probe", "results": results}
 
 
-def main(argv: list[str] | None = None) -> int:
-    # Capture the protocol primitives in main-frame locals before any target
-    # module is imported.  Target code can mutate module globals, sys streams,
-    # or stdlib attributes, but it cannot replace these already-bound objects.
-    protocol_input = sys.__stdin__.buffer
+def _executor_main(encoded_request: str) -> int:
+    """Execute targets without ever receiving controller signing material."""
+
     protocol_output = sys.__stdout__
     encode_response = base64.urlsafe_b64encode
-    response_digest = hashlib.sha256
-    keyed_digest = hmac.digest
     json_dumps = json.dumps
     enumerate_threads = threading.enumerate
-    controller_thread_id = threading.get_ident()
-    result_marker = RESULT_MARKER
-    proof_marker = PROOF_MARKER
-    key_prefix = KEY_MARKER.encode("ascii")
-    challenge_prefix = CHALLENGE_MARKER.encode("ascii")
-
-    def canonicalize(value: object) -> bytes:
-        return json_dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+    executor_thread_id = threading.get_ident()
+    response_digest = hashlib.sha256
+    request = _decode_request(encoded_request)
 
     def untrusted_threads() -> list[str]:
         return sorted(
             str(item.name)
             for item in enumerate_threads()
-            if item.ident != controller_thread_id
+            if item.ident != executor_thread_id
         )
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--request", required=True)
-    arguments = parser.parse_args(argv)
-    request = _decode_request(arguments.request)
-    key_line = protocol_input.readline(256)
-    if not key_line.startswith(key_prefix):
-        return 3
-    encoded_key = key_line[len(key_prefix):].strip()
-    if len(encoded_key) != 64 or any(value not in b"0123456789abcdef" for value in encoded_key):
-        return 3
-    protocol_key = bytes.fromhex(encoded_key.decode("ascii"))
     response: dict[str, object]
     try:
         _apply_limits(request.get("resource_limits"))
@@ -421,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         elif mode == "probe":
             response = _run_probe(request)
         else:
-            raise RuntimeError("sandbox worker mode is invalid")
+            raise RuntimeError("sandbox executor mode is invalid")
         response["worker_ok"] = True
     except BaseException as error:
         response = {
@@ -440,6 +396,195 @@ def main(argv: list[str] | None = None) -> int:
                 for value in lingering_threads
             ],
         }
+    canonical_response = json_dumps(
+        response, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    encoded = encode_response(canonical_response).decode("ascii")
+    protocol_output.write(EXECUTOR_RESULT_MARKER + encoded + "\n")
+    protocol_output.flush()
+    return 0 if response.get("worker_ok") is True else 2
+
+
+def _executor_binding(request: dict[str, object]) -> tuple[list[str], int, int]:
+    binding = request.get("executor")
+    if not isinstance(binding, dict) or set(binding) != {
+        "schema",
+        "sandbox_executable",
+        "python_executable",
+        "worker_path",
+        "sandbox_policy",
+        "sandbox_policy_hash",
+    }:
+        raise RuntimeError("sandbox executor binding is invalid")
+    if binding.get("schema") != "SITINA_SANDBOX_EXECUTOR_BINDING_V1":
+        raise RuntimeError("sandbox executor binding schema is invalid")
+    # The outer profile authorizes the exact literal path, but intentionally
+    # does not grant directory traversal over /usr.  The controller capability
+    # already resolved and hash-bound this executable before launch.
+    sandbox_executable = Path(str(binding.get("sandbox_executable")))
+    python_executable = Path(str(binding.get("python_executable")))
+    worker_path = Path(str(binding.get("worker_path")))
+    policy = binding.get("sandbox_policy")
+    policy_hash = binding.get("sandbox_policy_hash")
+    if (
+        sandbox_executable != Path("/usr/bin/sandbox-exec")
+        or os.path.abspath(str(python_executable)) != os.path.abspath(sys.executable)
+        or os.path.abspath(str(worker_path)) != os.path.abspath(__file__)
+        or not isinstance(policy, str)
+        or not isinstance(policy_hash, str)
+        or hashlib.sha256(policy.encode("utf-8")).hexdigest() != policy_hash
+    ):
+        raise RuntimeError("sandbox executor binding identity is invalid")
+    limits = request.get("resource_limits")
+    if not isinstance(limits, dict):
+        raise RuntimeError("sandbox executor resource limits are invalid")
+    wall_seconds = limits.get("wall_seconds")
+    file_bytes = limits.get("file_bytes")
+    if (
+        not isinstance(wall_seconds, int)
+        or isinstance(wall_seconds, bool)
+        or wall_seconds <= 0
+        or not isinstance(file_bytes, int)
+        or isinstance(file_bytes, bool)
+        or file_bytes <= 0
+    ):
+        raise RuntimeError("sandbox executor bounds are invalid")
+    encoded_request = base64.urlsafe_b64encode(_canonical(request)).decode("ascii")
+    command = [
+        str(sandbox_executable),
+        "-p",
+        policy,
+        str(python_executable),
+        "-I",
+        "-S",
+        str(worker_path),
+        "--execute-request",
+        encoded_request,
+    ]
+    return command, wall_seconds, file_bytes
+
+
+def _run_separate_executor(request: dict[str, object]) -> dict[str, object]:
+    command, wall_seconds, file_bytes = _executor_binding(request)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+    )
+    if process.stdout is None or process.stderr is None:
+        raise RuntimeError("sandbox executor pipes are unavailable")
+    buffers = {process.stdout.fileno(): bytearray(), process.stderr.fileno(): bytearray()}
+    streams = {process.stdout.fileno(): process.stdout, process.stderr.fileno(): process.stderr}
+    deadline = time.monotonic() + wall_seconds
+    invalid = False
+    while streams:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            invalid = True
+            break
+        readable, _writable, _exceptional = select.select(
+            list(streams.values()), [], [], min(remaining, 0.1)
+        )
+        if not readable and process.poll() is not None:
+            readable = list(streams.values())
+        for stream in readable:
+            chunk = os.read(stream.fileno(), 64 * 1024)
+            if not chunk:
+                streams.pop(stream.fileno(), None)
+                continue
+            buffers[stream.fileno()].extend(chunk)
+            if sum(len(value) for value in buffers.values()) > file_bytes:
+                invalid = True
+                break
+        if invalid:
+            break
+    if invalid:
+        process.terminate()
+    try:
+        return_code = process.wait(timeout=2 if invalid else max(0.1, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return_code = process.wait()
+        invalid = True
+    stdout = bytes(buffers[process.stdout.fileno()])
+    stderr = bytes(buffers[process.stderr.fileno()])
+    process.stdout.close()
+    process.stderr.close()
+    lines = stdout.splitlines()
+    payloads = [line[len(EXECUTOR_RESULT_MARKER):] for line in lines if line.startswith(EXECUTOR_RESULT_MARKER.encode("ascii"))]
+    if (
+        invalid
+        or stderr
+        or len(lines) != 1
+        or len(payloads) != 1
+        or return_code not in {0, 2}
+    ):
+        stderr_detail = stderr.decode("utf-8", errors="replace")[:500]
+        stdout_detail = stdout.decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(
+            "sandbox executor protocol is invalid: "
+            f"return_code={return_code}; invalid={invalid}; "
+            f"stdout={stdout_detail!r}; stderr={stderr_detail!r}"
+        )
+    try:
+        response = json.loads(base64.urlsafe_b64decode(payloads[0]))
+    except Exception as error:
+        raise RuntimeError("sandbox executor response is invalid") from error
+    if not isinstance(response, dict):
+        raise RuntimeError("sandbox executor response must be an object")
+    expected_return_code = 0 if response.get("worker_ok") is True else 2
+    if return_code != expected_return_code:
+        raise RuntimeError("sandbox executor result and exit status differ")
+    return response
+
+
+def main(argv: list[str] | None = None) -> int:
+    # These protocol primitives and the one-use key live only in this signing
+    # supervisor.  The separate executor process receives neither stdin nor
+    # environment state from this protocol and is the only process that loads
+    # target modules.
+    protocol_input = sys.__stdin__.buffer
+    protocol_output = sys.__stdout__
+    encode_response = base64.urlsafe_b64encode
+    response_digest = hashlib.sha256
+    keyed_digest = hmac.digest
+    json_dumps = json.dumps
+    result_marker = RESULT_MARKER
+    proof_marker = PROOF_MARKER
+    key_prefix = KEY_MARKER.encode("ascii")
+    challenge_prefix = CHALLENGE_MARKER.encode("ascii")
+
+    def canonicalize(value: object) -> bytes:
+        return json_dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--request")
+    mode.add_argument("--execute-request")
+    arguments = parser.parse_args(argv)
+    if arguments.execute_request is not None:
+        return _executor_main(arguments.execute_request)
+    request = _decode_request(arguments.request)
+    key_line = protocol_input.readline(256)
+    if not key_line.startswith(key_prefix):
+        return 3
+    encoded_key = key_line[len(key_prefix):].strip()
+    if len(encoded_key) != 64 or any(value not in b"0123456789abcdef" for value in encoded_key):
+        return 3
+    protocol_key = bytes.fromhex(encoded_key.decode("ascii"))
+    response: dict[str, object]
+    try:
+        response = _run_separate_executor(request)
+    except BaseException as error:
+        response = {
+            "worker_ok": False,
+            "error_type": type(error).__name__,
+            "error": str(error)[:1000],
+        }
     canonical_response = canonicalize(response)
     encoded = encode_response(canonical_response).decode("ascii")
     protocol_output.write(result_marker + encoded + "\n")
@@ -450,10 +595,6 @@ def main(argv: list[str] | None = None) -> int:
     challenge = challenge_line[len(challenge_prefix):].strip()
     if len(challenge) != 64 or any(value not in b"0123456789abcdef" for value in challenge):
         return 3
-    # A background target thread that races for the challenge invalidates the
-    # protocol even if it exits before it can emit a forged proof.
-    if untrusted_threads():
-        return 4
     proof = keyed_digest(
         protocol_key,
         challenge + b"\0" + canonical_response,
