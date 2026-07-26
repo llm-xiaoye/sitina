@@ -13,10 +13,19 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.bplus_dependency_gate import (  # noqa: E402 - ROOT must be importable first
+    SUMMARY_MARKER as DEPENDENCY_GATE_MARKER,
+    audit_dependency_lock,
+)
+
+
 CONFIG = ROOT / "tests/test_suites.json"
 PHASE_MINUS1_MANIFEST = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-execution-manifest-v1-phase-minus1.json")
 FOUNDATION = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-bootstrap-foundation-record.json")
@@ -155,7 +164,7 @@ def _validate_sentinel_baseline(
     if value.get("goal_thread_id") != goal_thread_id:
         raise SystemExit(f"sentinel baseline targets a different Goal: {resolved}")
     if (
-        value.get("observation_mode") != "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE"
+        value.get("observation_mode") != "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2"
         or value.get("hash_algorithm") != "sha256"
     ):
         raise SystemExit(f"sentinel baseline has an invalid observation contract: {resolved}")
@@ -174,7 +183,31 @@ def _validate_sentinel_baseline(
     return resolved, value
 
 
-def validate_control_plane(manifest_path: Path, config: dict[str, Any]) -> Any:
+def _validate_dependency_environment(
+    manifest: Any, config: Mapping[str, Any]
+) -> dict[str, object]:
+    expected_lock_sha256 = config.get("dependency_lock_sha256")
+    if not isinstance(expected_lock_sha256, str):
+        raise SystemExit("test configuration does not bind the dependency lock")
+    dependency_gate = audit_dependency_lock(
+        ROOT / "requirements-bplus.lock",
+        expected_lock_sha256=expected_lock_sha256,
+    )
+    manifest_lock_sha256 = manifest.dependency_lock_hash.removeprefix("sha256:")
+    dependency_gate["historical_manifest_dependency_lock_sha256"] = manifest_lock_sha256
+    dependency_gate["historical_manifest_binding_match"] = (
+        dependency_gate["lock_sha256"] == manifest_lock_sha256
+    )
+    print(
+        DEPENDENCY_GATE_MARKER
+        + json.dumps(dependency_gate, ensure_ascii=False, sort_keys=True)
+    )
+    if dependency_gate["accepted"] is not True:
+        raise SystemExit("dependency lock/runtime consistency gate rejected execution")
+    return dependency_gate
+
+
+def validate_control_plane(manifest_path: Path, config: dict[str, Any]) -> tuple[Any, dict[str, object]]:
     previous_control_plane = os.environ.get("SITINA_CONTROL_PLANE_READONLY")
     os.environ["SITINA_CONTROL_PLANE_READONLY"] = "1"
     sys.path.insert(0, str(ROOT / "core"))
@@ -209,7 +242,8 @@ def validate_control_plane(manifest_path: Path, config: dict[str, Any]) -> Any:
     approved = Path(config["approved_python"]).resolve(strict=True)
     if Path(sys.executable).resolve(strict=True) != approved:
         raise SystemExit(f"runner must use approved python: {approved}")
-    return manifest
+    dependency_gate = _validate_dependency_environment(manifest, config)
+    return manifest, dependency_gate
 
 
 def _write_json_new_or_replace(path: Path, value: dict[str, Any]) -> None:
@@ -251,6 +285,18 @@ def _activation_gate_summary(output: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _registration_gate_summary(output: str) -> dict[str, Any] | None:
+    marker = "SITINA_REGISTRATION_GATE_JSON:"
+    lines = [line[len(marker):] for line in output.splitlines() if line.startswith(marker)]
+    if len(lines) != 1:
+        return None
+    try:
+        value = json.loads(lines[0])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("suite", nargs="?")
@@ -273,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("The selected pre-cutover manifest does not authorize live-provider tests")
     definition = suites[arguments.suite]
     manifest_path = arguments.execution_manifest or Path(definition.get("execution_manifest", PHASE_MINUS1_MANIFEST))
-    manifest = validate_control_plane(manifest_path, config)
+    manifest, dependency_gate = validate_control_plane(manifest_path, config)
     if manifest.production_home != Path(config["production_home"]).resolve(strict=True):
         raise SystemExit("execution manifest and test configuration name different production homes")
     if (arguments.production_sentinel or arguments.production_mutable_sentinel) and arguments.execution_manifest is None:
@@ -281,7 +327,17 @@ def main(argv: list[str] | None = None) -> int:
     phase_token = "phase-minus1" if manifest.authorized_phase == "-1" else f"phase{manifest.authorized_phase.lower()}"
     result_path = CONTROL_ROOT / f"sitina-bplus-{phase_token}-test-results.json"
     suite_result_root = CONTROL_ROOT / f"sitina-bplus-{phase_token}-test-results"
-    selectors = arguments.test or list(definition["selectors"])
+    registration_policy = (
+        definition.get("result_policy") == "EXACT_HISTORICAL_SKIP_ALLOWLIST_V1"
+    )
+    if registration_policy:
+        if arguments.test:
+            raise SystemExit("all_registered_unique does not accept --test overrides")
+        from tests.foundation.registration_gate_runner import unique_registered_selectors
+
+        selectors = list(unique_registered_selectors(config))
+    else:
+        selectors = arguments.test or list(definition["selectors"])
 
     sys.path.insert(0, str(ROOT / "tests/foundation"))
     from home_factory import DisposableHomeFactory, capture_production_mutable_sentinel, capture_production_sentinel
@@ -293,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("execution manifest does not bind a production sentinel")
     sentinel_path, initial = _validate_sentinel_baseline(
         sentinel_path,
-        expected_schema="PRODUCTION_SENTINEL_V1",
+        expected_schema="PRODUCTION_SENTINEL_V2",
         production_home=production,
         goal_thread_id=GOAL_THREAD_ID,
         expected_report_hash=manifest.production_sentinel_hash,
@@ -312,13 +368,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("execution manifest does not bind the mutable production sentinel")
     mutable_sentinel_path, mutable_initial = _validate_sentinel_baseline(
         mutable_sentinel_path,
-        expected_schema="PRODUCTION_MUTABLE_SENTINEL_V2",
+        expected_schema="PRODUCTION_MUTABLE_SENTINEL_V3",
         production_home=production,
         goal_thread_id=GOAL_THREAD_ID,
         expected_report_hash=manifest.production_mutable_sentinel_hash,
     )
     if mutable_initial.get("base_v1_report_sha256") != initial["report_sha256"]:
-        raise SystemExit("mutable sentinel baseline is not based on the selected V1 sentinel")
+        raise SystemExit("mutable sentinel baseline is not based on the selected base sentinel")
     mutable_before = capture_production_mutable_sentinel(production, GOAL_THREAD_ID)
     if mutable_before["report_sha256"] != mutable_initial["report_sha256"]:
         raise SystemExit("extended Production mutable-root sentinel differs before test execution")
@@ -360,6 +416,14 @@ def main(argv: list[str] | None = None) -> int:
         command = [
             config["approved_python"], "-m", "tests.foundation.activation_gate_runner", *selectors,
         ]
+    elif registration_policy:
+        command = [
+            config["approved_python"],
+            "-m",
+            "tests.foundation.registration_gate_runner",
+            "--registry",
+            str(CONFIG),
+        ]
     else:
         command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
     started = time.monotonic()
@@ -396,11 +460,16 @@ def main(argv: list[str] | None = None) -> int:
     production_attempts = production_attempt_log.read_text(encoding="utf-8") if production_attempt_log.exists() else ""
     production_attempt_records = _parse_json_lines(production_attempts)
     activation_gate = _activation_gate_summary(output) if strict_activation_gate else None
+    registration_gate = _registration_gate_summary(output) if registration_policy else None
     return_code = process.returncode if not timed_out else 124
     if strict_activation_gate and (
         activation_gate is None or activation_gate.get("accepted") is not True
     ):
         return_code = return_code or 128
+    if registration_policy and (
+        registration_gate is None or registration_gate.get("accepted") is not True
+    ):
+        return_code = return_code or 129
     if external_attempts:
         return_code = return_code or 125
     if production_attempts:
@@ -427,6 +496,8 @@ def main(argv: list[str] | None = None) -> int:
         "test_count": int(test_count_match.group(1)) if test_count_match else None,
         "skipped_count": int(skipped_match.group(1)) if skipped_match else 0,
         "activation_gate": activation_gate,
+        "registration_gate": registration_gate,
+        "dependency_gate": dependency_gate,
         "warning_count": len(warning_lines),
         "warning_lines": warning_lines[:200],
         "stdout_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),

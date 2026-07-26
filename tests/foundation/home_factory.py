@@ -205,7 +205,7 @@ def _file_record(home: Path, path: Path) -> dict[str, Any]:
     before = path.lstat()
     relative = path.relative_to(home).as_posix()
     if path.is_symlink() or not stat.S_ISREG(before.st_mode):
-        return {"path": relative, "kind": "non_regular", "mode": before.st_mode, "inode": before.st_ino}
+        return {"path": relative, "kind": "non_regular", "mode": oct(before.st_mode & 0o7777)}
     digest = hashlib.sha256()
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
@@ -223,12 +223,16 @@ def _file_record(home: Path, path: Path) -> dict[str, Any]:
     identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
     if identity(before) != identity(after):
         raise RuntimeError(f"production file changed during sentinel capture: {relative}")
+    # V2: content-addressed record. Hash only relpath + size + permission bits +
+    # content sha256. Volatile filesystem identity (mtime_ns / inode / device) is
+    # deliberately excluded so a content-preserving rewrite (atomic rename,
+    # restore, re-seal) does not cause spurious drift; real tampering still shows
+    # as a content/size/mode change or an added/removed entry. The identity()
+    # recheck above guards only against a file changing *during* capture and is
+    # not part of the hash.
     return {
         "path": relative,
         "size": before.st_size,
-        "mtime_ns": before.st_mtime_ns,
-        "inode": before.st_ino,
-        "device": before.st_dev,
         "mode": oct(before.st_mode & 0o7777),
         "sha256": digest.hexdigest(),
     }
@@ -288,10 +292,10 @@ def capture_production_sentinel(production_home: Path, goal_thread_id: str) -> d
         _sentinel_category(home, "artifact_root", artifact_files),
     ]
     core = {
-        "schema": "PRODUCTION_SENTINEL_V1",
+        "schema": "PRODUCTION_SENTINEL_V2",
         "goal_thread_id": goal_thread_id,
         "production_home": str(home),
-        "observation_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+        "observation_mode": "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2",
         "hash_algorithm": "sha256",
         "categories": categories,
     }
@@ -300,7 +304,7 @@ def capture_production_sentinel(production_home: Path, goal_thread_id: str) -> d
 
 
 def capture_production_mutable_sentinel(production_home: Path, goal_thread_id: str) -> dict[str, Any]:
-    """Cover every mutable Production root without re-hashing V1 categories twice."""
+    """Cover every mutable Production root without re-hashing base categories twice."""
 
     home = production_home.resolve(strict=True)
     base = capture_production_sentinel(home, goal_thread_id)
@@ -318,11 +322,12 @@ def capture_production_mutable_sentinel(production_home: Path, goal_thread_id: s
         _sentinel_category(home, "temp_root", _paths_under(home / "temp")),
     ]
     core = {
-        "schema": "PRODUCTION_MUTABLE_SENTINEL_V2",
+        "schema": "PRODUCTION_MUTABLE_SENTINEL_V3",
         "goal_thread_id": goal_thread_id,
         "production_home": str(home),
-        "observation_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+        "observation_mode": "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2",
         "hash_algorithm": "sha256",
+        # Retained for compatibility with the manifest-bound active V3 baseline.
         "base_v1_report_sha256": base["report_sha256"],
         "categories": [*base["categories"], *extension_categories],
     }

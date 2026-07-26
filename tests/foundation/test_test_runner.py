@@ -19,6 +19,24 @@ RUNNER = ROOT / "scripts/test-bplus.py"
 class LayeredRunnerTests(unittest.TestCase):
     def test_every_test_file_is_registered_in_exactly_one_primary_suite_or_explicitly_reused(self) -> None:
         config = json.loads((ROOT / "tests/test_suites.json").read_text(encoding="utf-8"))
+        sentinel_selector = "tests/foundation/test_sentinel_content_addressed.py"
+        sentinel_registrations = [
+            suite_name
+            for suite_name, definition in config["suites"].items()
+            for selector in definition["selectors"]
+            if selector == sentinel_selector
+        ]
+        for suite_name, definition in config["suites"].items():
+            selectors = definition["selectors"]
+            self.assertEqual(
+                len(selectors),
+                len(set(selectors)),
+                f"duplicate selector within suite: {suite_name}",
+            )
+        registrations: dict[str, list[str]] = {}
+        for suite_name, definition in config["suites"].items():
+            for selector in definition["selectors"]:
+                registrations.setdefault(selector, []).append(suite_name)
         registered = {
             selector
             for definition in config["suites"].values()
@@ -29,6 +47,15 @@ class LayeredRunnerTests(unittest.TestCase):
             for path in (ROOT / "tests").rglob("test_*.py")
         }
         self.assertEqual(discovered, registered)
+        self.assertEqual(
+            {
+                selector: suites
+                for selector, suites in registrations.items()
+                if len(suites) != 1
+            },
+            config["selector_reuse_allowlist"],
+        )
+        self.assertEqual(sentinel_registrations, ["unit_fast"])
 
     def test_suites_are_isolated_and_live_is_opt_in(self) -> None:
         config = json.loads((ROOT / "tests/test_suites.json").read_text(encoding="utf-8"))
@@ -135,10 +162,10 @@ class LayeredRunnerTests(unittest.TestCase):
             production.mkdir()
             validate.__globals__["CONTROL_ROOT"] = root
             core = {
-                "schema": "PRODUCTION_SENTINEL_V1",
+                "schema": "PRODUCTION_SENTINEL_V2",
                 "goal_thread_id": "goal-test",
                 "production_home": str(production.resolve()),
-                "observation_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
+                "observation_mode": "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2",
                 "hash_algorithm": "sha256",
                 "categories": [],
             }
@@ -149,7 +176,7 @@ class LayeredRunnerTests(unittest.TestCase):
             baseline.write_text(json.dumps({**core, "report_sha256": report_hash}), encoding="utf-8")
             resolved, value = validate(
                 baseline,
-                expected_schema="PRODUCTION_SENTINEL_V1",
+                expected_schema="PRODUCTION_SENTINEL_V2",
                 production_home=production,
                 goal_thread_id="goal-test",
                 expected_report_hash="sha256:" + report_hash,
@@ -159,7 +186,7 @@ class LayeredRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "not bound"):
                 validate(
                     baseline,
-                    expected_schema="PRODUCTION_SENTINEL_V1",
+                    expected_schema="PRODUCTION_SENTINEL_V2",
                     production_home=production,
                     goal_thread_id="goal-test",
                     expected_report_hash="sha256:" + "f" * 64,
