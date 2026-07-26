@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from sitina.legacy.fence import LegacyWriteDenied
-from sitina.orchestrator.execution_bridge import VerificationVerdict
+from sitina.orchestrator.execution_bridge import (
+    ExecutionIdentityBinding,
+    VerificationVerdict,
+)
 from sitina.orchestrator.execution_sandbox import (
     ExecutionSandboxError,
     ExecutionSandboxRunner,
@@ -24,6 +27,11 @@ def verify_execution_diff(
     run_id: str | None = None,
     home: Path | None = None,
     authority_resolution: object | None = None,
+    proposer_id: str = "",
+    executor_id: str = "",
+    identity_binding: ExecutionIdentityBinding | None = None,
+    agent_registry: object | None = None,
+    execution_policy_hash: str = "",
     fixture_authorization: bool = False,
     evidence_publisher: TestEvidencePublisher | None = None,
     sandbox_executable: Path = Path("/usr/bin/sandbox-exec"),
@@ -37,11 +45,43 @@ def verify_execution_diff(
     """
 
     del forge_result  # execution self-report is deliberately not verification input
+    if identity_binding is None:
+        if authority_resolution is not None and not fixture_authorization:
+            raise ValueError("production verifier requires an execution identity binding")
+        identity_binding = ExecutionIdentityBinding.fixture(
+            proposer_id=proposer_id or "fixture-proposer",
+            executor_id=executor_id or "forge-execution-role",
+            verifier_id=verifier_id,
+        )
+    if type(identity_binding) is not ExecutionIdentityBinding:
+        raise ValueError("verifier execution identity binding is invalid")
+    if verifier_id != identity_binding.verifier_id:
+        raise ValueError("verifier differs from execution identity binding")
+
+    def verdict(
+        accepted: bool,
+        *,
+        checked_diff: bool,
+        checked_tests: bool,
+        reasons: tuple[str, ...] = (),
+        test_evidence_ref: str | None = None,
+        test_evidence_hash: str | None = None,
+    ) -> VerificationVerdict:
+        return VerificationVerdict(
+            accepted,
+            verifier_id,
+            checked_diff,
+            checked_tests,
+            identity_binding,
+            reasons,
+            test_evidence_ref,
+            test_evidence_hash,
+        )
+
     reasons: list[str] = []
     if not diff_paths:
-        return VerificationVerdict(
+        return verdict(
             False,
-            verifier_id,
             checked_diff=True,
             checked_tests=False,
             reasons=("empty diff: nothing produced",),
@@ -60,21 +100,19 @@ def verify_execution_diff(
             test_targets.append(path)
 
     if reasons:
-        return VerificationVerdict(
-            False, verifier_id, checked_diff=True, checked_tests=False, reasons=tuple(reasons)
+        return verdict(
+            False, checked_diff=True, checked_tests=False, reasons=tuple(reasons)
         )
     if not test_targets:
-        return VerificationVerdict(
+        return verdict(
             False,
-            verifier_id,
             checked_diff=True,
             checked_tests=False,
             reasons=("no executable test evidence (no doctest/test_*.py)",),
         )
     if evidence_publisher is None:
-        return VerificationVerdict(
+        return verdict(
             False,
-            verifier_id,
             checked_diff=True,
             checked_tests=False,
             reasons=("immutable test evidence publisher unavailable",),
@@ -89,6 +127,12 @@ def verify_execution_diff(
             fixture_authorization=fixture_authorization,
             sandbox_executable=sandbox_executable,
             limits=limits,
+            proposer_id=proposer_id,
+            executor_id=executor_id,
+            verifier_id=verifier_id,
+            identity_binding=identity_binding,
+            agent_registry=agent_registry,
+            execution_policy_hash=execution_policy_hash,
         )
         evidence = runner.run_tests(
             test_targets,
@@ -99,9 +143,8 @@ def verify_execution_diff(
         evidence_hash = evidence.evidence_hash
         evidence_ref = evidence_publisher.publish(raw_evidence, evidence_hash=evidence_hash)
     except (ExecutionSandboxError, LegacyWriteDenied, OSError, UnicodeError, ValueError) as error:
-        return VerificationVerdict(
+        return verdict(
             False,
-            verifier_id,
             checked_diff=True,
             checked_tests=False,
             reasons=(f"test execution unavailable ({type(error).__name__})",),
@@ -115,9 +158,8 @@ def verify_execution_diff(
             f"skipped={evidence.skipped_test_count},errors={evidence.error_test_count},"
             f"rc={evidence.runner_return_code},timeout={str(evidence.timed_out).lower()})"
         )
-    return VerificationVerdict(
+    return verdict(
         evidence.accepted,
-        verifier_id,
         checked_diff=True,
         checked_tests=evidence.executed_test_count > 0,
         reasons=tuple(reasons),

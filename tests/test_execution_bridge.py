@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import tempfile
 import unittest
@@ -8,9 +9,15 @@ from pathlib import Path
 from sitina.orchestrator.execution_bridge import (
     ExecutionBinding,
     ExecutionBridgeError,
+    ExecutionIdentityBinding,
     VerificationVerdict,
     run_safe_execution,
 )
+from sitina.orchestrator.true_multi_agent import (
+    DynamicCollaborationError,
+    TrueMultiAgentProductionRuntime,
+)
+from sitina.orchestrator.true_multi_agent_runtime import AgentIdentity, AgentRegistry
 from sitina.orchestrator.execution_patch import (
     ExecutionPatchError,
     build_patch_manifest,
@@ -18,9 +25,54 @@ from sitina.orchestrator.execution_patch import (
 )
 
 
+EXECUTOR_ID = "forge-execution-role"
+
+
+def identity() -> ExecutionIdentityBinding:
+    return ExecutionIdentityBinding.fixture(
+        proposer_id="agent-atlas",
+        executor_id=EXECUTOR_ID,
+        verifier_id="agent-delta",
+        policy_hash="b" * 64,
+    )
+
+
+def identity_variants() -> dict[str, ExecutionIdentityBinding]:
+    common = {
+        "proposer_id": "agent-atlas",
+        "executor_id": EXECUTOR_ID,
+        "verifier_id": "agent-delta",
+        "policy_hash": "b" * 64,
+    }
+    return {
+        "proposer_id": ExecutionIdentityBinding.fixture(
+            **{**common, "proposer_id": "agent-borealis"}
+        ),
+        "verifier_id": ExecutionIdentityBinding.fixture(
+            **{**common, "verifier_id": "agent-horizon"}
+        ),
+        "registry_hash": ExecutionIdentityBinding.fixture(
+            **common, registry_hash="c" * 64
+        ),
+        "policy_hash": ExecutionIdentityBinding.fixture(
+            **{**common, "policy_hash": "d" * 64}
+        ),
+        "executor_role_authorization_ref": ExecutionIdentityBinding.fixture(
+            **{**common, "policy_hash": "e" * 64}
+        ),
+        "authority_ref": ExecutionIdentityBinding.fixture(
+            **common, authority_resolution_id="f" * 64
+        ),
+    }
+
+
 def binding() -> ExecutionBinding:
     return ExecutionBinding(
-        winner_output_hash="a" * 64, approved_scope=("src/",), policy_hash="b" * 64, run_id="run-1"
+        winner_output_hash="a" * 64,
+        approved_scope=("src/",),
+        policy_hash=identity().policy_hash,
+        run_id="run-1",
+        identity=identity(),
     )
 
 
@@ -34,6 +86,7 @@ def accepted_verdict(verifier_id="agent-delta", *, checked_diff=True):
         verifier_id,
         checked_diff,
         True,
+        identity(),
         test_evidence_ref="test-evidence:" + "c" * 64,
         test_evidence_hash="c" * 64,
     )
@@ -43,7 +96,7 @@ class ExecutionBridgeTests(unittest.TestCase):
     def test_accept_path_returns_accepted_result(self) -> None:
         rolled: list[int] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge,
             collect_diff=lambda: ["src/add.py"],
             boundary_check=lambda diff: [],
@@ -60,11 +113,13 @@ class ExecutionBridgeTests(unittest.TestCase):
     def test_bad_diff_rejected_then_bounded_rework_then_fail_closed(self) -> None:
         rolled: list[int] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge,
             collect_diff=lambda: ["src/bad.py"],
             boundary_check=lambda diff: [],
-            verifier=lambda diff, res: VerificationVerdict(False, "agent-delta", True, True, ("test failed",)),
+            verifier=lambda diff, res: VerificationVerdict(
+                False, "agent-delta", True, True, identity(), ("test failed",)
+            ),
             rollback=lambda a: rolled.append(a),
             max_attempts=2,
         )
@@ -79,10 +134,12 @@ class ExecutionBridgeTests(unittest.TestCase):
         # accepted (the hollow-acceptance bug). Fail-closed -> bounded rework.
         rolled: list[int] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
             boundary_check=lambda d: [],
-            verifier=lambda d, r: VerificationVerdict(True, "agent-delta", True, False),  # no test evidence
+            verifier=lambda d, r: VerificationVerdict(
+                True, "agent-delta", True, False, identity()
+            ),  # no test evidence
             rollback=lambda a: rolled.append(a), max_attempts=2,
         )
         self.assertFalse(result.accepted)
@@ -92,29 +149,29 @@ class ExecutionBridgeTests(unittest.TestCase):
     def test_accept_without_immutable_evidence_reference_is_rejected(self) -> None:
         rolled: list[int] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
             boundary_check=lambda d: [],
-            verifier=lambda d, r: VerificationVerdict(True, "agent-delta", True, True),
+            verifier=lambda d, r: VerificationVerdict(
+                True, "agent-delta", True, True, identity()
+            ),
             rollback=lambda a: rolled.append(a), max_attempts=1,
         )
         self.assertFalse(result.accepted)
         self.assertEqual(rolled, [1])
 
     def test_executor_cannot_be_its_own_verifier(self) -> None:
-        with self.assertRaises(ExecutionBridgeError):
-            run_safe_execution(
-                binding=binding(), executor_id="agent-forge", workspace="/ws",
-                forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
-                boundary_check=lambda d: [],
-                verifier=lambda d, r: accepted_verdict("agent-forge"),  # same id!
-                rollback=lambda a: None, max_attempts=1,
+        with self.assertRaisesRegex(ValueError, "three distinct"):
+            ExecutionIdentityBinding.fixture(
+                proposer_id="agent-atlas",
+                executor_id=EXECUTOR_ID,
+                verifier_id=EXECUTOR_ID,
             )
 
     def test_verifier_must_inspect_actual_diff(self) -> None:
         with self.assertRaises(ExecutionBridgeError):
             run_safe_execution(
-                binding=binding(), executor_id="agent-forge", workspace="/ws",
+                binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
                 forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
                 boundary_check=lambda d: [],
                 verifier=lambda d, r: accepted_verdict(checked_diff=False),  # checked_diff=False
@@ -124,7 +181,7 @@ class ExecutionBridgeTests(unittest.TestCase):
     def test_sensitive_diff_blocked_before_accept_fail_closed(self) -> None:
         verifier_called: list[bool] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge,
             collect_diff=lambda: ["src/leak.py"],
             boundary_check=lambda diff: ["src/leak.py"],  # sensitive!
@@ -142,7 +199,7 @@ class ExecutionBridgeTests(unittest.TestCase):
             attempts_seen.append(attempt)
             return {"terminal_state": "FAILED" if attempt == 1 else "SUCCEEDED"}
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=flaky_forge, collect_diff=lambda: ["src/ok.py"],
             boundary_check=lambda d: [],
             verifier=lambda d, r: accepted_verdict(),
@@ -153,7 +210,7 @@ class ExecutionBridgeTests(unittest.TestCase):
 
     def test_result_carries_immutable_binding(self) -> None:
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
             boundary_check=lambda d: [],
             verifier=lambda d, r: accepted_verdict(),
@@ -165,11 +222,131 @@ class ExecutionBridgeTests(unittest.TestCase):
         self.assertEqual(ev["approved_scope"], ["src/"])
         self.assertTrue(ev["accepted"])
         self.assertEqual(ev["test_evidence_hash"], "c" * 64)
+        execution_identity = ev["execution_identity"]
+        self.assertEqual(execution_identity["proposer_id"], "agent-atlas")
+        self.assertEqual(execution_identity["executor_id"], EXECUTOR_ID)
+        self.assertEqual(execution_identity["verifier_id"], "agent-delta")
+        for field in (
+            "registry_hash",
+            "policy_hash",
+            "executor_role_authorization_ref",
+            "authority_ref",
+        ):
+            self.assertTrue(execution_identity[field])
+
+    def test_every_identity_binding_changes_verdict_result_and_event_hashes(self) -> None:
+        first = run_safe_execution(
+            binding=binding(),
+            executor_id=EXECUTOR_ID,
+            workspace="/ws",
+            forge_runner=ok_forge,
+            collect_diff=lambda: ["src/x.py"],
+            boundary_check=lambda d: [],
+            verifier=lambda d, r: accepted_verdict(),
+            rollback=lambda a: None,
+            max_attempts=1,
+        )
+        assert first.verification is not None
+        base_mapping = first.binding.identity.mapping()
+        for field, alternate_identity in identity_variants().items():
+            with self.subTest(field=field):
+                self.assertNotEqual(
+                    base_mapping[field],
+                    alternate_identity.mapping()[field],
+                )
+                alternate_binding = ExecutionBinding(
+                    "a" * 64,
+                    ("src/",),
+                    alternate_identity.policy_hash,
+                    "run-1",
+                    alternate_identity,
+                )
+                alternate_verdict = VerificationVerdict(
+                    True,
+                    alternate_identity.verifier_id,
+                    True,
+                    True,
+                    alternate_identity,
+                    test_evidence_ref="test-evidence:" + "c" * 64,
+                    test_evidence_hash="c" * 64,
+                )
+                second = run_safe_execution(
+                    binding=alternate_binding,
+                    executor_id=EXECUTOR_ID,
+                    workspace="/ws",
+                    forge_runner=ok_forge,
+                    collect_diff=lambda: ["src/x.py"],
+                    boundary_check=lambda d: [],
+                    verifier=lambda d, r, value=alternate_verdict: value,
+                    rollback=lambda a: None,
+                    max_attempts=1,
+                )
+                self.assertNotEqual(
+                    first.verification.verdict_hash,
+                    alternate_verdict.verdict_hash,
+                )
+                self.assertNotEqual(first.execution_attempt_id, second.execution_attempt_id)
+                self.assertNotEqual(first.result_id, second.result_id)
+                self.assertNotEqual(first.event_hash, second.event_hash)
+
+    def test_result_rejects_verdict_bound_to_another_identity(self) -> None:
+        other = identity_variants()["registry_hash"]
+        with self.assertRaisesRegex(ValueError, "verifier identity differs"):
+            dataclasses.replace(
+                run_safe_execution(
+                    binding=binding(),
+                    executor_id=EXECUTOR_ID,
+                    workspace="/ws",
+                    forge_runner=ok_forge,
+                    collect_diff=lambda: ["src/x.py"],
+                    boundary_check=lambda d: [],
+                    verifier=lambda d, r: accepted_verdict(),
+                    rollback=lambda a: None,
+                    max_attempts=1,
+                ),
+                verification=VerificationVerdict(
+                    True,
+                    other.verifier_id,
+                    True,
+                    True,
+                    other,
+                    test_evidence_ref="test-evidence:" + "c" * 64,
+                    test_evidence_hash="c" * 64,
+                ),
+            )
+
+    def test_no_qualified_independent_verifier_fails_closed(self) -> None:
+        proposer_only = AgentIdentity(
+            "agent-proposer",
+            "proposer",
+            ("proposal", "read-only"),
+            "fixture",
+            1,
+            ("read-only", "provider-text-only"),
+        )
+        review_only = AgentIdentity(
+            "agent-review-only",
+            "reviewer",
+            ("review", "read-only"),
+            "fixture",
+            1,
+            ("read-only", "provider-text-only"),
+        )
+        runtime = object.__new__(TrueMultiAgentProductionRuntime)
+        runtime.registry = AgentRegistry(
+            1, (proposer_only, review_only), "a" * 64
+        )
+        with self.assertRaisesRegex(
+            DynamicCollaborationError, "no qualified independent verifier"
+        ):
+            runtime._independent_verifier_id(
+                proposer_only.agent_id, EXECUTOR_ID
+            )
 
     def test_out_of_scope_diff_is_blocked_before_boundary_or_verifier(self) -> None:
         observed: list[str] = []
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["../escape.py"],
             boundary_check=lambda d: observed.append("boundary") or [],
             verifier=lambda d, r: observed.append("verifier") or accepted_verdict(),
@@ -181,7 +358,7 @@ class ExecutionBridgeTests(unittest.TestCase):
 
     def test_duplicate_diff_path_is_blocked(self) -> None:
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["src/x.py", "src/x.py"],
             boundary_check=lambda d: [], verifier=lambda d, r: accepted_verdict(),
             rollback=lambda a: None, max_attempts=1,
@@ -190,11 +367,12 @@ class ExecutionBridgeTests(unittest.TestCase):
 
     def test_filesystem_evidence_reference_must_match_hash(self) -> None:
         result = run_safe_execution(
-            binding=binding(), executor_id="agent-forge", workspace="/ws",
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
             forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
             boundary_check=lambda d: [],
             verifier=lambda d, r: VerificationVerdict(
                 True, "agent-delta", True, True,
+                identity(),
                 test_evidence_ref="test-evidence:" + "d" * 64,
                 test_evidence_hash="c" * 64,
             ),

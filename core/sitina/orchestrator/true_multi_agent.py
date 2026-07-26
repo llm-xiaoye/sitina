@@ -5306,14 +5306,22 @@ class TrueMultiAgentProductionRuntime:
             "terminal_state": "RESTART_REQUIRED",
         }
 
-    def _independent_verifier_id(self, executor_id: str) -> str:
-        """Pick a registry agent with review/verification capability that is not
-        the executor — enforces H11 executor != verifier at selection time."""
+    def _independent_verifier_id(
+        self, proposer_id: str, executor_id: str
+    ) -> str:
+        """Select a currently registered, trusted, independent verifier."""
         for agent in self.registry.identities:
             caps = set(getattr(agent, "capabilities", ()))
-            if agent.agent_id != executor_id and ({"review", "verification"} & caps):
+            safety = set(getattr(agent, "safety_classes", ()))
+            if (
+                agent.agent_id not in {proposer_id, executor_id}
+                and "verification" in caps
+                and {"read-only", "provider-text-only"}.issubset(safety)
+            ):
                 return agent.agent_id
-        return "agent-delta" if executor_id != "agent-delta" else "agent-horizon"
+        raise DynamicCollaborationError(
+            "execution has no qualified independent verifier"
+        )
 
     def _execute_winner(
         self,
@@ -5334,7 +5342,10 @@ class TrueMultiAgentProductionRuntime:
         (no second writer lock). Returns a formal ExecutionResult."""
         from sitina.extensions.runtime import AutonomousRuntime, JournalAutonomousAudit
         from sitina.orchestrator.execution_bridge import (
-            ExecutionBinding, VerificationVerdict, run_safe_execution,
+            ExecutionBinding,
+            ExecutionIdentityBinding,
+            VerificationVerdict,
+            run_safe_execution,
         )
         from sitina.security.redaction import redact_boundary_value
 
@@ -5350,7 +5361,16 @@ class TrueMultiAgentProductionRuntime:
         # registry text agent. The winning text agent is only the PROPOSER.
         proposer_id = getattr(winner_agent, "agent_id", "unknown")
         executor_id = "forge-execution-role"  # write-authorized; not a text agent
-        verifier_id = self._independent_verifier_id(proposer_id)
+        verifier_id = self._independent_verifier_id(proposer_id, executor_id)
+        identity_binding = ExecutionIdentityBinding.from_registry(
+            self.registry,
+            policy_hash=policy_hash_64,
+            authority_resolution=context.authority.resolution,
+            proposer_id=proposer_id,
+            executor_id=executor_id,
+            verifier_id=verifier_id,
+            now=int(time.time()),
+        )
         # Isolated execution sandbox OUTSIDE the frozen home: raw mkdir under
         # home/ is fenced at orchestrator level. A temp dir keeps isolation +
         # rollback (rmtree); the patch journal still lands under home/artifacts
@@ -5361,6 +5381,7 @@ class TrueMultiAgentProductionRuntime:
             approved_scope=(str(base_ws),),
             policy_hash=policy_hash_64,
             run_id=evidence.run_id,
+            identity=identity_binding,
         )
 
         def attempt_ws(attempt: int) -> Path:
@@ -5468,6 +5489,11 @@ class TrueMultiAgentProductionRuntime:
                 run_id=evidence.run_id,
                 home=self.home,
                 authority_resolution=context.authority.resolution,
+                proposer_id=proposer_id,
+                executor_id=executor_id,
+                identity_binding=identity_binding,
+                agent_registry=self.registry,
+                execution_policy_hash=policy_hash_64,
                 evidence_publisher=CASTestEvidencePublisher(cas, context.provider),
             )
 

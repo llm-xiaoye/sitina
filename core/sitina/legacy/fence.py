@@ -36,7 +36,7 @@ _guard_installed = False
 _guard_home: Path | None = None
 _writer_fds: dict[Path, int] = {}
 _network_egress_nonces: set[str] = set()
-_sandbox_execution_nonces: set[str] = set()
+_sandbox_execution_nonces: dict[str, str] = {}
 _local = threading.local()
 _state_lock = threading.RLock()
 
@@ -132,7 +132,73 @@ class FrozenSandboxExecutionCapability:
     sandbox_policy_hash: str
     resource_limits: tuple[tuple[str, int], ...]
     expires_at: int
+    proposer_id: str
+    proposer_role: str
+    proposer_capability: str
+    proposer_identity_hash: str
+    proposer_registry_ref: str
+    executor_id: str
+    executor_role: str
+    executor_role_authorization_ref: str
+    verifier_id: str
+    verifier_role: str
+    verifier_capability: str
+    verifier_identity_hash: str
+    verifier_registry_ref: str
+    registry_hash: str
+    execution_policy_hash: str
+    authority_ref: str
+    identity_binding_hash: str
+    issued_at: int
     _nonce: str
+
+
+def _sandbox_capability_identity(
+    capability: FrozenSandboxExecutionCapability,
+) -> str:
+    core = {
+        "authority_resolution_id": capability.authority_resolution_id,
+        "authority_input_frontier_hash": capability.authority_input_frontier_hash,
+        "run_id": capability.run_id,
+        "diff_hash": capability.diff_hash,
+        "test_plan_hash": capability.test_plan_hash,
+        "runner_executable": capability.runner_executable,
+        "runner_executable_hash": capability.runner_executable_hash,
+        "sandbox_executable": capability.sandbox_executable,
+        "sandbox_executable_hash": capability.sandbox_executable_hash,
+        "python_executable_hash": capability.python_executable_hash,
+        "worker_path": capability.worker_path,
+        "worker_hash": capability.worker_hash,
+        "argv_hash": capability.argv_hash,
+        "cwd": capability.cwd,
+        "read_roots": list(capability.read_roots),
+        "write_roots": list(capability.write_roots),
+        "sandbox_policy_hash": capability.sandbox_policy_hash,
+        "resource_limits": [
+            [name, value] for name, value in capability.resource_limits
+        ],
+        "expires_at": capability.expires_at,
+        "proposer_id": capability.proposer_id,
+        "proposer_role": capability.proposer_role,
+        "proposer_capability": capability.proposer_capability,
+        "proposer_identity_hash": capability.proposer_identity_hash,
+        "proposer_registry_ref": capability.proposer_registry_ref,
+        "executor_id": capability.executor_id,
+        "executor_role": capability.executor_role,
+        "executor_role_authorization_ref": capability.executor_role_authorization_ref,
+        "verifier_id": capability.verifier_id,
+        "verifier_role": capability.verifier_role,
+        "verifier_capability": capability.verifier_capability,
+        "verifier_identity_hash": capability.verifier_identity_hash,
+        "verifier_registry_ref": capability.verifier_registry_ref,
+        "registry_hash": capability.registry_hash,
+        "execution_policy_hash": capability.execution_policy_hash,
+        "authority_ref": capability.authority_ref,
+        "identity_binding_hash": capability.identity_binding_hash,
+        "issued_at": capability.issued_at,
+        "nonce_hash": hashlib.sha256(capability._nonce.encode("ascii")).hexdigest(),
+    }
+    return hashlib.sha256(_canonical(core)).hexdigest()
 
 
 def _sha256_regular_file(path: Path) -> str:
@@ -201,6 +267,12 @@ def issue_frozen_sandbox_execution_capability(
     sandbox_policy_hash: str,
     resource_limits: tuple[tuple[str, int], ...],
     expires_at: int,
+    proposer_id: str = "",
+    executor_id: str = "",
+    verifier_id: str = "",
+    identity_binding: object | None = None,
+    agent_registry: object | None = None,
+    execution_policy_hash: str = "",
     now: int | None = None,
     fixture_authorization: bool = False,
 ) -> FrozenSandboxExecutionCapability:
@@ -210,13 +282,26 @@ def issue_frozen_sandbox_execution_capability(
     canonical_home = Path(home).expanduser().resolve(strict=True)
     if LegacyWriteGate(canonical_home).status().state != "FROZEN_NO_WRITER":
         raise LegacyWriteDenied("sandbox execution capability requires a verified frozen home")
+    from sitina.orchestrator.execution_bridge import (
+        ExecutionBridgeError,
+        ExecutionIdentityBinding,
+    )
+
     if fixture_authorization:
         if canonical_home == Path("/Users/moss/SitinaHub") or not (
             canonical_home / ".sitina-bplus-disposable-v1"
         ).is_file():
             raise LegacyWriteDenied("sandbox fixture authorization requires a disposable non-Production home")
-        authority_resolution_id = "fixture-authority"
-        authority_frontier_hash = "fixture-frontier"
+        if identity_binding is None:
+            identity_binding = ExecutionIdentityBinding.fixture(
+                proposer_id=proposer_id or "fixture-proposer",
+                executor_id=executor_id or "forge-execution-role",
+                verifier_id=verifier_id or "fixture-verifier",
+            )
+        if type(identity_binding) is not ExecutionIdentityBinding:
+            raise LegacyWriteDenied("sandbox fixture execution identity is invalid")
+        authority_resolution_id = identity_binding.authority_resolution_id
+        authority_frontier_hash = identity_binding.authority_input_frontier_hash
     else:
         from sitina.authority.model import AuthorityResolution
 
@@ -236,6 +321,36 @@ def issue_frozen_sandbox_execution_capability(
             r"[0-9a-f]{64}", authority_frontier_hash
         ):
             raise LegacyWriteDenied("sandbox execution authority identity is invalid")
+        if type(identity_binding) is not ExecutionIdentityBinding:
+            raise LegacyWriteDenied("sandbox execution requires bound production principals")
+        try:
+            identity_binding.assert_current(
+                agent_registry,
+                policy_hash=execution_policy_hash,
+                authority_resolution=authority_resolution,
+                now=moment,
+            )
+        except (ExecutionBridgeError, ValueError, TypeError) as error:
+            raise LegacyWriteDenied(
+                "sandbox execution principals are not currently authorized"
+            ) from error
+        if (
+            identity_binding.authority_resolution_id != authority_resolution_id
+            or identity_binding.authority_input_frontier_hash
+            != authority_frontier_hash
+        ):
+            raise LegacyWriteDenied("sandbox execution authority binding differs")
+
+    assert isinstance(identity_binding, ExecutionIdentityBinding)
+    if any(
+        supplied and supplied != expected
+        for supplied, expected in (
+            (proposer_id, identity_binding.proposer_id),
+            (executor_id, identity_binding.executor_id),
+            (verifier_id, identity_binding.verifier_id),
+        )
+    ):
+        raise LegacyWriteDenied("sandbox execution principal arguments differ")
 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,255}", str(run_id)):
         raise LegacyWriteDenied("sandbox execution run_id is invalid")
@@ -248,7 +363,6 @@ def issue_frozen_sandbox_execution_capability(
             raise LegacyWriteDenied(f"sandbox execution {label} hash is invalid")
     if expires_at <= moment or expires_at - moment > 300:
         raise LegacyWriteDenied("sandbox execution expiry is invalid")
-
     runner = Path(runner_executable).expanduser().resolve(strict=True)
     python = Path(python_executable).expanduser().resolve(strict=True)
     worker = Path(worker_path).expanduser().resolve(strict=True)
@@ -329,13 +443,32 @@ def issue_frozen_sandbox_execution_capability(
         "sandbox_policy_hash": sandbox_policy_hash,
         "resource_limits": [[name, value] for name, value in normalized_limits],
         "expires_at": expires_at,
+        "proposer_id": identity_binding.proposer_id,
+        "proposer_role": identity_binding.proposer_role,
+        "proposer_capability": identity_binding.proposer_capability,
+        "proposer_identity_hash": identity_binding.proposer_identity_hash,
+        "proposer_registry_ref": identity_binding.proposer_registry_ref,
+        "executor_id": identity_binding.executor_id,
+        "executor_role": identity_binding.executor_role,
+        "executor_role_authorization_ref": identity_binding.executor_role_authorization_ref,
+        "verifier_id": identity_binding.verifier_id,
+        "verifier_role": identity_binding.verifier_role,
+        "verifier_capability": identity_binding.verifier_capability,
+        "verifier_identity_hash": identity_binding.verifier_identity_hash,
+        "verifier_registry_ref": identity_binding.verifier_registry_ref,
+        "registry_hash": identity_binding.registry_hash,
+        "execution_policy_hash": identity_binding.policy_hash,
+        "authority_ref": identity_binding.authority_ref,
+        "identity_binding_hash": identity_binding.binding_hash,
+        "issued_at": moment,
         "nonce_hash": hashlib.sha256(nonce.encode("ascii")).hexdigest(),
     }
     identity = hashlib.sha256(_canonical(core)).hexdigest()
+    capability_id = "sandbox-execution:" + identity
     with _state_lock:
-        _sandbox_execution_nonces.add(nonce)
+        _sandbox_execution_nonces[nonce] = capability_id
     return FrozenSandboxExecutionCapability(
-        "sandbox-execution:" + identity,
+        capability_id,
         authority_resolution_id,
         authority_frontier_hash,
         str(run_id),
@@ -356,6 +489,24 @@ def issue_frozen_sandbox_execution_capability(
         str(sandbox_policy_hash),
         normalized_limits,
         int(expires_at),
+        identity_binding.proposer_id,
+        identity_binding.proposer_role,
+        identity_binding.proposer_capability,
+        identity_binding.proposer_identity_hash,
+        identity_binding.proposer_registry_ref,
+        identity_binding.executor_id,
+        identity_binding.executor_role,
+        identity_binding.executor_role_authorization_ref,
+        identity_binding.verifier_id,
+        identity_binding.verifier_role,
+        identity_binding.verifier_capability,
+        identity_binding.verifier_identity_hash,
+        identity_binding.verifier_registry_ref,
+        identity_binding.registry_hash,
+        identity_binding.policy_hash,
+        identity_binding.authority_ref,
+        identity_binding.binding_hash,
+        moment,
         nonce,
     )
 
@@ -368,6 +519,10 @@ def authorized_frozen_sandbox_execution(
     cwd: Path,
     diff_hash: str,
     test_plan_hash: str,
+    authority_resolution: object | None = None,
+    identity_binding: object | None = None,
+    agent_registry: object | None = None,
+    execution_policy_hash: str = "",
     now: int | None = None,
 ) -> Iterator[None]:
     """Consume one capability and scope it to exactly one Popen audit event."""
@@ -375,14 +530,87 @@ def authorized_frozen_sandbox_execution(
     if capability is None:
         yield
         return
+    from sitina.orchestrator.execution_bridge import (
+        ExecutionBridgeError,
+        ExecutionIdentityBinding,
+    )
+
     moment = int(time.time()) if now is None else int(now)
+    if type(capability) is not FrozenSandboxExecutionCapability:
+        raise LegacyWriteDenied(
+            "frozen sandbox execution capability is invalid, expired, or out of scope"
+        )
     resolved_cwd = str(Path(cwd).expanduser().resolve(strict=True))
+    fixture_registry_hash = hashlib.sha256(
+        b"sitina-execution-fixture-registry-v1"
+    ).hexdigest()
+    if identity_binding is None and capability.registry_hash == fixture_registry_hash:
+        identity_binding = ExecutionIdentityBinding.fixture(
+            proposer_id=capability.proposer_id,
+            executor_id=capability.executor_id,
+            verifier_id=capability.verifier_id,
+        )
+    identity_valid = type(identity_binding) is ExecutionIdentityBinding
+    if identity_valid:
+        identity_valid = (
+            capability.proposer_id == identity_binding.proposer_id
+            and capability.proposer_role == identity_binding.proposer_role
+            and capability.proposer_capability == identity_binding.proposer_capability
+            and capability.proposer_identity_hash
+            == identity_binding.proposer_identity_hash
+            and capability.proposer_registry_ref
+            == identity_binding.proposer_registry_ref
+            and capability.executor_id == identity_binding.executor_id
+            and capability.executor_role == identity_binding.executor_role
+            and capability.executor_role_authorization_ref
+            == identity_binding.executor_role_authorization_ref
+            and capability.verifier_id == identity_binding.verifier_id
+            and capability.verifier_role == identity_binding.verifier_role
+            and capability.verifier_capability == identity_binding.verifier_capability
+            and capability.verifier_identity_hash
+            == identity_binding.verifier_identity_hash
+            and capability.verifier_registry_ref
+            == identity_binding.verifier_registry_ref
+            and capability.registry_hash == identity_binding.registry_hash
+            and capability.execution_policy_hash == identity_binding.policy_hash
+            and capability.authority_resolution_id
+            == identity_binding.authority_resolution_id
+            and capability.authority_input_frontier_hash
+            == identity_binding.authority_input_frontier_hash
+            and capability.authority_ref == identity_binding.authority_ref
+            and capability.identity_binding_hash == identity_binding.binding_hash
+        )
+    production_identity = (
+        identity_valid and capability.registry_hash != fixture_registry_hash
+    )
+    if production_identity:
+        try:
+            identity_binding.assert_current(
+                agent_registry,
+                policy_hash=execution_policy_hash,
+                authority_resolution=authority_resolution,
+                now=moment,
+            )
+            authority_issued_at = int(authority_resolution.issued_at)  # type: ignore[union-attr]
+            authority_expires_at = int(authority_resolution.expires_at)  # type: ignore[union-attr]
+        except (ExecutionBridgeError, AttributeError, TypeError, ValueError):
+            identity_valid = False
+            authority_issued_at = 0
+            authority_expires_at = 0
+        else:
+            identity_valid = (
+                authority_issued_at <= capability.issued_at < authority_expires_at
+            )
     if (
-        not isinstance(capability, FrozenSandboxExecutionCapability)
+        not identity_valid
+        or capability.capability_id
+        != "sandbox-execution:" + _sandbox_capability_identity(capability)
         or tuple(argv) != capability.argv
         or resolved_cwd != capability.cwd
         or diff_hash != capability.diff_hash
         or test_plan_hash != capability.test_plan_hash
+        or capability.issued_at > moment
+        or capability.expires_at - capability.issued_at > 300
         or moment >= capability.expires_at
         or _sha256_regular_file(Path(capability.runner_executable)) != capability.runner_executable_hash
         or _sha256_regular_file(Path(capability.sandbox_executable)) != capability.sandbox_executable_hash
@@ -401,9 +629,9 @@ def authorized_frozen_sandbox_execution(
     ):
         raise LegacyWriteDenied("frozen sandbox execution capability is invalid, expired, or out of scope")
     with _state_lock:
-        if capability._nonce not in _sandbox_execution_nonces:
+        if _sandbox_execution_nonces.get(capability._nonce) != capability.capability_id:
             raise LegacyWriteDenied("frozen sandbox execution capability was already consumed")
-        _sandbox_execution_nonces.remove(capability._nonce)
+        del _sandbox_execution_nonces[capability._nonce]
     previous = getattr(_local, "sandbox_execution", None)
     _local.sandbox_execution = (capability, False)
     try:

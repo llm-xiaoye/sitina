@@ -175,6 +175,10 @@ def activate_runtime(
     source_paths = (
         home / "core/sitina/orchestrator/true_multi_agent_runtime.py",
         home / "core/sitina/orchestrator/true_multi_agent.py",
+        home / "core/sitina/orchestrator/execution_bridge.py",
+        home / "core/sitina/orchestrator/execution_sandbox.py",
+        home / "core/sitina/orchestrator/execution_verification.py",
+        home / "core/sitina/legacy/fence.py",
         home / "core/sitina/conversation/__init__.py",
         home / "core/sitina/conversation/models.py",
         home / "core/sitina/conversation/context.py",

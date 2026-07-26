@@ -14,12 +14,15 @@ import time
 import unittest
 from pathlib import Path
 
+from sitina.authority.model import AuthorityResolution, AuthorityState
 from sitina.legacy.fence import (
     LegacyWriteDenied,
+    _sandbox_capability_identity,
     authorized_frozen_sandbox_execution,
     frozen_sandbox_profile,
     issue_frozen_sandbox_execution_capability,
 )
+from sitina.orchestrator.execution_bridge import ExecutionIdentityBinding
 from sitina.orchestrator.execution_sandbox import (
     ExecutionSandboxError,
     ExecutionSandboxRunner,
@@ -27,6 +30,7 @@ from sitina.orchestrator.execution_sandbox import (
     SandboxResourceLimits,
     hash_diff,
 )
+from sitina.orchestrator.true_multi_agent_runtime import AgentRegistry
 from tests.fixtures.frozen_home import make_frozen_home
 
 
@@ -38,6 +42,54 @@ PASSING_DOCTEST = (
     "    \"\"\"\n"
     "    return a + b\n"
 )
+
+
+def _identity_variants() -> dict[str, ExecutionIdentityBinding]:
+    return {
+        "proposer_id": ExecutionIdentityBinding.fixture(
+            proposer_id="alternate-proposer"
+        ),
+        "verifier_id": ExecutionIdentityBinding.fixture(
+            verifier_id="alternate-verifier"
+        ),
+        "registry_hash": ExecutionIdentityBinding.fixture(
+            registry_hash="c" * 64
+        ),
+        "policy_hash": ExecutionIdentityBinding.fixture(
+            policy_hash="d" * 64
+        ),
+        "executor_role_authorization_ref": ExecutionIdentityBinding.fixture(
+            policy_hash="e" * 64
+        ),
+        "authority_ref": ExecutionIdentityBinding.fixture(
+            authority_resolution_id="f" * 64
+        ),
+    }
+
+
+def _attestation_for_identity(evidence, identity: ExecutionIdentityBinding) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V2",
+                "controller_identity": evidence.sandbox_capability_id,
+                "diff_hash": evidence.diff_hash_before,
+                "test_plan_hash": evidence.test_plan_hash,
+                "execution_identity_hash": identity.binding_hash,
+                "protocol_key_hash": evidence.controller_protocol_key_hash,
+                "response_hash": evidence.controller_response_hash,
+                "worker_hash": evidence.worker_hash,
+                "argv_hash": evidence.argv_hash,
+                "runner_return_code": evidence.runner_return_code,
+                "timed_out": evidence.timed_out,
+                "protocol_response_present":
+                    evidence.controller_protocol_response_present,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 class ExecutionSandboxTests(unittest.TestCase):
@@ -69,6 +121,19 @@ class ExecutionSandboxTests(unittest.TestCase):
         self.assertRegex(evidence.controller_attestation_hash, r"^[0-9a-f]{64}$")
         self.assertTrue(evidence.controller_protocol_response_present)
         self.assertTrue(evidence.controller_attestation_valid)
+        execution_identity = evidence.mapping()["execution_identity"]
+        self.assertEqual(execution_identity["proposer_id"], "fixture-proposer")
+        self.assertEqual(
+            execution_identity["executor_id"], "forge-execution-role"
+        )
+        self.assertEqual(execution_identity["verifier_id"], "fixture-verifier")
+        for field in (
+            "registry_hash",
+            "policy_hash",
+            "executor_role_authorization_ref",
+            "authority_ref",
+        ):
+            self.assertTrue(execution_identity[field])
         trust = evidence.mapping()["trust_boundary"]
         self.assertEqual(
             trust["authenticated_channel"],
@@ -105,6 +170,25 @@ class ExecutionSandboxTests(unittest.TestCase):
             dataclasses.replace(evidence, controller_attestation_hash="0" * 64)
         with self.assertRaisesRegex(ValueError, "controller attestation"):
             dataclasses.replace(evidence, controller_protocol_key_hash="0" * 64)
+        base_mapping = evidence.identity.mapping()
+        for field, alternate_identity in _identity_variants().items():
+            with self.subTest(field=field):
+                self.assertNotEqual(
+                    base_mapping[field],
+                    alternate_identity.mapping()[field],
+                )
+                alternate_evidence = dataclasses.replace(
+                    evidence,
+                    identity=alternate_identity,
+                    controller_attestation_hash=_attestation_for_identity(
+                        evidence, alternate_identity
+                    ),
+                )
+                self.assertTrue(alternate_evidence.controller_attestation_valid)
+                self.assertNotEqual(
+                    evidence.evidence_hash,
+                    alternate_evidence.evidence_hash,
+                )
 
     def test_preexisting_pyc_cannot_replace_hash_bound_source_bytes(self) -> None:
         target = self.workspace / "stale_bytecode.py"
@@ -669,6 +753,42 @@ class ExecutionSandboxTests(unittest.TestCase):
     def test_frozen_capability_is_exact_and_one_use(self) -> None:
         frozen_home = make_frozen_home()
         try:
+            repository = Path(__file__).resolve().parents[1]
+            registry = AgentRegistry.load(repository)
+            raw_policy = json.loads(
+                (repository / "config/true_multi_agent_policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            policy_hash = hashlib.sha256(
+                json.dumps(
+                    raw_policy,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            moment = int(time.time())
+            authority = AuthorityResolution(
+                AuthorityState.JOURNAL_WRITER_AUTHORIZED,
+                "1" * 64,
+                "2" * 64,
+                "3" * 64,
+                "4" * 64,
+                "execution-identity-test",
+                moment - 5,
+                moment + 120,
+                "test journal authority",
+            )
+            execution_identity = ExecutionIdentityBinding.from_registry(
+                registry,
+                policy_hash=policy_hash,
+                authority_resolution=authority,
+                proposer_id="agent-atlas",
+                executor_id="forge-execution-role",
+                verifier_id="agent-delta",
+                now=moment,
+            )
             target = self.workspace / "capability.py"
             target.write_text(PASSING_DOCTEST, encoding="utf-8")
             diff_hash, _entries = hash_diff([target])
@@ -702,7 +822,7 @@ class ExecutionSandboxTests(unittest.TestCase):
                 str(python), "-I", "-S", str(worker), "--request", request
             )
             capability = issue_frozen_sandbox_execution_capability(
-                None,
+                authority,
                 home=frozen_home,
                 run_id="capability-contract",
                 diff_hash=diff_hash,
@@ -716,8 +836,14 @@ class ExecutionSandboxTests(unittest.TestCase):
                 write_roots=(self.home.parent,),
                 sandbox_policy_hash=hashlib.sha256(profile.encode("utf-8")).hexdigest(),
                 resource_limits=limits,
-                expires_at=int(time.time()) + 30,
-                fixture_authorization=True,
+                expires_at=moment + 30,
+                proposer_id=execution_identity.proposer_id,
+                executor_id=execution_identity.executor_id,
+                verifier_id=execution_identity.verifier_id,
+                identity_binding=execution_identity,
+                agent_registry=registry,
+                execution_policy_hash=policy_hash,
+                now=moment,
             )
             with self.assertRaises(LegacyWriteDenied):
                 with authorized_frozen_sandbox_execution(
@@ -726,11 +852,15 @@ class ExecutionSandboxTests(unittest.TestCase):
                     cwd=self.workspace,
                     diff_hash=diff_hash,
                     test_plan_hash=test_plan_hash,
+                    authority_resolution=authority,
+                    identity_binding=execution_identity,
+                    agent_registry=registry,
+                    execution_policy_hash=policy_hash,
                     now=capability.expires_at,
                 ):
                     pass
             capability = issue_frozen_sandbox_execution_capability(
-                None,
+                authority,
                 home=frozen_home,
                 run_id="capability-contract-fresh",
                 diff_hash=diff_hash,
@@ -744,8 +874,14 @@ class ExecutionSandboxTests(unittest.TestCase):
                 write_roots=(self.home.parent,),
                 sandbox_policy_hash=hashlib.sha256(profile.encode("utf-8")).hexdigest(),
                 resource_limits=limits,
-                expires_at=int(time.time()) + 30,
-                fixture_authorization=True,
+                expires_at=moment + 30,
+                proposer_id=execution_identity.proposer_id,
+                executor_id=execution_identity.executor_id,
+                verifier_id=execution_identity.verifier_id,
+                identity_binding=execution_identity,
+                agent_registry=registry,
+                execution_policy_hash=policy_hash,
+                now=moment,
             )
             with self.assertRaises(LegacyWriteDenied):
                 with authorized_frozen_sandbox_execution(
@@ -754,6 +890,69 @@ class ExecutionSandboxTests(unittest.TestCase):
                     cwd=self.workspace,
                     diff_hash=diff_hash,
                     test_plan_hash=test_plan_hash,
+                    authority_resolution=authority,
+                    identity_binding=execution_identity,
+                    agent_registry=registry,
+                    execution_policy_hash=policy_hash,
+                    now=moment + 1,
+                ):
+                    pass
+            tampered_values = {
+                "proposer_id": "agent-borealis",
+                "executor_id": "tampered-execution-role",
+                "verifier_id": "agent-horizon",
+                "issued_at": capability.issued_at - 1,
+                "capability_id": "sandbox-execution:" + "0" * 64,
+                "authority_ref": "authority-resolution:" + "0" * 64,
+                "authority_resolution_id": "0" * 64,
+                "registry_hash": "0" * 64,
+                "execution_policy_hash": "0" * 64,
+                "executor_role_authorization_ref":
+                    "execution-role-authorization:" + "0" * 64,
+                "proposer_registry_ref": "agent-registry-identity:" + "0" * 64,
+                "verifier_registry_ref": "agent-registry-identity:" + "0" * 64,
+            }
+            for field, replacement in tampered_values.items():
+                with self.subTest(field=field):
+                    tampered = dataclasses.replace(
+                        capability, **{field: replacement}
+                    )
+                    with self.assertRaises(LegacyWriteDenied):
+                        with authorized_frozen_sandbox_execution(
+                            tampered,
+                            argv=argv,
+                            cwd=self.workspace,
+                            diff_hash=diff_hash,
+                            test_plan_hash=test_plan_hash,
+                            authority_resolution=authority,
+                            identity_binding=execution_identity,
+                            agent_registry=registry,
+                            execution_policy_hash=policy_hash,
+                            now=moment + 1,
+                        ):
+                            pass
+            recomputed = dataclasses.replace(
+                capability, issued_at=capability.issued_at - 1
+            )
+            recomputed = dataclasses.replace(
+                recomputed,
+                capability_id=(
+                    "sandbox-execution:"
+                    + _sandbox_capability_identity(recomputed)
+                ),
+            )
+            with self.assertRaises(LegacyWriteDenied):
+                with authorized_frozen_sandbox_execution(
+                    recomputed,
+                    argv=argv,
+                    cwd=self.workspace,
+                    diff_hash=diff_hash,
+                    test_plan_hash=test_plan_hash,
+                    authority_resolution=authority,
+                    identity_binding=execution_identity,
+                    agent_registry=registry,
+                    execution_policy_hash=policy_hash,
+                    now=moment + 1,
                 ):
                     pass
             with authorized_frozen_sandbox_execution(
@@ -762,6 +961,11 @@ class ExecutionSandboxTests(unittest.TestCase):
                 cwd=self.workspace,
                 diff_hash=diff_hash,
                 test_plan_hash=test_plan_hash,
+                authority_resolution=authority,
+                identity_binding=execution_identity,
+                agent_registry=registry,
+                execution_policy_hash=policy_hash,
+                now=moment + 1,
             ):
                 pass
             with self.assertRaises(LegacyWriteDenied):
@@ -771,6 +975,11 @@ class ExecutionSandboxTests(unittest.TestCase):
                     cwd=self.workspace,
                     diff_hash=diff_hash,
                     test_plan_hash=test_plan_hash,
+                    authority_resolution=authority,
+                    identity_binding=execution_identity,
+                    agent_registry=registry,
+                    execution_policy_hash=policy_hash,
+                    now=moment + 1,
                 ):
                     pass
         finally:

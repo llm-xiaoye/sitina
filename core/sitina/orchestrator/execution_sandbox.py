@@ -42,6 +42,7 @@ from sitina.legacy.fence import (
     frozen_sandbox_profile,
     issue_frozen_sandbox_execution_capability,
 )
+from sitina.orchestrator.execution_bridge import ExecutionIdentityBinding
 
 
 class ExecutionSandboxError(RuntimeError):
@@ -275,6 +276,7 @@ class TestEvidence:
     sandbox_policy_hash: str
     sandbox_provider_id: str
     sandbox_capability_id: str
+    identity: ExecutionIdentityBinding
     controller_protocol_response_present: bool
     controller_protocol_key_hash: str
     controller_response_hash: str
@@ -321,6 +323,8 @@ class TestEvidence:
             raise ValueError("TestEvidence counts must be non-negative integers")
         if not isinstance(self.controller_protocol_response_present, bool):
             raise ValueError("TestEvidence controller response presence must be boolean")
+        if type(self.identity) is not ExecutionIdentityBinding:
+            raise ValueError("TestEvidence execution identity binding is invalid")
         if not self.controller_attestation_valid:
             raise ValueError("TestEvidence controller attestation is invalid")
 
@@ -349,10 +353,11 @@ class TestEvidence:
         expected = _sha256_bytes(
             _canonical(
                 {
-                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V1",
+                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V2",
                     "controller_identity": self.sandbox_capability_id,
                     "diff_hash": self.diff_hash_before,
                     "test_plan_hash": self.test_plan_hash,
+                    "execution_identity_hash": self.identity.binding_hash,
                     "protocol_key_hash": self.controller_protocol_key_hash,
                     "response_hash": self.controller_response_hash,
                     "worker_hash": self.worker_hash,
@@ -367,7 +372,7 @@ class TestEvidence:
 
     def mapping(self) -> dict[str, object]:
         return {
-            "schema": "SITINA_TEST_EVIDENCE_V1",
+            "schema": "SITINA_TEST_EVIDENCE_V2",
             "run_id": self.run_id,
             "test_plan_hash": self.test_plan_hash,
             "diff_hash_before": self.diff_hash_before,
@@ -390,6 +395,8 @@ class TestEvidence:
             "sandbox_policy_hash": self.sandbox_policy_hash,
             "sandbox_provider_id": self.sandbox_provider_id,
             "sandbox_capability_id": self.sandbox_capability_id,
+            "execution_identity": self.identity.mapping(),
+            "execution_identity_hash": self.identity.binding_hash,
             "controller_protocol_response_present": self.controller_protocol_response_present,
             "controller_protocol_key_hash": self.controller_protocol_key_hash,
             "controller_response_hash": self.controller_response_hash,
@@ -673,6 +680,12 @@ class ExecutionSandboxRunner:
         python_executable: Path = Path(sys.executable),
         worker_path: Path | None = None,
         limits: SandboxResourceLimits | None = None,
+        proposer_id: str = "",
+        executor_id: str = "",
+        verifier_id: str = "",
+        identity_binding: ExecutionIdentityBinding | None = None,
+        agent_registry: object | None = None,
+        execution_policy_hash: str = "",
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.authority_resolution = authority_resolution
@@ -681,6 +694,23 @@ class ExecutionSandboxRunner:
         self.python_executable = Path(python_executable).expanduser().resolve(strict=True)
         self.worker_path = Path(worker_path or Path(__file__).with_name("execution_sandbox_worker.py")).resolve(strict=True)
         self.limits = limits or SandboxResourceLimits()
+        if identity_binding is None:
+            if authority_resolution is not None and not fixture_authorization:
+                raise ExecutionSandboxUnavailable(
+                    "production sandbox execution identity binding is unavailable"
+                )
+            identity_binding = ExecutionIdentityBinding.fixture(
+                proposer_id=proposer_id or "fixture-proposer",
+                executor_id=executor_id or "forge-execution-role",
+                verifier_id=verifier_id or "fixture-verifier",
+            )
+        if type(identity_binding) is not ExecutionIdentityBinding:
+            raise ExecutionSandboxUnavailable(
+                "sandbox execution identity binding is invalid"
+            )
+        self.identity = identity_binding
+        self.agent_registry = agent_registry
+        self.execution_policy_hash = execution_policy_hash
         if platform.system() != "Darwin" or self.sandbox_executable != Path("/usr/bin/sandbox-exec"):
             raise ExecutionSandboxUnavailable("qualified macOS sandbox-exec is unavailable")
         for candidate in (self.sandbox_executable, self.python_executable, self.worker_path):
@@ -742,6 +772,12 @@ class ExecutionSandboxRunner:
             sandbox_policy_hash=policy_hash,
             resource_limits=self.limits.capability_items(),
             expires_at=int(time.time()) + min(120, self.limits.wall_seconds + 30),
+            proposer_id=self.identity.proposer_id,
+            executor_id=self.identity.executor_id,
+            verifier_id=self.identity.verifier_id,
+            identity_binding=self.identity,
+            agent_registry=self.agent_registry,
+            execution_policy_hash=self.execution_policy_hash,
             fixture_authorization=self.fixture_authorization,
         )
 
@@ -832,6 +868,10 @@ class ExecutionSandboxRunner:
                 cwd=cwd,
                 diff_hash=diff_hash,
                 test_plan_hash=test_plan_hash,
+                authority_resolution=self.authority_resolution,
+                identity_binding=self.identity,
+                agent_registry=self.agent_registry,
+                execution_policy_hash=self.execution_policy_hash,
             ):
                 try:
                     process = subprocess.Popen(
@@ -960,10 +1000,11 @@ class ExecutionSandboxRunner:
         controller_attestation_hash = _sha256_bytes(
             _canonical(
                 {
-                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V1",
+                    "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V2",
                     "controller_identity": controller_identity,
                     "diff_hash": diff_hash,
                     "test_plan_hash": test_plan_hash,
+                    "execution_identity_hash": self.identity.binding_hash,
                     "protocol_key_hash": protocol_key_hash,
                     "response_hash": controller_response_hash,
                     "worker_hash": self.worker_hash,
@@ -1163,6 +1204,7 @@ class ExecutionSandboxRunner:
                 sandbox_policy_hash=invocation.policy_hash,
                 sandbox_provider_id=provider_id,
                 sandbox_capability_id=invocation.capability_id,
+                identity=self.identity,
                 controller_protocol_response_present=invocation.controller_protocol_response_present,
                 controller_protocol_key_hash=invocation.controller_protocol_key_hash,
                 controller_response_hash=invocation.controller_response_hash,

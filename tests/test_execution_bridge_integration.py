@@ -13,12 +13,16 @@ from pathlib import Path
 
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.runners.provider import ProviderToolCall, ProviderToolTurn, ScriptedMockToolClient
-from sitina.orchestrator.execution_bridge import ExecutionBinding, run_safe_execution
+from sitina.orchestrator.execution_bridge import (
+    ExecutionBinding,
+    ExecutionIdentityBinding,
+    run_safe_execution,
+)
 from sitina.orchestrator.execution_sandbox import FilesystemTestEvidencePublisher
 from sitina.security.redaction import redact_boundary_value
 from sitina.guards.path_lease import PathLease
 
-EXEC_ID, VER_ID = "agent-forge", "agent-delta"
+EXEC_ID, VER_ID = "forge-execution-role", "agent-delta"
 
 
 class _NoopAudit:
@@ -61,6 +65,12 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
     def _run(self, scripts, max_attempts=2):
         base = self.home / "artifacts" / "executions" / f"run-{next(self._ctr)}"
         base.mkdir(parents=True, exist_ok=True)
+        execution_identity = ExecutionIdentityBinding.fixture(
+            proposer_id="agent-atlas",
+            executor_id=EXEC_ID,
+            verifier_id=VER_ID,
+            policy_hash="b" * 64,
+        )
         state = {"attempt": 1}
         def attempt_ws(a):
             w = base / f"attempt-{a}"; w.mkdir(parents=True, exist_ok=True); return w
@@ -87,12 +97,19 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
                 res,
                 run_id=f"integration-{base.name}-{state['attempt']}",
                 home=self.home,
+                identity_binding=execution_identity,
                 evidence_publisher=FilesystemTestEvidencePublisher(self.home / "test-evidence"),
             )
         def rollback(a):
             w = base / f"attempt-{a}"
             if w.exists(): shutil.rmtree(w, ignore_errors=True)
-        binding = ExecutionBinding("a"*64, (str(base),), "b"*64, f"run-{base.name}")
+        binding = ExecutionBinding(
+            "a" * 64,
+            (str(base),),
+            "b" * 64,
+            f"run-{base.name}",
+            execution_identity,
+        )
         res = run_safe_execution(binding=binding, executor_id=EXEC_ID, workspace=str(base),
             forge_runner=forge_runner, collect_diff=collect_diff, boundary_check=boundary_check,
             verifier=verifier, rollback=rollback, max_attempts=max_attempts)
@@ -133,7 +150,7 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
 
     def test_result_is_returned_not_discarded(self):
         res, _ = self._run(lambda a: ("add.py", self._CODE_WITH_DOCTEST))
-        self.assertEqual(res.as_event()["schema"], "FORGE_EXECUTION_RESULT_V1")
+        self.assertEqual(res.as_event()["schema"], "FORGE_EXECUTION_RESULT_V2")
         self.assertTrue(res.as_event()["accepted"])
 
     def test_concurrent_fencing_second_lease_blocked(self):
