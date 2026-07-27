@@ -107,10 +107,16 @@ DEPENDENCY_RESULT_SCHEMA = "SITINA_BPLUS_DEPENDENCY_GATE_V1"
 AUTONOMOUS_AUDIT_SCHEMA = "SITINA_AUTONOMOUS_RUN_EVENT_V1"
 REAL_REVIEW_RECEIPT_SCHEMA = "SITINA_STEP7_REAL_REVIEW_CAPTURE_RECEIPT_V1"
 CODEX_CAPTURE_ANCHOR_SCHEMA = "SITINA_CODEX_APPEND_ONLY_CAPTURE_ANCHOR_V1"
-CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V1"
+CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V2"
+CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA = (
+    "SITINA_CODEX_SOURCE_USER_AUTHORIZATION_RECORD_V1"
+)
 AUDIT_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_AUDIT_CAPTURE_ANCHOR_V1"
 PREIMAGE_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1"
 DEPLOYMENT_AUTHORIZATION_MARKER = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V2"
+DEPLOYMENT_DELEGATION_MARKER = (
+    "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_DELEGATION_V1"
+)
 CODEX_SESSION_ROOT = Path("/Users/moss/.codex/sessions")
 SENTINEL_SAMPLE_SCHEMA = "SITINA_STEP7_PRODUCTION_SENTINEL_SAMPLE_V1"
 ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V3"
@@ -130,6 +136,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z",
     "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z",
     "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z",
+    "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z",
 }
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
@@ -273,6 +280,34 @@ CODEX_RECORD_REFERENCE_FIELDS = {
     "marker",
     "author",
 }
+CODEX_USER_AUTHORIZATION_RECEIPT_FIELDS = CODEX_RECORD_REFERENCE_FIELDS | {
+    "source_authorization"
+}
+DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS = (
+    "approval_id",
+    "source_thread_id",
+    "source_session_path",
+    "source_session_meta_raw_sha256",
+    "source_line_number",
+    "source_record_id",
+    "source_raw_record_sha256",
+    "source_content_sha256",
+)
+DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE = {
+    "receipt_schema": CODEX_USER_AUTHORIZATION_SCHEMA,
+    "source_record_schema": CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
+    "source_record_role": "user",
+    "delegation_record_role": "user",
+    "source_record_reference_fields": sorted(CODEX_RECORD_REFERENCE_FIELDS),
+    "delegation_wrapper_reference_fields": sorted(CODEX_RECORD_REFERENCE_FIELDS),
+    "delegation_wrapper_source_record_binding_fields": list(
+        DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
+    ),
+    "source_approval_text_must_equal_exact_payload": True,
+    "delegation_input_is_canonical_source_record_binding": True,
+    "source_and_delegation_sessions_must_differ": True,
+    "source_record_must_precede_delegation_record": True,
+}
 DEPLOYMENT_PACKET_FIELDS = {
     "schema",
     "approval_id",
@@ -367,12 +402,15 @@ DEPLOYMENT_REQUEST_SUPPORTING_EVIDENCE_FIELDS = {
 DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS = {
     "schema",
     "marker",
+    "delegation_marker",
     "source_thread_id",
     "required_payload_fields",
     "requires_user_record",
     "delegated_wrapper_required",
     "delegated_wrapper_source_thread_required",
     "delegated_source_session",
+    "delegation_source_binding_fields",
+    "two_hop_structure",
     "self_authorizes_execution",
 }
 DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS = (
@@ -975,46 +1013,56 @@ def _verify_codex_capture_anchor(
         errors.append(f"{label} append-only anchor content mismatch")
 
 
-def _verify_user_authorization(
-    receipt: Any,
+def _read_user_authorization_record(
+    reference: Any,
     *,
-    expected_payload: Mapping[str, Any],
+    expected_schema: str,
+    expected_marker: str,
     anchor_root: Path,
     errors: list[str],
-) -> None:
-    """Require exact user-authored approval bound to the packet's physical bytes."""
+    label: str,
+) -> dict[str, Any]:
+    """Read one physically bound role=user record without following aliases."""
 
-    label = "deployment user authorization"
-    if not isinstance(receipt, Mapping) or set(receipt) != CODEX_RECORD_REFERENCE_FIELDS:
-        errors.append(f"{label} receipt schema mismatch")
-        return
+    if not isinstance(reference, Mapping) or set(reference) != CODEX_RECORD_REFERENCE_FIELDS:
+        errors.append(f"{label} reference schema mismatch")
+        return {}
     if (
-        receipt.get("schema") != CODEX_USER_AUTHORIZATION_SCHEMA
-        or receipt.get("marker") != DEPLOYMENT_AUTHORIZATION_MARKER
-        or receipt.get("author") != "user"
-        or not _integer(receipt.get("line_number"))
-        or receipt.get("line_number") <= 0
-        or not isinstance(receipt.get("record_id"), str)
-        or not receipt.get("record_id")
-        or not _valid_sha256(receipt.get("raw_record_sha256"))
-        or not _valid_sha256(receipt.get("content_sha256"))
+        reference.get("schema") != expected_schema
+        or reference.get("marker") != expected_marker
+        or reference.get("author") != "user"
+        or not _integer(reference.get("line_number"))
+        or reference.get("line_number") <= 0
+        or not isinstance(reference.get("record_id"), str)
+        or not reference.get("record_id")
+        or not _valid_sha256(reference.get("raw_record_sha256"))
+        or not _valid_sha256(reference.get("content_sha256"))
     ):
-        errors.append(f"{label} receipt binding mismatch")
-        return
+        errors.append(f"{label} reference binding mismatch")
+        return {}
     session_path = _safe_regular_file(
-        receipt.get("session_path"), errors, f"{label} session"
+        reference.get("session_path"), errors, f"{label} session"
     )
     try:
         resolved_root = anchor_root.expanduser().resolve(strict=True)
+        resolved_session_path = (
+            session_path.expanduser().resolve(strict=True)
+            if session_path is not None
+            else None
+        )
         if (
             session_path is None
-            or not session_path.is_relative_to(resolved_root)
-            or session_path.suffix != ".jsonl"
+            or resolved_session_path is None
+            or session_path != resolved_session_path
+            or not resolved_session_path.is_relative_to(resolved_root)
+            or resolved_session_path.suffix != ".jsonl"
         ):
             raise ValueError("authorization session is outside fixed session root")
+        session_path = resolved_session_path
         raw_lines = session_path.read_bytes().splitlines(keepends=True)
-        meta = json.loads(raw_lines[0])
-        raw = raw_lines[int(receipt["line_number"]) - 1]
+        meta_raw = raw_lines[0]
+        meta = json.loads(meta_raw)
+        raw = raw_lines[int(reference["line_number"]) - 1]
         record = json.loads(raw)
     except (
         IndexError,
@@ -1024,16 +1072,10 @@ def _verify_user_authorization(
         json.JSONDecodeError,
     ):
         errors.append(f"{label} record cannot be read")
-        return
+        return {}
     meta_payload = meta.get("payload") if isinstance(meta, Mapping) else None
     payload = record.get("payload") if isinstance(record, Mapping) else None
     content = payload.get("content") if isinstance(payload, Mapping) else None
-    expected_text = DEPLOYMENT_AUTHORIZATION_MARKER + " " + json.dumps(
-        dict(expected_payload),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
     texts = (
         [
             item.get("text")
@@ -1045,56 +1087,155 @@ def _verify_user_authorization(
         if isinstance(content, list)
         else []
     )
-    authorization_text = texts[0] if len(texts) == 1 else None
-    delegated = (
-        re.fullmatch(
-            r"<codex_delegation>\s*"
-            r"<source_thread_id>([^<]+)</source_thread_id>\s*"
-            r"<input>([\s\S]*)</input>\s*"
-            r"</codex_delegation>",
-            authorization_text,
-        )
-        if isinstance(authorization_text, str)
-        else None
-    )
-    authorization_matches = (
-        delegated is not None
-        and delegated.group(1) == STEP7_SOURCE_THREAD_ID
-        and delegated.group(2) == expected_text
-    )
-    production_session_root = resolved_root == CODEX_SESSION_ROOT.resolve(strict=True)
-    session_identity_valid = (
-        isinstance(meta_payload, Mapping)
-        and meta.get("type") == "session_meta"
-        and meta_payload.get("originator") == "Codex Desktop"
-        and meta_payload.get("source") == "vscode"
-        and meta_payload.get("thread_source") == "subagent"
-        and meta_payload.get("model_provider") == "openai"
-        and isinstance(meta_payload.get("session_id"), str)
-        and isinstance(meta_payload.get("id"), str)
-    )
-    if production_session_root:
-        session_identity_valid = bool(
-            session_identity_valid
-            and session_path.name.startswith("rollout-")
-            and (
-                str(meta_payload.get("session_id")) in session_path.name
-                or str(meta_payload.get("id")) in session_path.name
-            )
-        )
+    text = texts[0] if len(texts) == 1 else None
     if (
-        hashlib.sha256(raw).hexdigest() != receipt.get("raw_record_sha256")
-        or not session_identity_valid
+        not isinstance(meta_payload, Mapping)
+        or meta.get("type") != "session_meta"
+        or not isinstance(meta_payload.get("session_id"), str)
+        or not isinstance(meta_payload.get("id"), str)
+        or meta_payload.get("model_provider") != "openai"
+        or hashlib.sha256(raw).hexdigest()
+        != reference.get("raw_record_sha256")
         or record.get("type") != "response_item"
         or not isinstance(payload, Mapping)
         or payload.get("type") != "message"
-        or payload.get("id") != receipt.get("record_id")
+        or payload.get("id") != reference.get("record_id")
         or payload.get("role") != "user"
-        or not authorization_matches
-        or not isinstance(authorization_text, str)
-        or _sha256_text(authorization_text) != receipt.get("content_sha256")
+        or not _valid_iso8601(record.get("timestamp"))
+        or not isinstance(text, str)
+        or _sha256_text(text) != reference.get("content_sha256")
     ):
         errors.append(f"{label} content mismatch")
+        return {}
+    return {
+        "path": session_path,
+        "resolved_root": resolved_root,
+        "meta_raw": meta_raw,
+        "meta": meta_payload,
+        "text": text,
+        "timestamp": record.get("timestamp"),
+    }
+
+
+def _verify_user_authorization(
+    receipt: Any,
+    *,
+    expected_payload: Mapping[str, Any],
+    anchor_root: Path,
+    errors: list[str],
+) -> None:
+    """Require a source-user approval and a distinct target delegation record."""
+
+    label = "deployment user authorization"
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt) != CODEX_USER_AUTHORIZATION_RECEIPT_FIELDS
+    ):
+        errors.append(f"{label} receipt schema mismatch")
+        return
+    source_reference = receipt.get("source_authorization")
+    wrapper_reference = {
+        field: receipt.get(field) for field in CODEX_RECORD_REFERENCE_FIELDS
+    }
+    source = _read_user_authorization_record(
+        source_reference,
+        expected_schema=CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
+        expected_marker=DEPLOYMENT_AUTHORIZATION_MARKER,
+        anchor_root=anchor_root,
+        errors=errors,
+        label=f"{label} source",
+    )
+    wrapper = _read_user_authorization_record(
+        wrapper_reference,
+        expected_schema=CODEX_USER_AUTHORIZATION_SCHEMA,
+        expected_marker=DEPLOYMENT_DELEGATION_MARKER,
+        anchor_root=anchor_root,
+        errors=errors,
+        label=f"{label} delegation",
+    )
+    if not source or not wrapper:
+        return
+    expected_text = DEPLOYMENT_AUTHORIZATION_MARKER + " " + json.dumps(
+        dict(expected_payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    source_record_binding = {
+        "approval_id": expected_payload.get("approval_id"),
+        "source_thread_id": STEP7_SOURCE_THREAD_ID,
+        "source_session_path": source_reference.get("session_path"),
+        "source_session_meta_raw_sha256": hashlib.sha256(
+            source["meta_raw"]
+        ).hexdigest(),
+        "source_line_number": source_reference.get("line_number"),
+        "source_record_id": source_reference.get("record_id"),
+        "source_raw_record_sha256": source_reference.get("raw_record_sha256"),
+        "source_content_sha256": source_reference.get("content_sha256"),
+    }
+    delegation_input = DEPLOYMENT_DELEGATION_MARKER + " " + json.dumps(
+        source_record_binding,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    expected_wrapper = (
+        "<codex_delegation>\n"
+        f"  <source_thread_id>{STEP7_SOURCE_THREAD_ID}</source_thread_id>\n"
+        f"  <input>{delegation_input}</input>\n"
+        "</codex_delegation>"
+    )
+    source_meta = source["meta"]
+    wrapper_meta = wrapper["meta"]
+    source_identity_valid = (
+        source_meta.get("session_id") == STEP7_SOURCE_THREAD_ID
+        and source_meta.get("id") == STEP7_SOURCE_THREAD_ID
+        and source_meta.get("originator") == "codex_work_desktop"
+        and source_meta.get("source") == "vscode"
+        and source_meta.get("thread_source") == "user"
+    )
+    wrapper_source = wrapper_meta.get("source")
+    wrapper_identity_valid = (
+        wrapper_meta.get("originator") in {"Codex Desktop", "codex_work_desktop"}
+        and wrapper_meta.get("thread_source") == "subagent"
+        and (
+            wrapper_source == "vscode"
+            or isinstance(wrapper_source, Mapping)
+            and "subagent" in wrapper_source
+        )
+        and wrapper["path"] != source["path"]
+        and wrapper_meta.get("id") != source_meta.get("id")
+    )
+    production_session_root = (
+        source["resolved_root"] == CODEX_SESSION_ROOT.resolve(strict=True)
+    )
+    if production_session_root:
+        expected_source_path = Path(
+            STEP7_DELEGATED_SOURCE_SESSION["path"]
+        ).resolve(strict=True)
+        source_identity_valid = bool(
+            source_identity_valid
+            and source["path"].resolve(strict=True) == expected_source_path
+            and hashlib.sha256(source["meta_raw"]).hexdigest()
+            == STEP7_DELEGATED_SOURCE_SESSION["meta_raw_sha256"]
+        )
+        wrapper_identity_valid = bool(
+            wrapper_identity_valid
+            and wrapper["path"].name.startswith("rollout-")
+            and (
+                str(wrapper_meta.get("session_id")) in wrapper["path"].name
+                or str(wrapper_meta.get("id")) in wrapper["path"].name
+            )
+        )
+    if (
+        not source_identity_valid
+        or not wrapper_identity_valid
+        or source["text"] != expected_text
+        or wrapper["text"] != expected_wrapper
+        or _iso_datetime(source["timestamp"])
+        >= _iso_datetime(wrapper["timestamp"])
+    ):
+        errors.append(f"{label} two-hop content mismatch")
 
 
 def _sha256_text(value: str) -> str:
@@ -3463,6 +3604,7 @@ def _verify_rollback_and_bound_evidence(
         != {
             "schema": DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
             "marker": DEPLOYMENT_AUTHORIZATION_MARKER,
+            "delegation_marker": DEPLOYMENT_DELEGATION_MARKER,
             "source_thread_id": STEP7_SOURCE_THREAD_ID,
             "required_payload_fields": list(
                 DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS
@@ -3471,6 +3613,10 @@ def _verify_rollback_and_bound_evidence(
             "delegated_wrapper_required": True,
             "delegated_wrapper_source_thread_required": True,
             "delegated_source_session": STEP7_DELEGATED_SOURCE_SESSION,
+            "delegation_source_binding_fields": list(
+                DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
+            ),
+            "two_hop_structure": DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
             "self_authorizes_execution": False,
         }
         or not isinstance(packet_forbidden, Mapping)
@@ -3742,13 +3888,13 @@ def _verify_rollback_and_bound_evidence(
         or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
         or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
         or revocation.get("revoked_approval_id")
-        != "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z"
+        != "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z"
         or not isinstance(revoked_candidate, Mapping)
         or revoked_candidate.get("sha256")
-        != "0fb40ec5563ce4236979b268a13b935e1c9e6db39d36a1b9746da9ba931f5590"
+        != "1da8d42cc57678ec23e26c6d0d6355d413bdf9b163d3e6daaa2120d3058a548e"
         or not isinstance(revoked_packet, Mapping)
         or revoked_packet.get("sha256")
-        != "5ca184ac9231e00e140f7e2f7b9d6ba13ada8aa53e08a3dbf851402d86434f29"
+        != "9966bf3e6766e8d4f5943576c38bc7c6bca2383860867e7c43885423f6b33e03"
         or any(
             revocation.get(field) is not False
             for field in (

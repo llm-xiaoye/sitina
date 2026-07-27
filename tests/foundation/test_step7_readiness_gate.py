@@ -20,11 +20,16 @@ from scripts.step7_readiness_gate import (
     BASE_SENTINEL_PHYSICAL_SHA256,
     BASE_SENTINEL_REPORT_SHA256,
     CANDIDATE_SCHEMA,
+    CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
+    CODEX_USER_AUTHORIZATION_SCHEMA,
     DEPENDENCY_RESULT_SCHEMA,
     DEPLOYMENT_PACKET_SCHEMA,
     DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
     DEPLOYMENT_AUTHORIZATION_MARKER,
     DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS,
+    DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
+    DEPLOYMENT_DELEGATION_MARKER,
+    DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS,
     DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
     DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA,
     DIRECTED_STAGE_SELECTORS,
@@ -106,6 +111,28 @@ class Step7ReadinessGateTests(unittest.TestCase):
                         "originator": "Codex Desktop",
                         "source": "vscode",
                         "thread_source": "subagent",
+                        "model_provider": "openai",
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.source_authorization_session = (
+            self.anchor_root / "fixture-source-session.jsonl"
+        )
+        self.source_authorization_session.write_text(
+            json.dumps(
+                {
+                    "timestamp": "2026-07-27T00:00:00.000Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "session_id": STEP7_SOURCE_THREAD_ID,
+                        "id": STEP7_SOURCE_THREAD_ID,
+                        "originator": "codex_work_desktop",
+                        "source": "vscode",
+                        "thread_source": "user",
                         "model_provider": "openai",
                     },
                 },
@@ -248,18 +275,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 ),
                 "decision": "REJECT_DEPLOY_REQUEST",
                 "revoked_approval_id": (
-                    "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z"
+                    "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z"
                 ),
                 "revoked_candidate": {
                     "sha256": (
-                        "0fb40ec5563ce4236979b268a13b935e"
-                        "1c9e6db39d36a1b9746da9ba931f5590"
+                        "1da8d42cc57678ec23e26c6d0d6355d"
+                        "413bdf9b163d3e6daaa2120d3058a548e"
                     )
                 },
                 "revoked_packet": {
                     "sha256": (
-                        "5ca184ac9231e00e140f7e2f7b9d6ba"
-                        "13ada8aa53e08a3dbf851402d86434f29"
+                        "9966bf3e6766e8d4f5943576c38bc7c6"
+                        "bca2383860867e7c43885423f6b33e03"
                     )
                 },
                 "may_execute": False,
@@ -461,10 +488,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
         delegated: bool = True,
         source_thread_id: str = STEP7_SOURCE_THREAD_ID,
         input_suffix: str = "",
+        source_text_suffix: str = "",
+        self_delegated: bool = False,
+        source_role: str = "user",
+        binding_override: dict[str, object] | None = None,
+        source_timestamp: str = "2026-07-27T00:01:00.000Z",
     ) -> dict[str, object]:
-        existing = self.anchor_session.read_bytes().splitlines(keepends=True)
-        line_number = len(existing) + 1
-        record_id = f"msg-fixture-{line_number}"
         payload = payload_override or {
             "approval_id": packet["approval_id"],
             "approval_packet_sha256": sha256(packet_path),
@@ -489,16 +518,86 @@ class Step7ReadinessGateTests(unittest.TestCase):
             sort_keys=True,
             separators=(",", ":"),
         )
+        source_text = exact_authorization + source_text_suffix
+        source_existing = self.source_authorization_session.read_bytes().splitlines(
+            keepends=True
+        )
+        source_line_number = len(source_existing) + 1
+        source_record_id = f"msg-source-fixture-{source_line_number}"
+        source_record = {
+            "timestamp": source_timestamp,
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "id": source_record_id,
+                "role": source_role,
+                "content": [{"type": "input_text", "text": source_text}],
+            },
+        }
+        source_raw = (
+            json.dumps(
+                source_record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        with self.source_authorization_session.open("ab") as handle:
+            handle.write(source_raw)
+        source_reference = {
+            "schema": CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
+            "session_path": str(self.source_authorization_session.resolve()),
+            "line_number": source_line_number,
+            "record_id": source_record_id,
+            "raw_record_sha256": hashlib.sha256(source_raw).hexdigest(),
+            "content_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+            "marker": marker,
+            "author": "user",
+        }
+        source_meta_raw = self.source_authorization_session.read_bytes().splitlines(
+            keepends=True
+        )[0]
+        source_binding = {
+            "approval_id": packet["approval_id"],
+            "source_thread_id": STEP7_SOURCE_THREAD_ID,
+            "source_session_path": source_reference["session_path"],
+            "source_session_meta_raw_sha256": hashlib.sha256(
+                source_meta_raw
+            ).hexdigest(),
+            "source_line_number": source_reference["line_number"],
+            "source_record_id": source_reference["record_id"],
+            "source_raw_record_sha256": source_reference[
+                "raw_record_sha256"
+            ],
+            "source_content_sha256": source_reference["content_sha256"],
+        }
+        if binding_override is not None:
+            source_binding.update(binding_override)
+        delegation_input = DEPLOYMENT_DELEGATION_MARKER + " " + json.dumps(
+            source_binding,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        wrapper_session = (
+            self.source_authorization_session
+            if self_delegated
+            else self.anchor_session
+        )
+        existing = wrapper_session.read_bytes().splitlines(keepends=True)
+        line_number = len(existing) + 1
+        record_id = f"msg-delegation-fixture-{line_number}"
         text = (
             "<codex_delegation>\n"
             f"  <source_thread_id>{source_thread_id}</source_thread_id>\n"
-            f"  <input>{exact_authorization}{input_suffix}</input>\n"
+            f"  <input>{delegation_input}{input_suffix}</input>\n"
             "</codex_delegation>"
             if delegated
             else exact_authorization
         )
         record = {
-            "timestamp": f"2026-07-27T00:00:{line_number:02d}.000Z",
+            "timestamp": f"2026-07-27T00:02:{line_number:02d}.000Z",
             "type": "response_item",
             "payload": {
                 "type": "message",
@@ -516,17 +615,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
             )
             + "\n"
         ).encode("utf-8")
-        with self.anchor_session.open("ab") as handle:
+        with wrapper_session.open("ab") as handle:
             handle.write(raw)
         return {
-            "schema": "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V1",
-            "session_path": str(self.anchor_session.resolve()),
+            "schema": CODEX_USER_AUTHORIZATION_SCHEMA,
+            "session_path": str(wrapper_session.resolve()),
             "line_number": line_number,
             "record_id": record_id,
             "raw_record_sha256": hashlib.sha256(raw).hexdigest(),
             "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "marker": marker,
+            "marker": DEPLOYMENT_DELEGATION_MARKER,
             "author": "user",
+            "source_authorization": source_reference,
         }
 
     @staticmethod
@@ -1018,6 +1118,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "authorization_contract": {
                 "schema": DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
                 "marker": DEPLOYMENT_AUTHORIZATION_MARKER,
+                "delegation_marker": DEPLOYMENT_DELEGATION_MARKER,
                 "source_thread_id": (
                     "019f810d-78fe-75d2-8efd-d43fccbd82d7"
                 ),
@@ -1028,6 +1129,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "delegated_wrapper_required": True,
                 "delegated_wrapper_source_thread_required": True,
                 "delegated_source_session": STEP7_DELEGATED_SOURCE_SESSION,
+                "delegation_source_binding_fields": list(
+                    DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
+                ),
+                "two_hop_structure": DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
                 "self_authorizes_execution": False,
             },
             "forbidden_boundaries": forbidden,
@@ -2908,9 +3013,22 @@ class Step7ReadinessGateTests(unittest.TestCase):
         contract = packet["authorization_contract"]
         self.assertIs(contract["delegated_wrapper_required"], True)
         self.assertEqual(
+            contract["delegation_marker"],
+            DEPLOYMENT_DELEGATION_MARKER,
+        )
+        self.assertEqual(
             contract["delegated_source_session"],
             STEP7_DELEGATED_SOURCE_SESSION,
         )
+        self.assertEqual(
+            contract["delegation_source_binding_fields"],
+            list(DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS),
+        )
+        self.assertEqual(
+            contract["two_hop_structure"],
+            DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
+        )
+        self.assertIn("source_authorization", self.rollback_authorization)
         self.assertEqual(evidence["authorization_contract"], contract)
         self.assertEqual(review_candidate["authorization_contract"], contract)
         result = self._validate(copy.deepcopy(self.candidate))
@@ -2948,6 +3066,108 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.rollback_packet,
             packet,
             input_suffix="x",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_wrapper_only(self) -> None:
+        receipt = copy.deepcopy(self.rollback_authorization)
+        receipt.pop("source_authorization")
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_source_agent_record(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            source_role="assistant",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization source")
+
+    def test_deployment_authorization_rejects_source_session_self_delegation(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            self_delegated=True,
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_missing_source_record(self) -> None:
+        receipt = copy.deepcopy(self.rollback_authorization)
+        receipt["source_authorization"]["session_path"] = str(
+            self.anchor_root / "missing-source-session.jsonl"
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization source")
+
+    def test_deployment_authorization_rejects_each_source_reference_drift(
+        self,
+    ) -> None:
+        mutations = {
+            "session_path": str(self.anchor_session.resolve()),
+            "line_number": 999,
+            "record_id": "wrong-source-record",
+            "raw_record_sha256": "0" * 64,
+            "content_sha256": "0" * 64,
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                receipt = copy.deepcopy(self.rollback_authorization)
+                receipt["source_authorization"][field] = value
+                candidate = copy.deepcopy(self.candidate)
+                candidate["rollback_proof"]["authorization_receipt"] = receipt
+                self.assertRejected(
+                    candidate,
+                    "deployment user authorization source",
+                )
+
+    def test_deployment_authorization_rejects_source_text_byte_drift(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            source_text_suffix="x",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_wrong_source_binding(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        for field in DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS:
+            with self.subTest(field=field):
+                receipt = self._user_authorization(
+                    self.rollback_packet,
+                    packet,
+                    binding_override={field: "wrong"},
+                )
+                candidate = copy.deepcopy(self.candidate)
+                candidate["rollback_proof"]["authorization_receipt"] = receipt
+                self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_source_after_delegation(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            source_timestamp="2026-07-27T00:03:00.000Z",
         )
         candidate = copy.deepcopy(self.candidate)
         candidate["rollback_proof"]["authorization_receipt"] = receipt
