@@ -62,6 +62,16 @@ STEP56_SOURCE_SESSION_META_RAW_SHA256 = (
     "108a46acefdec456c54872ac4cf02a63133a954ceb1f82fbf4d642a13846360e"
 )
 STEP7_SOURCE_THREAD_ID = "019f810d-78fe-75d2-8efd-d43fccbd82d7"
+STEP7_DELEGATED_SOURCE_SESSION = {
+    "path": STEP56_SOURCE_SESSION_PATH,
+    "session_id": STEP7_SOURCE_THREAD_ID,
+    "id": STEP7_SOURCE_THREAD_ID,
+    "originator": "codex_work_desktop",
+    "source": "vscode",
+    "thread_source": "user",
+    "model_provider": "openai",
+    "meta_raw_sha256": STEP56_SOURCE_SESSION_META_RAW_SHA256,
+}
 STEP56_ACCEPT_RECORDS = {
     "amsg_019fa247-a1e1-7581-ae28-ff20ebfbe76f": {
         "artifact_id": "STEP56_ACCEPT_IDENTITY_CAPABILITY",
@@ -119,6 +129,7 @@ DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA = (
 REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z",
     "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z",
+    "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z",
 }
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
@@ -315,6 +326,7 @@ DEPLOYMENT_REQUEST_CANDIDATE_FIELDS = {
     "source_binding",
     "deployment_binding",
     "approval_packet",
+    "authorization_contract",
     "exact_file_operation_count",
     "exact_file_operations_sha256",
     "rollback_plan_sha256",
@@ -330,6 +342,7 @@ DEPLOYMENT_REQUEST_EVIDENCE_FIELDS = {
     "source",
     "approval_id",
     "approval_packet",
+    "authorization_contract",
     "exact_file_operations_sha256",
     "rollback_plan_sha256",
     "review_summary",
@@ -357,7 +370,9 @@ DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS = {
     "source_thread_id",
     "required_payload_fields",
     "requires_user_record",
+    "delegated_wrapper_required",
     "delegated_wrapper_source_thread_required",
+    "delegated_source_session",
     "self_authorizes_execution",
 }
 DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS = (
@@ -392,7 +407,7 @@ BACKUP_ROLLBACK_EXECUTION_SEQUENCE = (
     "VERIFY_IMMUTABLE_ARTIFACTS_AND_USER_AUTHORIZATION",
     "VERIFY_HEAD_TREE_CLEAN_SWITCHES_AND_SENTINELS",
     "RECAPTURE_PREIMAGES_AND_COMPARE_PACKET",
-    "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE",
+    "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE_NOFOLLOW",
     "COPY_AND_VERIFY_REPLACE_PREIMAGES",
     "WRITE_AND_VERIFY_BACKUP_MANIFEST_EXCLUSIVE",
     "RUN_DISPOSABLE_RESTORE_REAPPLY_REHEARSAL",
@@ -1042,7 +1057,7 @@ def _verify_user_authorization(
         if isinstance(authorization_text, str)
         else None
     )
-    authorization_matches = authorization_text == expected_text or (
+    authorization_matches = (
         delegated is not None
         and delegated.group(1) == STEP7_SOURCE_THREAD_ID
         and delegated.group(2) == expected_text
@@ -3250,12 +3265,16 @@ def _verify_backup_and_rollback_plan(
     ):
         errors.append(f"{label} approval ID is unsafe")
         return {}
-    allowed_parent = source_root.parent / "output" / "sitina-step7-deploy-v3"
-    expected_root = allowed_parent / approval_id
+    allowed_parent = source_root.parent / "output"
+    expected_root = allowed_parent / f"sitina-step7-deploy-v3-{approval_id}"
     root_value = plan.get("backup_root")
     if not isinstance(root_value, Mapping) or root_value != {
         "path": str(expected_root),
         "allowed_parent": str(allowed_parent),
+        "allowed_parent_must_exist_before_authorized_execution": True,
+        "allowed_parent_creation_allowed": False,
+        "allowed_parent_required_type": "DIRECTORY_NO_SYMLINK",
+        "allowed_parent_ancestor_safety_required": True,
         "derived_from_approval_id": True,
         "must_not_exist_before_authorized_execution": True,
         "create_mode": "0o700",
@@ -3263,6 +3282,13 @@ def _verify_backup_and_rollback_plan(
         "reuse_allowed": False,
     }:
         errors.append(f"{label} unique backup root mismatch")
+    _verify_nofollow_descendant(
+        allowed_parent,
+        trusted_root=source_root.parent,
+        leaf_kind="directory",
+        errors=errors,
+        label=f"{label} allowed parent",
+    )
     expected_manifest = expected_root / "backup-manifest.json"
     expected_quarantine = expected_root / "quarantine" / "created"
     expected_recovery = expected_root / "recovery-verification.json"
@@ -3442,7 +3468,9 @@ def _verify_rollback_and_bound_evidence(
                 DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS
             ),
             "requires_user_record": True,
+            "delegated_wrapper_required": True,
             "delegated_wrapper_source_thread_required": True,
+            "delegated_source_session": STEP7_DELEGATED_SOURCE_SESSION,
             "self_authorizes_execution": False,
         }
         or not isinstance(packet_forbidden, Mapping)
@@ -3525,6 +3553,8 @@ def _verify_rollback_and_bound_evidence(
             if packet_path is not None
             else None
         )
+        or request_evidence.get("authorization_contract")
+        != authorization_contract
         or request_evidence.get("exact_file_operations_sha256")
         != operations_sha256
         or request_evidence.get("rollback_plan_sha256") != plan_sha256
@@ -3712,13 +3742,13 @@ def _verify_rollback_and_bound_evidence(
         or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
         or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
         or revocation.get("revoked_approval_id")
-        != "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z"
+        != "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z"
         or not isinstance(revoked_candidate, Mapping)
         or revoked_candidate.get("sha256")
-        != "593b64e1641a54759be3bc3d9eb6f647ea765b37feee295281b4240da498da53"
+        != "0fb40ec5563ce4236979b268a13b935e1c9e6db39d36a1b9746da9ba931f5590"
         or not isinstance(revoked_packet, Mapping)
         or revoked_packet.get("sha256")
-        != "ec329c290b34e119f7e8408122a7faa085f146a5843ba69152abec10405d7ea6"
+        != "5ca184ac9231e00e140f7e2f7b9d6ba13ada8aa53e08a3dbf851402d86434f29"
         or any(
             revocation.get(field) is not False
             for field in (
@@ -3808,6 +3838,11 @@ def _verify_rollback_and_bound_evidence(
             {"path": str(packet_path), "sha256": _sha256(packet_path)}
             if packet_path is not None
             else None
+        ),
+        "authorization_contract": (
+            dict(authorization_contract)
+            if isinstance(authorization_contract, Mapping)
+            else {}
         ),
         "exact_file_operation_count": len(packet_operations),
         "exact_file_operations_sha256": operations_sha256,
@@ -3902,6 +3937,11 @@ def _verify_rollback_and_bound_evidence(
             "checked_at_utc",
             "path",
             "allowed_parent",
+            "allowed_parent_existed",
+            "allowed_parent_is_directory",
+            "allowed_parent_is_symlink",
+            "allowed_parent_creation_allowed",
+            "allowed_parent_ancestor_safety_verified",
             "existed",
             "reuse_allowed",
             "ancestor_safety_verified",
@@ -3911,7 +3951,13 @@ def _verify_rollback_and_bound_evidence(
         or backup_root_preflight.get("path")
         != plan_verification.get("backup_root")
         or backup_root_preflight.get("allowed_parent")
-        != str(source_root.parent / "output" / "sitina-step7-deploy-v3")
+        != str(source_root.parent / "output")
+        or backup_root_preflight.get("allowed_parent_existed") is not True
+        or backup_root_preflight.get("allowed_parent_is_directory") is not True
+        or backup_root_preflight.get("allowed_parent_is_symlink") is not False
+        or backup_root_preflight.get("allowed_parent_creation_allowed") is not False
+        or backup_root_preflight.get("allowed_parent_ancestor_safety_verified")
+        is not True
         or backup_root_preflight.get("existed") is not False
         or backup_root_preflight.get("reuse_allowed") is not False
         or backup_root_preflight.get("ancestor_safety_verified") is not True
@@ -3997,7 +4043,7 @@ def _verify_rollback_and_bound_evidence(
     ):
         errors.append("rollback manifest schema or binding mismatch")
         manifest_entries = []
-    trusted_backup_parent = source_root.parent / "output" / "sitina-step7-deploy-v3"
+    trusted_backup_parent = source_root.parent / "output"
     if manifest_path is not None:
         _verify_nofollow_descendant(
             manifest_path,

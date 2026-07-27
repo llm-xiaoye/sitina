@@ -55,6 +55,8 @@ from scripts.step7_readiness_gate import (
     STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH,
     STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT,
     STEP56_SOURCE_SESSION_PREFIX_SHA256,
+    STEP7_DELEGATED_SOURCE_SESSION,
+    STEP7_SOURCE_THREAD_ID,
     TEST_RESULT_SCHEMA,
     _openai_wire_messages,
     _json_value_sha256,
@@ -246,18 +248,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 ),
                 "decision": "REJECT_DEPLOY_REQUEST",
                 "revoked_approval_id": (
-                    "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z"
+                    "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z"
                 ),
                 "revoked_candidate": {
                     "sha256": (
-                        "593b64e1641a54759be3bc3d9eb6f647"
-                        "ea765b37feee295281b4240da498da53"
+                        "0fb40ec5563ce4236979b268a13b935e"
+                        "1c9e6db39d36a1b9746da9ba931f5590"
                     )
                 },
                 "revoked_packet": {
                     "sha256": (
-                        "ec329c290b34e119f7e8408122a7faa0"
-                        "85f146a5843ba69152abec10405d7ea6"
+                        "5ca184ac9231e00e140f7e2f7b9d6ba"
+                        "13ada8aa53e08a3dbf851402d86434f29"
                     )
                 },
                 "may_execute": False,
@@ -274,8 +276,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self.rollback_approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
         self.rollback_root = (
             self.output.resolve()
-            / "sitina-step7-deploy-v3"
-            / self.rollback_approval_id
+            / f"sitina-step7-deploy-v3-{self.rollback_approval_id}"
         )
         self.rollback_quarantine_root = (
             self.rollback_root / "quarantine" / "created"
@@ -322,7 +323,6 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.rollback_packet,
             json.loads(self.rollback_packet.read_text(encoding="utf-8")),
         )
-        (self.output.resolve() / "sitina-step7-deploy-v3").mkdir()
         self.rollback_root.mkdir(mode=0o700)
         self.rollback_backup.parent.mkdir()
         shutil.copy2(self.deployment / "tracked.txt", self.rollback_backup)
@@ -458,6 +458,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
         packet: dict[str, object],
         *,
         payload_override: dict[str, object] | None = None,
+        delegated: bool = True,
+        source_thread_id: str = STEP7_SOURCE_THREAD_ID,
+        input_suffix: str = "",
     ) -> dict[str, object]:
         existing = self.anchor_session.read_bytes().splitlines(keepends=True)
         line_number = len(existing) + 1
@@ -480,11 +483,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "deployment_root": packet["deployment_binding"]["root"],
         }
         marker = DEPLOYMENT_AUTHORIZATION_MARKER
-        text = marker + " " + json.dumps(
+        exact_authorization = marker + " " + json.dumps(
             payload,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
+        )
+        text = (
+            "<codex_delegation>\n"
+            f"  <source_thread_id>{source_thread_id}</source_thread_id>\n"
+            f"  <input>{exact_authorization}{input_suffix}</input>\n"
+            "</codex_delegation>"
+            if delegated
+            else exact_authorization
         )
         record = {
             "timestamp": f"2026-07-27T00:00:{line_number:02d}.000Z",
@@ -795,9 +806,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "exact_file_operations_sha256": _json_value_sha256(operations),
             "backup_root": {
                 "path": str(self.rollback_root),
-                "allowed_parent": str(
-                    self.output.resolve() / "sitina-step7-deploy-v3"
-                ),
+                "allowed_parent": str(self.output.resolve()),
+                "allowed_parent_must_exist_before_authorized_execution": True,
+                "allowed_parent_creation_allowed": False,
+                "allowed_parent_required_type": "DIRECTORY_NO_SYMLINK",
+                "allowed_parent_ancestor_safety_required": True,
                 "derived_from_approval_id": True,
                 "must_not_exist_before_authorized_execution": True,
                 "create_mode": "0o700",
@@ -902,9 +915,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
         backup_root_preflight = {
             "checked_at_utc": "2026-07-27T00:00:00Z",
             "path": str(self.rollback_root),
-            "allowed_parent": str(
-                self.output.resolve() / "sitina-step7-deploy-v3"
-            ),
+            "allowed_parent": str(self.output.resolve()),
+            "allowed_parent_existed": True,
+            "allowed_parent_is_directory": True,
+            "allowed_parent_is_symlink": False,
+            "allowed_parent_creation_allowed": False,
+            "allowed_parent_ancestor_safety_verified": True,
             "existed": False,
             "reuse_allowed": False,
             "ancestor_safety_verified": True,
@@ -1009,7 +1025,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS
                 ),
                 "requires_user_record": True,
+                "delegated_wrapper_required": True,
                 "delegated_wrapper_source_thread_required": True,
+                "delegated_source_session": STEP7_DELEGATED_SOURCE_SESSION,
                 "self_authorizes_execution": False,
             },
             "forbidden_boundaries": forbidden,
@@ -1041,6 +1059,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             "approval_id": self.rollback_approval_id,
             "approval_packet": self._reference(self.rollback_packet),
+            "authorization_contract": copy.deepcopy(
+                packet["authorization_contract"]
+            ),
             "exact_file_operations_sha256": _json_value_sha256(
                 packet["exact_file_operations"]
             ),
@@ -1152,6 +1173,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "root": packet["deployment_binding"]["root"]
             },
             "approval_packet": self._reference(self.rollback_packet),
+            "authorization_contract": copy.deepcopy(
+                packet["authorization_contract"]
+            ),
             "exact_file_operation_count": len(
                 packet["exact_file_operations"]
             ),
@@ -2873,6 +2897,62 @@ class Step7ReadinessGateTests(unittest.TestCase):
         authorization["author"] = "/root"
         self.assertRejected(candidate, "deployment user authorization")
 
+    def test_deployment_authorization_accepts_exact_delegation_wrapper(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        evidence = json.loads(
+            self.rollback_request_evidence.read_text(encoding="utf-8")
+        )
+        review_candidate = json.loads(
+            self.rollback_review_candidate.read_text(encoding="utf-8")
+        )
+        contract = packet["authorization_contract"]
+        self.assertIs(contract["delegated_wrapper_required"], True)
+        self.assertEqual(
+            contract["delegated_source_session"],
+            STEP7_DELEGATED_SOURCE_SESSION,
+        )
+        self.assertEqual(evidence["authorization_contract"], contract)
+        self.assertEqual(review_candidate["authorization_contract"], contract)
+        result = self._validate(copy.deepcopy(self.candidate))
+        self.assertTrue(result["accepted"], result["errors"])
+
+    def test_deployment_authorization_rejects_legacy_direct_user_text(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            delegated=False,
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_other_delegation_source_thread(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            source_thread_id="019f0000-0000-0000-0000-000000000000",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
+    def test_deployment_authorization_rejects_one_extra_input_byte(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            input_suffix="x",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(candidate, "deployment user authorization")
+
     def test_rollback_restore_result_cannot_drift_from_manifest(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
@@ -2963,6 +3043,65 @@ class Step7ReadinessGateTests(unittest.TestCase):
             errors,
         )
 
+    def test_backup_plan_requires_existing_safe_parent_and_forbids_creation(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        plan = packet["backup_and_rollback_plan"]
+        self.assertEqual(len(plan["execution_sequence"]), 11)
+        self.assertEqual(
+            plan["execution_sequence"][3],
+            "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE_NOFOLLOW",
+        )
+        self.assertEqual(
+            plan["backup_root"],
+            {
+                "path": str(self.rollback_root),
+                "allowed_parent": str(self.output.resolve()),
+                "allowed_parent_must_exist_before_authorized_execution": True,
+                "allowed_parent_creation_allowed": False,
+                "allowed_parent_required_type": "DIRECTORY_NO_SYMLINK",
+                "allowed_parent_ancestor_safety_required": True,
+                "derived_from_approval_id": True,
+                "must_not_exist_before_authorized_execution": True,
+                "create_mode": "0o700",
+                "create_semantics": "EXCLUSIVE_NOFOLLOW",
+                "reuse_allowed": False,
+            },
+        )
+        for mutation in ("parent_creation", "parent_exists", "sequence"):
+            mutated = copy.deepcopy(plan)
+            if mutation == "parent_creation":
+                mutated["backup_root"][
+                    "allowed_parent_creation_allowed"
+                ] = True
+            elif mutation == "parent_exists":
+                mutated["backup_root"][
+                    "allowed_parent_must_exist_before_authorized_execution"
+                ] = False
+            else:
+                mutated["execution_sequence"][3] = (
+                    "CREATE_ALLOWED_PARENT_IF_ABSENT_AND_UNIQUE_BACKUP_ROOT_"
+                    "EXCLUSIVE_NOFOLLOW"
+                )
+            errors: list[str] = []
+            _verify_backup_and_rollback_plan(
+                mutated,
+                approval_id=packet["approval_id"],
+                packet_operations=packet["exact_file_operations"],
+                source_root=self.source.resolve(),
+                deployment_root=self.deployment.resolve(),
+                source_state={
+                    "head": packet["source_binding"]["head"],
+                    "tree": packet["source_binding"]["tree"],
+                },
+                errors=errors,
+            )
+            self.assertTrue(
+                any("backup and rollback plan" in error for error in errors),
+                (mutation, errors),
+            )
+
     def test_replace_backup_parent_symlink_is_rejected(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
@@ -3004,37 +3143,53 @@ class Step7ReadinessGateTests(unittest.TestCase):
             quarantine.unlink()
             original.rename(quarantine)
 
-    def test_preimage_capture_anchor_requires_unused_backup_root(self) -> None:
+    def test_preimage_capture_requires_safe_existing_parent_and_unused_root(
+        self,
+    ) -> None:
         packet_original = self.rollback_packet.read_text(encoding="utf-8")
         try:
-            packet = json.loads(packet_original)
-            capture = packet["preimage_capture"]
-            capture["backup_root_preflight"]["existed"] = True
-            capture["capture_anchor"] = self._capture_anchor(
-                "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1",
-                {
-                    "approval_id": packet["approval_id"],
-                    "source_head": packet["source_binding"]["head"],
-                    "source_tree": packet["source_binding"]["tree"],
-                    "deployment_root": packet["deployment_binding"]["root"],
-                    "entries": capture["entries"],
-                    "backup_root_preflight": capture[
-                        "backup_root_preflight"
-                    ],
-                },
-            )
-            self.rollback_packet.write_text(
-                json.dumps(packet, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            candidate = copy.deepcopy(self.candidate)
-            candidate["rollback_proof"]["approval_packet"] = (
-                self._refresh_bound_reference(candidate, self.rollback_packet)
-            )
-            self.assertRejected(
-                candidate,
-                "rollback approval packet preimage capture mismatch",
-            )
+            for field, unsafe_value in (
+                ("allowed_parent_existed", False),
+                ("allowed_parent_is_directory", False),
+                ("allowed_parent_is_symlink", True),
+                ("allowed_parent_creation_allowed", True),
+                ("allowed_parent_ancestor_safety_verified", False),
+                ("existed", True),
+            ):
+                with self.subTest(field=field):
+                    packet = json.loads(packet_original)
+                    capture = packet["preimage_capture"]
+                    capture["backup_root_preflight"][field] = unsafe_value
+                    capture["capture_anchor"] = self._capture_anchor(
+                        "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1",
+                        {
+                            "approval_id": packet["approval_id"],
+                            "source_head": packet["source_binding"]["head"],
+                            "source_tree": packet["source_binding"]["tree"],
+                            "deployment_root": packet["deployment_binding"][
+                                "root"
+                            ],
+                            "entries": capture["entries"],
+                            "backup_root_preflight": capture[
+                                "backup_root_preflight"
+                            ],
+                        },
+                    )
+                    self.rollback_packet.write_text(
+                        json.dumps(packet, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    candidate = copy.deepcopy(self.candidate)
+                    candidate["rollback_proof"]["approval_packet"] = (
+                        self._refresh_bound_reference(
+                            candidate,
+                            self.rollback_packet,
+                        )
+                    )
+                    self.assertRejected(
+                        candidate,
+                        "rollback approval packet preimage capture mismatch",
+                    )
         finally:
             self.rollback_packet.write_text(packet_original, encoding="utf-8")
 
