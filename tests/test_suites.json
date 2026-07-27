@@ -13,6 +13,11 @@
       "unit_fast",
       "crash_fault"
     ],
+    "tests/foundation/test_step7_readiness_gate.py": [
+      "unit_fast",
+      "execution_activation_gate",
+      "step7_readiness_gate"
+    ],
     "tests/test_execution_bridge.py": [
       "unit_fast",
       "execution_activation_gate"
@@ -71,6 +76,7 @@
         "tests/foundation/test_home_isolation.py",
         "tests/foundation/test_test_runner.py",
         "tests/foundation/test_sentinel_content_addressed.py",
+        "tests/foundation/test_step7_readiness_gate.py",
         "tests/foundation/test_plan_suite_integrity.py",
         "tests/optimization/test_ledger_coverage.py",
         "tests/optimization/test_blackboard_state_management.py",
@@ -136,10 +142,21 @@
         "tests/test_execution_sandbox.py",
         "tests/test_frozen_home_fixture.py",
         "tests/test_frozen_fence_contract.py",
-        "tests/test_execution_verifier_frozen.py"
+        "tests/test_execution_verifier_frozen.py",
+        "tests/foundation/test_step7_readiness_gate.py"
       ],
       "timeout_seconds": 600,
       "expected_duration": "activation-gate",
+      "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
+    },
+    "step7_readiness_gate": {
+      "selectors": [
+        "tests/foundation/test_step7_readiness_gate.py"
+      ],
+      "timeout_seconds": 300,
+      "expected_duration": "readiness-gate",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
       "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
