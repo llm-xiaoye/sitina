@@ -8,8 +8,10 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
+from scripts import step7_readiness_gate as step7_gate
 from scripts.step7_readiness_gate import (
     BACKUP_ROLLBACK_EXECUTION_SEQUENCE,
     BACKUP_ROLLBACK_FAILURE_POLICY,
@@ -71,10 +73,16 @@ from scripts.step7_readiness_gate import (
     _json_value_sha256,
     _normalize_source_authorization_transport,
     _step7_v4_atomic_replace,
+    _step7_v4_checkpoint,
+    _step7_v4_close_test_capability,
     _step7_v4_copy_exclusive,
     _step7_v4_dir_identity,
+    _step7_v4_intent,
+    _step7_v4_issue_test_capability,
     _step7_v4_production_gate_contract,
+    _step7_v4_recovered_checkpoint,
     _step7_v4_rename_noreplace,
+    _step7_v4_rollback_intent,
     _verify_backup_and_rollback_plan,
     _verify_step56_source_session,
     execute_step7_v4,
@@ -101,6 +109,7 @@ def sha256(path: Path) -> str:
 
 class Step7ReadinessGateTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._step7_v4_capabilities: dict[str, object] = {}
         if not ENTRY_CANDIDATE.is_file():
             self.fail(f"missing authoritative entry candidate: {ENTRY_CANDIDATE}")
         self.temporary = tempfile.TemporaryDirectory()
@@ -2272,15 +2281,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "authorization_to_enter_step8": False,
         }
 
-    def _step7_v4_execution_spec(self, root: Path) -> dict[str, object]:
-        root = root.resolve()
-        source, deployment, output = (
-            root / "source",
-            root / "deployment",
-            root / "output",
-        )
-        for path in (source, deployment, output):
-            path.mkdir()
+    def _step7_v4_execution_spec(self) -> dict[str, object]:
+        capability = _step7_v4_issue_test_capability()
+        self.addCleanup(shutil.rmtree, capability.scope_root, True)
+        self.addCleanup(_step7_v4_close_test_capability, capability)
+        root = capability.scope_root
+        source = capability.source_root
+        deployment = capability.deployment_root
+        output = capability.output_root
         (source / "replace.txt").write_text("new replace\n", encoding="utf-8")
         (source / "create.txt").write_text("new create\n", encoding="utf-8")
         (deployment / "replace.txt").write_text("old replace\n", encoding="utf-8")
@@ -2342,7 +2350,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "schema": "SITINA_STEP7_TEST_ONLY_GATE_CONTRACT_V1",
             "runner_mode": "EXPLICIT_TEST_ONLY_CALLBACK",
         }
-        return {
+        specification: dict[str, object] = {
             "run_id": f"step7-v4-{root.name}",
             "packet_sha256": "a" * 64,
             "plan_sha256": "b" * 64,
@@ -2354,6 +2362,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "source_tree": "2" * 40,
             "source_root": str(source),
             "deployment_root": str(deployment),
+            "session_root": str(capability.session_root),
             "allowed_backup_parent": str(output),
             "backup_root": str(backup_root),
             "sentinels": sentinels,
@@ -2385,6 +2394,82 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "gate_contract": gate_contract,
             "gate_contract_sha256": _json_value_sha256(gate_contract),
         }
+        self._step7_v4_capabilities[str(specification["run_id"])] = capability
+        return specification
+
+    def _step7_v4_capability(self, spec: dict[str, object]) -> object:
+        return self._step7_v4_capabilities[str(spec["run_id"])]
+
+    def _assert_step7_v4_checkpoint_closure(
+        self,
+        result: dict[str, object],
+    ) -> None:
+        references = result["checkpoint_references"]
+        self.assertEqual(
+            result["checkpoint_references_sha256"],
+            _json_value_sha256(references),
+        )
+        canonical_set = sorted(
+            references,
+            key=lambda item: (
+                item["kind"],
+                item["index"],
+                item["reference"]["path"],
+                item["reference"]["sha256"],
+            ),
+        )
+        self.assertEqual(
+            result["checkpoint_reference_set_sha256"],
+            _json_value_sha256(canonical_set),
+        )
+        for item in references:
+            reference = item["reference"]
+            self.assertEqual(
+                reference["sha256"], sha256(Path(reference["path"]))
+            )
+        closure = result["checkpoint_closure"]
+        self.assertEqual(
+            [item["relative_path"] for item in closure],
+            sorted(item["relative_path"] for item in closure),
+        )
+        self.assertEqual(
+            result["checkpoint_closure_sha256"],
+            _json_value_sha256(closure),
+        )
+        for item in closure:
+            reference = item["reference"]
+            self.assertEqual(
+                reference["sha256"], sha256(Path(reference["path"]))
+            )
+
+    def _step7_v4_tree_snapshot(self, root: Path) -> dict[str, object]:
+        snapshot: dict[str, object] = {}
+        for path in sorted(
+            [root, *root.rglob("*")],
+            key=lambda item: str(item),
+        ):
+            metadata = path.lstat()
+            relative = "." if path == root else path.relative_to(root).as_posix()
+            if path.is_symlink():
+                value: object = {
+                    "type": "SYMLINK",
+                    "target": str(path.readlink()),
+                    "mode": stat.S_IMODE(metadata.st_mode),
+                }
+            elif path.is_file():
+                value = {
+                    "type": "REGULAR_FILE",
+                    "sha256": sha256(path),
+                    "size": metadata.st_size,
+                    "mode": stat.S_IMODE(metadata.st_mode),
+                }
+            else:
+                value = {
+                    "type": "DIRECTORY",
+                    "mode": stat.S_IMODE(metadata.st_mode),
+                }
+            snapshot[relative] = value
+        return snapshot
 
     def _append_step7_v4_operation(
         self,
@@ -2456,14 +2541,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
 
     def test_v4_executor_dry_run_then_real_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             backup_root = Path(str(spec["backup_root"]))
             deployment = Path(str(spec["deployment_root"]))
             dry_run = execute_step7_v4(
                 spec,
                 dry_run=True,
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(dry_run["status"], "DRY_RUN_VERIFIED")
             self.assertFalse(backup_root.exists())
@@ -2471,7 +2556,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 spec,
                 dry_run=False,
                 gate_callback=lambda _: {"accepted": True, "gate": "temporary"},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(result["status"], "EXECUTED", result)
             self.assertEqual(
@@ -2510,6 +2595,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.assertEqual(result["applied_indices"], [0, 1])
             self.assertEqual(result["reverse_recovery_indices"], [])
             self.assertEqual(
+                [
+                    (item["kind"], item["index"])
+                    for item in result["checkpoint_references"]
+                ],
+                [
+                    ("INTENT", 0),
+                    ("INTENT", 1),
+                    ("COMMIT", 0),
+                    ("COMMIT", 1),
+                ],
+            )
+            self._assert_step7_v4_checkpoint_closure(result)
+            self.assertEqual(
                 result["manifest"]["sha256"],
                 sha256(backup_root / "backup-manifest.json"),
             )
@@ -2520,19 +2618,327 @@ class Step7ReadinessGateTests(unittest.TestCase):
             for field in ("delete_operation_count", "unlink_operation_count", "rmtree_operation_count"):
                 self.assertEqual(result[field], 0)
 
+    def test_v4_recovery_after_success_is_read_only_and_idempotent(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        executed = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True, "gate": "success"},
+            _test_capability=capability,
+        )
+        self.assertEqual(executed["status"], "EXECUTED", executed)
+        scope = capability.scope_root
+        before = self._step7_v4_tree_snapshot(scope)
+        first = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(
+            first["status"], "ALREADY_EXECUTED_NO_RECOVERY", first
+        )
+        self.assertEqual(first["side_effect_count"], 0)
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(scope),
+            before,
+        )
+        second = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(second, first)
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(scope),
+            before,
+        )
+        backup_root = Path(str(spec["backup_root"]))
+        self.assertFalse((backup_root / "recovery-result.json").exists())
+        self.assertFalse(
+            (backup_root / "checkpoints/rollback-intent.json").exists()
+        )
+        self.assertFalse(
+            any(
+                path.name.startswith("recovered-")
+                for path in (backup_root / "checkpoints").iterdir()
+            )
+        )
+        self._assert_step7_v4_checkpoint_closure(first)
+        with self.assertRaisesRegex(ValueError, "terminal result"):
+            _step7_v4_checkpoint(
+                backup_root,
+                "failure",
+                {
+                    "run_id": spec["run_id"],
+                    "error_type": "Forbidden",
+                    "error": "must not publish after success",
+                },
+            )
+
+    def test_v4_success_checkpoint_closure_tamper_is_read_only_rejected(
+        self,
+    ) -> None:
+        for mutation in (
+            "omit_result_reference",
+            "reorder_result_references",
+            "delete_commit",
+            "tamper_commit",
+            "extra_failure",
+            "extra_rollback_intent",
+            "extra_recovered",
+        ):
+            with self.subTest(mutation=mutation):
+                spec = self._step7_v4_execution_spec()
+                capability = self._step7_v4_capability(spec)
+                executed = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+                self.assertEqual(executed["status"], "EXECUTED")
+                backup_root = Path(str(spec["backup_root"]))
+                result_path = backup_root / "execution-result.json"
+                checkpoint_root = backup_root / "checkpoints"
+                if mutation in {
+                    "omit_result_reference",
+                    "reorder_result_references",
+                }:
+                    result = json.loads(
+                        result_path.read_text(encoding="utf-8")
+                    )
+                    references = result["checkpoint_references"]
+                    if mutation == "omit_result_reference":
+                        references.pop()
+                    else:
+                        references.reverse()
+                    result["checkpoint_references_sha256"] = (
+                        _json_value_sha256(references)
+                    )
+                    canonical_set = sorted(
+                        references,
+                        key=lambda item: (
+                            item["kind"],
+                            item["index"],
+                            item["reference"]["path"],
+                            item["reference"]["sha256"],
+                        ),
+                    )
+                    result["checkpoint_reference_set_sha256"] = (
+                        _json_value_sha256(canonical_set)
+                    )
+                    result_path.write_text(
+                        json.dumps(result, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation in {"delete_commit", "tamper_commit"}:
+                    commit = checkpoint_root / "commit-0001.json"
+                    if mutation == "delete_commit":
+                        commit.unlink()
+                    else:
+                        value = json.loads(
+                            commit.read_text(encoding="utf-8")
+                        )
+                        value["operation"] = "TAMPERED"
+                        commit.write_text(
+                            json.dumps(value, sort_keys=True) + "\n",
+                            encoding="utf-8",
+                        )
+                else:
+                    manifest_path = backup_root / "backup-manifest.json"
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    binding = manifest["binding"]
+                    if mutation == "extra_failure":
+                        name = "failure.json"
+                        value = {
+                            "run_id": spec["run_id"],
+                            "error_type": "InjectedExternalCheckpoint",
+                            "error": "phase-inappropriate after success",
+                        }
+                    elif mutation == "extra_rollback_intent":
+                        name = "rollback-intent.json"
+                        value = _step7_v4_rollback_intent(
+                            binding,
+                            manifest_path,
+                            intent_indices=[0, 1],
+                            commit_indices=[0, 1],
+                            applied_indices=[0, 1],
+                        )
+                    else:
+                        name = "recovered-0001-create.json"
+                        value = _step7_v4_recovered_checkpoint(
+                            binding,
+                            1,
+                            spec["operations"][1],
+                        )
+                    (checkpoint_root / name).write_text(
+                        json.dumps(value, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                deployment = Path(str(spec["deployment_root"]))
+                deployment_before = self._step7_v4_tree_snapshot(
+                    deployment
+                )
+                checkpoints_before = self._step7_v4_tree_snapshot(
+                    checkpoint_root
+                )
+                rejected = recover_step7_v4_execution(
+                    spec,
+                    run_id=str(spec["run_id"]),
+                    _test_capability=capability,
+                )
+                self.assertEqual(
+                    rejected["status"], "MANUAL_RECOVERY_REQUIRED"
+                )
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(deployment),
+                    deployment_before,
+                )
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(checkpoint_root),
+                    checkpoints_before,
+                )
+                self.assertFalse(
+                    (backup_root / "recovery-result.json").exists()
+                )
+
+    def test_v4_preterminal_checkpoint_injection_is_structured(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        backup_root = Path(str(spec["backup_root"]))
+        checkpoint_root = backup_root / "checkpoints"
+        deployment = Path(str(spec["deployment_root"]))
+        rejection_snapshot: dict[str, object] = {}
+        original_phase_check = (
+            step7_gate._step7_v4_require_phase_checkpoint_closure
+        )
+
+        def observe_phase_rejection(**arguments: object) -> None:
+            try:
+                original_phase_check(**arguments)
+            except ValueError:
+                rejection_snapshot["deployment"] = (
+                    self._step7_v4_tree_snapshot(deployment)
+                )
+                rejection_snapshot["checkpoints"] = (
+                    self._step7_v4_tree_snapshot(checkpoint_root)
+                )
+                raise
+
+        def inject_failure(_: object) -> dict[str, object]:
+            (checkpoint_root / "failure.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": spec["run_id"],
+                        "error_type": "InjectedPreterminalFailure",
+                        "error": "must not be overwritten",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return {"accepted": True}
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_require_phase_checkpoint_closure",
+            side_effect=observe_phase_rejection,
+        ):
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=inject_failure,
+                _test_capability=capability,
+            )
+        self.assertEqual(result["status"], "MANUAL_RECOVERY_REQUIRED")
+        self.assertIn("checkpoint phase closure", result["failure_step"])
+        self.assertIn("checkpoint conflicts", result["checkpoint_error"])
+        for field in (
+            "delete_operation_count",
+            "unlink_operation_count",
+            "rmtree_operation_count",
+        ):
+            self.assertEqual(result[field], 0)
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            rejection_snapshot["deployment"],
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(checkpoint_root),
+            rejection_snapshot["checkpoints"],
+        )
+        self.assertFalse((backup_root / "recovery-result.json").exists())
+        self.assertFalse(
+            (checkpoint_root / "rollback-intent.json").exists()
+        )
+        self.assertFalse(
+            any(
+                path.name.startswith("recovered-")
+                for path in checkpoint_root.iterdir()
+            )
+        )
+
+    def test_v4_preterminal_rollback_intent_enters_controlled_recovery(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        backup_root = Path(str(spec["backup_root"]))
+
+        def inject_rollback_intent(_: object) -> dict[str, object]:
+            manifest_path = backup_root / "backup-manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            value = _step7_v4_rollback_intent(
+                manifest["binding"],
+                manifest_path,
+                intent_indices=[0, 1],
+                commit_indices=[0, 1],
+                applied_indices=[0, 1],
+            )
+            (
+                backup_root / "checkpoints/rollback-intent.json"
+            ).write_text(
+                json.dumps(value, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            return {"accepted": True}
+
+        result = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=inject_rollback_intent,
+            _test_capability=capability,
+        )
+        self.assertEqual(
+            result["status"], "RECOVERED_AFTER_FAILURE", result
+        )
+        self.assertEqual(result["reverse_recovery_indices"], [1, 0])
+        deployment = Path(str(spec["deployment_root"]))
+        self.assertEqual(
+            (deployment / "replace.txt").read_text(encoding="utf-8"),
+            "old replace\n",
+        )
+        self.assertFalse((deployment / "create.txt").exists())
+
     def test_v4_executor_partial_failure_resumes_from_disk_idempotently(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             first = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at={"WRITE_SUCCESS_RESULT", "ROLLBACK_REPLACE"},
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(first["status"], "MANUAL_RECOVERY_REQUIRED", first)
             resumed = recover_step7_v4_execution(
-                spec, run_id=str(spec["run_id"]), _test_only=True
+                spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(resumed["status"], "RECOVERED_AFTER_FAILURE", resumed)
             self.assertEqual(resumed["applied_indices"], [0, 1])
@@ -2541,6 +2947,15 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 resumed["recovered_checkpoints_sha256"],
                 _json_value_sha256(resumed["recovered_checkpoints"]),
             )
+            self.assertEqual(
+                [
+                    (item["kind"], item["index"])
+                    for item in resumed["checkpoint_references"]
+                    if item["kind"] == "RECOVERED"
+                ],
+                [("RECOVERED", 1), ("RECOVERED", 0)],
+            )
+            self._assert_step7_v4_checkpoint_closure(resumed)
             for item in resumed["recovered_checkpoints"]:
                 reference = item["reference"]
                 self.assertEqual(
@@ -2556,18 +2971,209 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 Path(str(spec["operations"][1]["rollback_quarantine_path"])).is_file()
             )
             repeated = recover_step7_v4_execution(
-                spec, run_id=str(spec["run_id"]), _test_only=True
+                spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(repeated, resumed)
             wrong = recover_step7_v4_execution(
-                spec, run_id="different-run", _test_only=True
+                spec, run_id="different-run", _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(wrong["status"], "MANUAL_RECOVERY_REQUIRED")
 
+    def test_v4_recovery_audits_later_checkpoint_before_any_rollback(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        stopped = execute_step7_v4(
+            spec,
+            dry_run=False,
+            fail_at={"WRITE_SUCCESS_RESULT", "ROLLBACK_CREATE"},
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(stopped["status"], "MANUAL_RECOVERY_REQUIRED")
+        backup_root = Path(str(spec["backup_root"]))
+        checkpoint = backup_root / "checkpoints/commit-0000.json"
+        tampered = json.loads(checkpoint.read_text(encoding="utf-8"))
+        tampered["operation"] = "TAMPERED_LATER_REPLACE"
+        checkpoint.write_text(
+            json.dumps(tampered, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        deployment = Path(str(spec["deployment_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        live = Path(
+            str(spec["operations"][1]["rollback_quarantine_path"])
+        )
+        self.assertFalse(live.exists())
+        rejected = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
+        self.assertIn("commit checkpoint 0", rejected["recovery_error"])
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            before,
+        )
+        self.assertFalse(live.exists())
+        self.assertFalse(
+            any(
+                path.name.startswith("recovered-")
+                for path in (backup_root / "checkpoints").iterdir()
+            )
+        )
+
+    def test_v4_rollback_intent_recovers_mutation_checkpoint_crash(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        stopped = execute_step7_v4(
+            spec,
+            dry_run=False,
+            fail_at={
+                "WRITE_SUCCESS_RESULT",
+                "AFTER_RECOVERY_MUTATION_BEFORE_CHECKPOINT:1",
+            },
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(stopped["status"], "MANUAL_RECOVERY_REQUIRED")
+        backup_root = Path(str(spec["backup_root"]))
+        self.assertTrue(
+            (backup_root / "checkpoints/rollback-intent.json").is_file()
+        )
+        self.assertFalse(
+            (
+                backup_root
+                / "checkpoints/recovered-0001-create.json"
+            ).exists()
+        )
+        resumed = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(resumed["status"], "RECOVERED_AFTER_FAILURE")
+        self.assertEqual(resumed["reverse_recovery_indices"], [1, 0])
+        self._assert_step7_v4_checkpoint_closure(resumed)
+        with self.assertRaisesRegex(ValueError, "terminal result"):
+            _step7_v4_checkpoint(
+                backup_root,
+                "failure",
+                {
+                    "run_id": spec["run_id"],
+                    "error_type": "Forbidden",
+                    "error": "must not publish after recovery",
+                },
+            )
+
+    def test_v4_recovery_rejects_recovered_state_without_rollback_intent(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        stopped = execute_step7_v4(
+            spec,
+            dry_run=False,
+            fail_at={"WRITE_SUCCESS_RESULT", "WRITE_ROLLBACK_INTENT"},
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(stopped["status"], "MANUAL_RECOVERY_REQUIRED")
+        backup_root = Path(str(spec["backup_root"]))
+        self.assertFalse(
+            (backup_root / "checkpoints/rollback-intent.json").exists()
+        )
+        replace = spec["operations"][0]
+        shutil.copy2(
+            Path(str(replace["preimage_backup_path"])),
+            Path(str(replace["target_path"])),
+        )
+        create = spec["operations"][1]
+        Path(str(create["target_path"])).rename(
+            Path(str(create["rollback_quarantine_path"]))
+        )
+        deployment = Path(str(spec["deployment_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        rejected = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
+        self.assertIn(
+            "without rollback intent", rejected["recovery_error"]
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            before,
+        )
+
+    def test_v4_recovered_checkpoint_phase_rejects_late_extra_intent(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        recovered = execute_step7_v4(
+            spec,
+            dry_run=False,
+            fail_at="AFTER_APPLY:0",
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(
+            recovered["status"], "RECOVERED_AFTER_FAILURE", recovered
+        )
+        backup_root = Path(str(spec["backup_root"]))
+        manifest = json.loads(
+            (backup_root / "backup-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        late_intent = _step7_v4_intent(
+            manifest["binding"],
+            1,
+            spec["operations"][1],
+        )
+        (backup_root / "checkpoints/intent-0001.json").write_text(
+            json.dumps(late_intent, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        deployment = Path(str(spec["deployment_root"]))
+        deployment_before = self._step7_v4_tree_snapshot(deployment)
+        checkpoints_before = self._step7_v4_tree_snapshot(
+            backup_root / "checkpoints"
+        )
+        rejected = recover_step7_v4_execution(
+            spec,
+            run_id=str(spec["run_id"]),
+            _test_capability=capability,
+        )
+        self.assertEqual(
+            rejected["status"], "MANUAL_RECOVERY_REQUIRED", rejected
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            deployment_before,
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(
+                backup_root / "checkpoints"
+            ),
+            checkpoints_before,
+        )
+
     def test_v4_executor_failure_injection_covers_every_side_effect(self) -> None:
-        recovery_steps = {"ROLLBACK_CREATE", "ROLLBACK_REPLACE", "WRITE_RECOVERY_RESULT"}
+        recovery_steps = {
+            "WRITE_ROLLBACK_INTENT",
+            "AFTER_ROLLBACK_INTENT",
+            "ROLLBACK_CREATE",
+            "ROLLBACK_REPLACE",
+            "WRITE_RECOVERY_RESULT",
+        }
         with tempfile.TemporaryDirectory() as directory:
-            template = self._step7_v4_execution_spec(Path(directory))
+            template = self._step7_v4_execution_spec()
             self._append_step7_v4_operation(template, "replace-2.txt", "REPLACE")
             self._append_step7_v4_operation(template, "create-2.txt", "CREATE")
             steps = step7_v4_failure_injection_steps(template["operations"])
@@ -2582,7 +3188,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self.assertNotIn("RUN_CREATE_REHEARSAL:2", steps)
         for step in steps:
             with self.subTest(step=step), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
                 self._append_step7_v4_operation(
                     spec, "replace-2.txt", "REPLACE"
                 )
@@ -2590,14 +3196,21 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     spec, "create-2.txt", "CREATE"
                 )
                 fail_at: object = (
-                    {"WRITE_SUCCESS_RESULT", step} if step in recovery_steps else step
+                    {"WRITE_SUCCESS_RESULT", step}
+                    if (
+                        step in recovery_steps
+                        or step.startswith(
+                            "AFTER_RECOVERY_MUTATION_BEFORE_CHECKPOINT:"
+                        )
+                    )
+                    else step
                 )
                 result = execute_step7_v4(
                     spec,
                     dry_run=False,
                     fail_at=fail_at,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 self.assertNotEqual(result["status"], "EXECUTED", result)
                 for field in ("delete_operation_count", "unlink_operation_count", "rmtree_operation_count"):
@@ -2613,12 +3226,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "derived_artifact",
         ):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
                 execute_step7_v4(
                     spec,
                     dry_run=True,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 deployment = Path(str(spec["deployment_root"]))
                 if mutation == "preimage":
@@ -2641,7 +3254,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                         spec,
                         dry_run=False,
                         gate_callback=lambda _: {"accepted": True},
-                        _test_only=True,
+                        _test_capability=self._step7_v4_capability(spec),
                     )
                 self.assertFalse(Path(str(spec["backup_root"])).exists())
 
@@ -2658,13 +3271,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
 
     def test_v4_recovery_result_tamper_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             result = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at="WRITE_SUCCESS_RESULT",
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE")
             result_path = Path(str(spec["backup_root"])) / "recovery-result.json"
@@ -2674,19 +3287,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
             )
             rejected = recover_step7_v4_execution(
-                spec, run_id=str(spec["run_id"]), _test_only=True
+                spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
 
     def test_v4_recovered_checkpoint_tamper_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             result = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at="WRITE_SUCCESS_RESULT",
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE")
             checkpoint = (
@@ -2699,14 +3312,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 json.dumps(value, sort_keys=True) + "\n", encoding="utf-8"
             )
             rejected = recover_step7_v4_execution(
-                spec, run_id=str(spec["run_id"]), _test_only=True
+                spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
 
     def test_v4_executor_same_byte_symlink_artifacts_are_rejected(self) -> None:
         for artifact in ("manifest", "checkpoint", "recovery_result"):
             with self.subTest(artifact=artifact), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
                 failure = (
                     "AFTER_INTENT:0"
                     if artifact == "manifest"
@@ -2719,7 +3332,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     dry_run=False,
                     fail_at=failure,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 backup_root = Path(str(spec["backup_root"]))
                 path = (
@@ -2735,7 +3348,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 path.unlink()
                 path.symlink_to(backing)
                 rejected = recover_step7_v4_execution(
-                    spec, run_id=str(spec["run_id"]), _test_only=True
+                    spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
                 )
                 self.assertEqual(
                     rejected["status"], "MANUAL_RECOVERY_REQUIRED", rejected
@@ -2744,7 +3357,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def test_v3_runtime_manifest_and_recovery_result_are_rejected(self) -> None:
         for artifact in ("manifest", "recovery_result"):
             with self.subTest(artifact=artifact), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
                 failure = (
                     "AFTER_INTENT:0"
                     if artifact == "manifest"
@@ -2755,7 +3368,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     dry_run=False,
                     fail_at=failure,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 path = Path(str(spec["backup_root"])) / (
                     "backup-manifest.json"
@@ -2773,7 +3386,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 rejected = recover_step7_v4_execution(
-                    spec, run_id=str(spec["run_id"]), _test_only=True
+                    spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
                 )
                 self.assertEqual(
                     rejected["status"], "MANUAL_RECOVERY_REQUIRED", rejected
@@ -2781,13 +3394,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
 
     def test_v4_recovery_requires_this_run_applied_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             stopped = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at="AFTER_APPLY:0",
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(stopped["status"], "RECOVERED_AFTER_FAILURE", stopped)
             deployment = Path(str(spec["deployment_root"]))
@@ -2797,7 +3410,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             result_path = Path(str(spec["backup_root"])) / "recovery-result.json"
             result_path.rename(result_path.with_suffix(".prior"))
             rejected = recover_step7_v4_execution(
-                spec, run_id=str(spec["run_id"]), _test_only=True
+                spec, run_id=str(spec["run_id"]), _test_capability=self._step7_v4_capability(spec)
             )
             self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
             self.assertIn("strict apply intent", rejected["recovery_error"])
@@ -2805,7 +3418,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def test_v4_deployed_gate_rejection_and_mutation_are_rolled_back(self) -> None:
         for behavior in ("reject", "mutate"):
             with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
 
                 def gate(_: object) -> dict[str, object]:
                     if behavior == "mutate":
@@ -2820,7 +3433,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     spec,
                     dry_run=False,
                     gate_callback=gate,
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 expected = (
                     "MANUAL_RECOVERY_REQUIRED"
@@ -2829,17 +3442,37 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 )
                 self.assertEqual(result["status"], expected, result)
                 deployment = Path(str(spec["deployment_root"]))
-                self.assertEqual(
-                    (deployment / "replace.txt").read_text(encoding="utf-8"),
-                    "old replace\n",
-                )
-                self.assertFalse((deployment / "create.txt").exists())
+                if behavior == "mutate":
+                    self.assertEqual(
+                        (deployment / "replace.txt").read_text(
+                            encoding="utf-8"
+                        ),
+                        "new replace\n",
+                    )
+                    self.assertTrue((deployment / "create.txt").is_file())
+                    self.assertIn(
+                        "undeclared deployment-tree mutation",
+                        result["recovery_error"],
+                    )
+                else:
+                    self.assertEqual(
+                        (deployment / "replace.txt").read_text(
+                            encoding="utf-8"
+                        ),
+                        "old replace\n",
+                    )
+                    self.assertFalse((deployment / "create.txt").exists())
 
     def test_v4_executor_defaults_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
+            capability = self._step7_v4_capability(spec)
             with self.assertRaisesRegex(ValueError, "callback is required"):
-                execute_step7_v4(spec, dry_run=True, _test_only=True)
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    _test_capability=capability,
+                )
             with self.assertRaisesRegex(ValueError, "production"):
                 execute_step7_v4(
                     spec,
@@ -2852,7 +3485,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
             empty_sentinels["sentinels"] = []
             empty_sentinels["sentinels_sha256"] = _json_value_sha256([])
             with self.assertRaisesRegex(ValueError, "sentinel"):
-                execute_step7_v4(empty_sentinels, dry_run=True)
+                execute_step7_v4(
+                    empty_sentinels,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
             noncanonical = copy.deepcopy(spec)
             noncanonical["source_root"] = (
                 str(Path(str(spec["source_root"])) / ".." / "source")
@@ -2862,8 +3500,179 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     noncanonical,
                     dry_run=True,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=capability,
                 )
+
+    def test_v4_test_capability_is_opaque_scoped_and_revocable(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        with self.assertRaises(TypeError):
+            json.dumps(capability)
+        with self.assertRaises(TypeError):
+            _step7_v4_issue_test_capability(Path("/private/tmp"))
+        with self.assertRaisesRegex(ValueError, "issued scoped capability"):
+            execute_step7_v4(
+                spec,
+                dry_run=True,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=object(),
+            )
+        original_source_root = capability.source_root
+        object.__setattr__(
+            capability,
+            "_source_root",
+            Path("/Users/moss/Desktop/sitina/source-worktree"),
+        )
+        try:
+            with self.assertRaisesRegex(ValueError, "root binding drift"):
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+        finally:
+            object.__setattr__(
+                capability,
+                "_source_root",
+                original_source_root,
+            )
+
+        other = self._step7_v4_execution_spec()
+        with self.assertRaisesRegex(ValueError, "exactly match"):
+            execute_step7_v4(
+                spec,
+                dry_run=True,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=self._step7_v4_capability(other),
+            )
+
+        _step7_v4_close_test_capability(capability)
+        with self.assertRaisesRegex(ValueError, "unknown or expired"):
+            execute_step7_v4(
+                spec,
+                dry_run=True,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=capability,
+            )
+
+    def test_v4_test_capability_ignores_environment_selected_temp_roots(
+        self,
+    ) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {"TMPDIR": "/Users/moss/Desktop/sitina"},
+        ), mock.patch.object(
+            tempfile,
+            "tempdir",
+            "/Users/moss/Desktop/sitina",
+        ):
+            spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        self.assertTrue(
+            capability.scope_root.is_relative_to(Path("/private/tmp"))
+        )
+        verified = execute_step7_v4(
+            spec,
+            dry_run=True,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(verified["status"], "DRY_RUN_VERIFIED")
+
+    def test_v4_test_roots_reject_real_relatives_before_preflight(self) -> None:
+        real_roots = (
+            Path("/Users/moss/Desktop/sitina/source-worktree"),
+            Path("/Users/moss/SitinaHub"),
+            Path("/Users/moss/Desktop/sitina/output"),
+            Path("/Users/moss/.codex/sessions"),
+        )
+        fields = (
+            "source_root",
+            "deployment_root",
+            "allowed_backup_parent",
+            "session_root",
+        )
+        for field, real_root in zip(fields, real_roots, strict=True):
+            for replacement in (
+                real_root,
+                real_root.parent,
+                real_root / "forbidden-child",
+            ):
+                with self.subTest(field=field, replacement=replacement):
+                    spec = self._step7_v4_execution_spec()
+                    spec[field] = str(replacement)
+                    with mock.patch.object(
+                        step7_gate,
+                        "_step7_v4_preflight",
+                        side_effect=AssertionError("preflight was reached"),
+                    ), self.assertRaisesRegex(ValueError, "real Sitina root"):
+                        execute_step7_v4(
+                            spec,
+                            dry_run=True,
+                            gate_callback=lambda _: {"accepted": True},
+                            _test_capability=self._step7_v4_capability(spec),
+                        )
+                    self.assertFalse(Path(str(spec["backup_root"])).exists())
+
+    def test_v4_test_roots_are_pairwise_isolated_before_preflight(self) -> None:
+        for field, peer in (
+            ("source_root", "deployment_root"),
+            ("deployment_root", "session_root"),
+            ("session_root", "allowed_backup_parent"),
+        ):
+            with self.subTest(field=field, peer=peer):
+                spec = self._step7_v4_execution_spec()
+                spec[field] = str(spec[peer])
+                with mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_preflight",
+                    side_effect=AssertionError("preflight was reached"),
+                ), self.assertRaisesRegex(ValueError, "pairwise isolated"):
+                    execute_step7_v4(
+                        spec,
+                        dry_run=True,
+                        gate_callback=lambda _: {"accepted": True},
+                        _test_capability=self._step7_v4_capability(spec),
+                    )
+
+    def test_v4_test_capability_rejects_scope_identity_replacement(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        moved = capability.scope_root.with_name(
+            f"{capability.scope_root.name}-moved"
+        )
+        capability.scope_root.rename(moved)
+        capability.scope_root.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(ValueError, "scope_root identity drift"):
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+        finally:
+            capability.scope_root.rmdir()
+            moved.rename(capability.scope_root)
+
+    def test_v4_test_capability_rejects_child_identity_replacement(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        moved = capability.source_root.with_name("source-moved")
+        capability.source_root.rename(moved)
+        capability.source_root.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(ValueError, "source_root identity drift"):
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+        finally:
+            capability.source_root.rmdir()
+            moved.rename(capability.source_root)
 
     def test_v4_preapply_and_manifestless_residue_states_are_distinct(self) -> None:
         for failure, expected in (
@@ -2873,37 +3682,198 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ("RUN_CREATE_REHEARSAL:1", "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION"),
         ):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
-                spec = self._step7_v4_execution_spec(Path(directory))
+                spec = self._step7_v4_execution_spec()
                 result = execute_step7_v4(
                     spec,
                     dry_run=False,
                     fail_at=failure,
                     gate_callback=lambda _: {"accepted": True},
-                    _test_only=True,
+                    _test_capability=self._step7_v4_capability(spec),
                 )
                 self.assertEqual(result["status"], expected, result)
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             Path(str(spec["backup_root"])).mkdir()
             occupied = execute_step7_v4(
                 spec,
                 dry_run=False,
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(
                 occupied["status"], "MANUAL_RECOVERY_REQUIRED", occupied
             )
 
+    def test_v4_missing_rehearsal_requires_exact_clean_preapply_state(
+        self,
+    ) -> None:
+        clean_spec = self._step7_v4_execution_spec()
+        clean_capability = self._step7_v4_capability(clean_spec)
+        clean = execute_step7_v4(
+            clean_spec,
+            dry_run=False,
+            fail_at="RUN_CREATE_REHEARSAL",
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=clean_capability,
+        )
+        self.assertEqual(
+            clean["status"],
+            "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+            clean,
+        )
+        clean_scope_before = self._step7_v4_tree_snapshot(
+            clean_capability.scope_root
+        )
+        repeated = recover_step7_v4_execution(
+            clean_spec,
+            run_id=str(clean_spec["run_id"]),
+            _test_capability=clean_capability,
+        )
+        self.assertEqual(
+            repeated["status"],
+            "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+            repeated,
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(clean_capability.scope_root),
+            clean_scope_before,
+        )
+
+        for mutation in (
+            "intent",
+            "deployment",
+            "terminal_result",
+            "failure_checkpoint",
+            "rehearsal_checkpoint",
+            "source_drift",
+            "backup_drift",
+            "orphan_rehearsal_artifact",
+        ):
+            with self.subTest(mutation=mutation):
+                spec = self._step7_v4_execution_spec()
+                capability = self._step7_v4_capability(spec)
+                stopped = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at="RUN_CREATE_REHEARSAL",
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+                self.assertEqual(
+                    stopped["status"],
+                    "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                    stopped,
+                )
+                backup_root = Path(str(spec["backup_root"]))
+                manifest_path = backup_root / "backup-manifest.json"
+                manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                if mutation == "intent":
+                    value = _step7_v4_intent(
+                        manifest["binding"],
+                        0,
+                        spec["operations"][0],
+                    )
+                    (
+                        backup_root / "checkpoints/intent-0000.json"
+                    ).write_text(
+                        json.dumps(value, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "deployment":
+                    replace = spec["operations"][0]
+                    shutil.copy2(
+                        Path(str(replace["source_path"])),
+                        Path(str(replace["target_path"])),
+                    )
+                elif mutation == "terminal_result":
+                    (backup_root / "execution-result.json").write_text(
+                        "{}\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "failure_checkpoint":
+                    (backup_root / "checkpoints/failure.json").write_text(
+                        json.dumps(
+                            {
+                                "run_id": spec["run_id"],
+                                "error_type": "TestFailure",
+                                "error": "preapply residue",
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "rehearsal_checkpoint":
+                    (
+                        backup_root
+                        / "checkpoints/rehearsal-0001-create.json"
+                    ).write_text(
+                        json.dumps(
+                            {
+                                "run_id": spec["run_id"],
+                                "relative_path": "create.txt",
+                                "move": {},
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "source_drift":
+                    Path(
+                        str(spec["operations"][0]["source_path"])
+                    ).write_text("source drift\n", encoding="utf-8")
+                elif mutation == "backup_drift":
+                    Path(
+                        str(
+                            spec["operations"][0][
+                                "preimage_backup_path"
+                            ]
+                        )
+                    ).write_text("backup drift\n", encoding="utf-8")
+                else:
+                    orphan = (
+                        backup_root
+                        / "rehearsal"
+                        / "created"
+                        / "create.txt"
+                    )
+                    orphan.write_text(
+                        "orphan rehearsal\n", encoding="utf-8"
+                    )
+                scope_before = self._step7_v4_tree_snapshot(
+                    capability.scope_root
+                )
+                rejected = recover_step7_v4_execution(
+                    spec,
+                    run_id=str(spec["run_id"]),
+                    _test_capability=capability,
+                )
+                self.assertEqual(
+                    rejected["status"], "MANUAL_RECOVERY_REQUIRED"
+                )
+                self.assertIn(
+                    "missing rehearsal-result",
+                    rejected["recovery_error"],
+                )
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(
+                        capability.scope_root
+                    ),
+                    scope_before,
+                )
+
     def test_v4_intent_covers_interruption_before_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             result = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at="AFTER_MUTATION_BEFORE_COMMIT:0",
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE", result)
             backup_root = Path(str(spec["backup_root"]))
@@ -2919,13 +3889,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "old replace\n",
             )
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
             preapply = execute_step7_v4(
                 spec,
                 dry_run=False,
                 fail_at="AFTER_INTENT:0",
                 gate_callback=lambda _: {"accepted": True},
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(
                 preapply["status"],
@@ -2935,7 +3905,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
 
     def test_v4_gate_unlisted_tree_mutation_requires_manual_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            spec = self._step7_v4_execution_spec(Path(directory))
+            spec = self._step7_v4_execution_spec()
 
             def gate(_: object) -> dict[str, object]:
                 deployment = Path(str(spec["deployment_root"]))
@@ -2948,7 +3918,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 spec,
                 dry_run=False,
                 gate_callback=gate,
-                _test_only=True,
+                _test_capability=self._step7_v4_capability(spec),
             )
             self.assertEqual(result["status"], "MANUAL_RECOVERY_REQUIRED", result)
             self.assertTrue(
