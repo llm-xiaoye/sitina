@@ -26,6 +26,7 @@ from scripts.step7_readiness_gate import (
     DEPLOYMENT_AUTHORIZATION_MARKER,
     DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS,
     DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
+    DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA,
     DIRECTED_STAGE_SELECTORS,
     ENTRY_CANDIDATE_SHA256,
     EXECUTION_MANIFEST_CANONICAL_SHA256,
@@ -218,6 +219,58 @@ class Step7ReadinessGateTests(unittest.TestCase):
             )
             for stage in REQUIRED_GATES
         }
+        self.step56_accepts = self._step56_accept_artifacts()
+        self.rollback_exclusions_stub = self._json_file(
+            "rollback-exclusions.json",
+            {
+                "schema": "SITINA_STEP7_EXCLUDED_ATTEMPTS_V2",
+                "source": {
+                    "head": self._git("rev-parse", "HEAD^{commit}"),
+                    "tree": self._git("rev-parse", "HEAD^{tree}"),
+                },
+                "all_counted_as_pass": False,
+                "attempts": [
+                    {
+                        "kind": "SUPERSEDED_FIXTURE_ATTEMPT",
+                        "counted_as_pass": False,
+                    }
+                ],
+            },
+        )
+        self.rollback_revocation_stub = self._json_file(
+            "rollback-revocation.json",
+            {
+                "schema": "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V1",
+                "source_thread_id": (
+                    "019f810d-78fe-75d2-8efd-d43fccbd82d7"
+                ),
+                "decision": "REJECT_DEPLOY_REQUEST",
+                "revoked_approval_id": (
+                    "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z"
+                ),
+                "revoked_candidate": {
+                    "sha256": (
+                        "593b64e1641a54759be3bc3d9eb6f647"
+                        "ea765b37feee295281b4240da498da53"
+                    )
+                },
+                "revoked_packet": {
+                    "sha256": (
+                        "ec329c290b34e119f7e8408122a7faa0"
+                        "85f146a5843ba69152abec10405d7ea6"
+                    )
+                },
+                "may_execute": False,
+                "may_request_authorization": False,
+                "may_reuse_candidate_sha256": False,
+                "may_reuse_packet_sha256": False,
+                "deployment_performed": False,
+                "production_canary_run": False,
+                "production_data_modified": False,
+                "baseline_modified": False,
+                "step8_step9_entered": False,
+            },
+        )
         self.rollback_approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
         self.rollback_root = (
             self.output.resolve()
@@ -247,6 +300,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self.rollback_packet = self._json_file(
             "rollback-approval-packet.json",
             self._rollback_packet_document(),
+        )
+        self.general_evidence.write_text(
+            json.dumps(
+                self._static_integrity_document(),
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self._finalize_review_inputs_and_audits()
+        self.rollback_request_evidence = self._json_file(
+            "rollback-request-evidence.json",
+            self._rollback_request_evidence_document(),
         )
         self.rollback_review_candidate = self._json_file(
             "rollback-deployment-request-candidate.json",
@@ -284,8 +350,6 @@ class Step7ReadinessGateTests(unittest.TestCase):
             json.dumps(self._rollback_recovery_document(), sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        self.step56_accepts = self._step56_accept_artifacts()
-        self._finalize_review_inputs_and_audits()
         self.candidate = self._valid_candidate()
         self.collection_snapshots = {}
         for stage, path in self.gate_evidence.items():
@@ -954,8 +1018,123 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "deployment_executed_at_creation": False,
         }
 
+    def _rollback_request_evidence_document(self) -> dict[str, object]:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        summary = {
+            "formal_step56_accept_count": 3,
+            "gate_count": 7,
+            "real_sitina_review_count": 2,
+            "changed_source_count": 2,
+            "deployment_operation_count": 2,
+            "replace_count": 1,
+            "create_count": 1,
+            "deployment_pending": True,
+            "step8_step9_not_entered": True,
+        }
+        return {
+            "schema": DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA,
+            "created_at_utc": "2026-07-27T00:00:00Z",
+            "source": {
+                "root": str(self.source.resolve()),
+                "head": packet["source_binding"]["head"],
+                "tree": packet["source_binding"]["tree"],
+            },
+            "approval_id": self.rollback_approval_id,
+            "approval_packet": self._reference(self.rollback_packet),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "review_summary": summary,
+            "evidence": {
+                "authority": {
+                    "path": (
+                        "/Users/moss/.codex/attachments/"
+                        "198f270e-7042-4d01-aac5-ff595095d657/"
+                        "pasted-text-1.txt"
+                    ),
+                    "sha256": "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c",
+                },
+                "entry_candidate": {
+                    "path": str(ENTRY_CANDIDATE),
+                    "sha256": ENTRY_CANDIDATE_SHA256,
+                },
+                "step56_accepts": [
+                    self._reference(path) for path in self.step56_accepts
+                ],
+                "gates": [
+                    self._reference(self.gate_evidence[stage])
+                    for stage in REQUIRED_GATES
+                ],
+                "real_sitina_reviews": [
+                    self._reference(self.cleanup_receipt),
+                    self._reference(self.review_receipt),
+                ],
+                "static_integrity": self._reference(self.general_evidence),
+                "excluded_attempts": self._reference(
+                    self.rollback_exclusions_stub
+                ),
+                "revocation": self._reference(
+                    self.rollback_revocation_stub
+                ),
+                "changed_source": [
+                    self._reference(self.source / "tracked.txt"),
+                    self._reference(self.source / "created.txt"),
+                ],
+            },
+        }
+
+    def _static_integrity_document(self) -> dict[str, object]:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        changed_files = ["tracked.txt", "created.txt"]
+        gate_references = [
+            {
+                "path": str(self.gate_evidence[stage].resolve()),
+                "sha256": sha256(self.gate_evidence[stage]),
+            }
+            for stage in REQUIRED_GATES
+        ]
+        return {
+            "schema": "SITINA_STEP7_SOURCE_BOUNDARY_STATIC_INTEGRITY_V2",
+            "source": {
+                "root": str(self.source.resolve()),
+                "head": self._git("rev-parse", "HEAD^{commit}"),
+                "tree": self._git("rev-parse", "HEAD^{tree}"),
+                "worktree_clean": True,
+                "changed_files_from_step7_base": changed_files,
+            },
+            "deployment": {
+                "root": str(self.deployment.resolve()),
+                "operation_count": 2,
+                "replace_count": 1,
+                "create_count": 1,
+                "deployment_performed": False,
+                "mismatch_paths": changed_files,
+                "exact_operations": packet["exact_file_operations"],
+            },
+            "execution_switches": {"all_false": True},
+            "forbidden_actions": {
+                "baseline_install_or_promotion": False,
+                "deployment": False,
+                "production_canary": False,
+                "production_data_mutation": False,
+                "step8_entered": False,
+                "step9_entered": False,
+            },
+            "formal_step56_accepts": [
+                self._reference(path) for path in self.step56_accepts
+            ],
+            "gates": gate_references,
+            "revocation": self._reference(self.rollback_revocation_stub),
+        }
+
     def _rollback_review_candidate_document(self) -> dict[str, object]:
         packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        summary = json.loads(
+            self.rollback_request_evidence.read_text(encoding="utf-8")
+        )["review_summary"]
         return {
             "schema": DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
             "candidate_id": (
@@ -982,6 +1161,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "rollback_plan_sha256": packet[
                 "backup_and_rollback_plan_sha256"
             ],
+            "review_summary": summary,
+            "evidence_bundle": self._reference(
+                self.rollback_request_evidence
+            ),
             "authorized": False,
             "deployment_executed": False,
             "forbidden_boundaries": copy.deepcopy(
@@ -1269,15 +1452,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 self.rollback_packet, "json", "deployment approval packet"
             ),
             self._review_required_file(
-                self.rollback_review_candidate,
+                self.rollback_exclusions_stub,
                 "json",
-                "deployment request review candidate",
+                "deployment request exclusions",
             ),
             self._review_required_file(
-                self.rollback_manifest, "json", "rollback manifest"
+                self.rollback_revocation_stub,
+                "json",
+                "deployment request revocation",
             ),
             self._review_required_file(
-                self.rollback_recovery, "json", "rollback recovery result"
+                self.general_evidence,
+                "json",
+                "deployment request static integrity",
             ),
             self._review_required_file(
                 self.source / "tracked.txt", "text", "Step7 changed source"
@@ -1711,6 +1898,17 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 )
             gates.append(gate)
         bound_evidence = [
+            {
+                "path": (
+                    "/Users/moss/.codex/attachments/"
+                    "198f270e-7042-4d01-aac5-ff595095d657/"
+                    "pasted-text-1.txt"
+                ),
+                "sha256": (
+                    "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c"
+                ),
+                "format": "text",
+            },
             {"path": str(ENTRY_CANDIDATE), "sha256": ENTRY_CANDIDATE_SHA256},
             *(self._reference(path) for path in self.step56_accepts),
             *(self._reference(path) for path in self.gate_evidence.values()),
@@ -1733,9 +1931,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             *(self._reference(path) for path in self.sentinel_samples),
             self._reference(self.rollback_packet),
+            self._reference(self.rollback_request_evidence),
             self._reference(self.rollback_review_candidate),
             self._reference(self.rollback_manifest),
             self._reference(self.rollback_recovery),
+            self._reference(self.rollback_exclusions_stub),
+            self._reference(self.rollback_revocation_stub),
+            {**self._reference(self.source / "tracked.txt"), "format": "text"},
+            {**self._reference(self.source / "created.txt"), "format": "text"},
             self._reference(self.general_evidence),
         ]
         return {
@@ -1816,6 +2019,15 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 ),
                 "manifest": self._reference(self.rollback_manifest),
                 "recovery_result": self._reference(self.rollback_recovery),
+            },
+            "deployment_request_supporting_evidence": {
+                "static_integrity": self._reference(self.general_evidence),
+                "excluded_attempts": self._reference(
+                    self.rollback_exclusions_stub
+                ),
+                "revocation": self._reference(
+                    self.rollback_revocation_stub
+                ),
             },
             "evidence": bound_evidence,
             "remaining_risks": [],
@@ -2858,6 +3070,185 @@ class Step7ReadinessGateTests(unittest.TestCase):
             candidate = copy.deepcopy(self.candidate)
             candidate["rollback_proof"]["authorization_receipt"] = receipt
             self.assertRejected(candidate, "deployment user authorization")
+
+    def test_review_candidate_hash_binds_complete_evidence_bundle(self) -> None:
+        candidate = copy.deepcopy(self.candidate)
+        original = self.rollback_review_candidate.read_text(encoding="utf-8")
+        try:
+            request = json.loads(original)
+            request["evidence_bundle"]["sha256"] = "0" * 64
+            self.rollback_review_candidate.write_text(
+                json.dumps(request, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            candidate["rollback_proof"]["deployment_request_candidate"] = (
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_review_candidate,
+                )
+            )
+            self.assertRejected(
+                candidate,
+                "deployment request review evidence bundle",
+            )
+        finally:
+            self.rollback_review_candidate.write_text(
+                original,
+                encoding="utf-8",
+            )
+
+    def test_evidence_bundle_rejects_fresh_sha_semantic_substitution_for_each_category(
+        self,
+    ) -> None:
+        bundle_original = self.rollback_request_evidence.read_text(
+            encoding="utf-8"
+        )
+        request_original = self.rollback_review_candidate.read_text(
+            encoding="utf-8"
+        )
+        unrelated = self._json_file(
+            "unrelated-but-valid-evidence.json",
+            {"schema": "UNRELATED_VALID_JSON_V1", "accepted": True},
+        )
+        replacement = self._reference(unrelated)
+        categories = (
+            "authority",
+            "entry_candidate",
+            "step56_accepts",
+            "gates",
+            "real_sitina_reviews",
+            "static_integrity",
+            "excluded_attempts",
+            "revocation",
+            "changed_source",
+        )
+        try:
+            for category in categories:
+                bundle = json.loads(bundle_original)
+                current = bundle["evidence"][category]
+                if isinstance(current, list):
+                    current[0] = replacement
+                else:
+                    bundle["evidence"][category] = replacement
+                self.rollback_request_evidence.write_text(
+                    json.dumps(bundle, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                request = json.loads(request_original)
+                request["evidence_bundle"] = self._reference(
+                    self.rollback_request_evidence
+                )
+                self.rollback_review_candidate.write_text(
+                    json.dumps(request, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                candidate = copy.deepcopy(self.candidate)
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_request_evidence,
+                )
+                candidate["rollback_proof"]["deployment_request_candidate"] = (
+                    self._refresh_bound_reference(
+                        candidate,
+                        self.rollback_review_candidate,
+                    )
+                )
+                self.assertRejected(
+                    candidate,
+                    "deployment request review evidence category identities mismatch",
+                )
+        finally:
+            self.rollback_request_evidence.write_text(
+                bundle_original,
+                encoding="utf-8",
+            )
+            self.rollback_review_candidate.write_text(
+                request_original,
+                encoding="utf-8",
+            )
+
+    def test_supporting_evidence_rejects_synchronized_but_unrelated_documents(
+        self,
+    ) -> None:
+        bundle_original = self.rollback_request_evidence.read_text(
+            encoding="utf-8"
+        )
+        request_original = self.rollback_review_candidate.read_text(
+            encoding="utf-8"
+        )
+        replacements = {
+            category: self._json_file(
+                f"unrelated-{category}.json",
+                {
+                    "schema": f"UNRELATED_{category.upper()}_V1",
+                    "accepted": True,
+                },
+            )
+            for category in (
+                "static_integrity",
+                "excluded_attempts",
+                "revocation",
+            )
+        }
+        expected_errors = {
+            "static_integrity": (
+                "deployment request static-integrity evidence mismatch"
+            ),
+            "excluded_attempts": (
+                "deployment request excluded-attempt evidence mismatch"
+            ),
+            "revocation": "deployment request revocation evidence mismatch",
+        }
+        try:
+            for category, replacement_path in replacements.items():
+                replacement = self._reference(replacement_path)
+                bundle = json.loads(bundle_original)
+                bundle["evidence"][category] = replacement
+                self.rollback_request_evidence.write_text(
+                    json.dumps(bundle, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                request = json.loads(request_original)
+                request["evidence_bundle"] = self._reference(
+                    self.rollback_request_evidence
+                )
+                self.rollback_review_candidate.write_text(
+                    json.dumps(request, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                candidate = copy.deepcopy(self.candidate)
+                old_reference = candidate[
+                    "deployment_request_supporting_evidence"
+                ][category]
+                candidate["deployment_request_supporting_evidence"][
+                    category
+                ] = replacement
+                for index, existing in enumerate(candidate["evidence"]):
+                    if existing["path"] == old_reference["path"]:
+                        candidate["evidence"][index] = replacement
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_request_evidence,
+                )
+                candidate["rollback_proof"]["deployment_request_candidate"] = (
+                    self._refresh_bound_reference(
+                        candidate,
+                        self.rollback_review_candidate,
+                    )
+                )
+                self.assertRejected(
+                    candidate,
+                    expected_errors[category],
+                )
+        finally:
+            self.rollback_request_evidence.write_text(
+                bundle_original,
+                encoding="utf-8",
+            )
+            self.rollback_review_candidate.write_text(
+                request_original,
+                encoding="utf-8",
+            )
 
     def test_step56_accepts_cannot_be_missing_duplicated_or_tampered(self) -> None:
         baseline = self._validate()

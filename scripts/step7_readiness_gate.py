@@ -108,7 +108,10 @@ ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V3"
 DEPLOYMENT_PACKET_SCHEMA = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V3"
 BACKUP_ROLLBACK_PLAN_SCHEMA = "SITINA_STEP7_BACKUP_AND_ROLLBACK_PLAN_V3"
 DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA = (
-    "SITINA_STEP7_DEPLOYMENT_REQUEST_AUTHORIZATION_BINDING_V1"
+    "SITINA_STEP7_DEPLOYMENT_REQUEST_REVIEW_CANDIDATE_V2"
+)
+DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_REQUEST_REVIEW_EVIDENCE_V1"
 )
 DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA = (
     "SITINA_STEP7_EXACT_AUTHORIZATION_CONTRACT_V1"
@@ -315,9 +318,38 @@ DEPLOYMENT_REQUEST_CANDIDATE_FIELDS = {
     "exact_file_operation_count",
     "exact_file_operations_sha256",
     "rollback_plan_sha256",
+    "review_summary",
+    "evidence_bundle",
     "authorized",
     "deployment_executed",
     "forbidden_boundaries",
+}
+DEPLOYMENT_REQUEST_EVIDENCE_FIELDS = {
+    "schema",
+    "created_at_utc",
+    "source",
+    "approval_id",
+    "approval_packet",
+    "exact_file_operations_sha256",
+    "rollback_plan_sha256",
+    "review_summary",
+    "evidence",
+}
+DEPLOYMENT_REQUEST_EVIDENCE_CATEGORIES = {
+    "authority",
+    "entry_candidate",
+    "step56_accepts",
+    "gates",
+    "real_sitina_reviews",
+    "static_integrity",
+    "excluded_attempts",
+    "revocation",
+    "changed_source",
+}
+DEPLOYMENT_REQUEST_SUPPORTING_EVIDENCE_FIELDS = {
+    "static_integrity",
+    "excluded_attempts",
+    "revocation",
 }
 DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS = {
     "schema",
@@ -3440,6 +3472,293 @@ def _verify_rollback_and_bound_evidence(
         errors.append("approval packet and rollback plan forbidden boundaries differ")
     operations_sha256 = _json_value_sha256(packet_operations)
     plan_sha256 = plan_verification.get("sha256")
+    request_evidence_path, request_evidence = _verify_file_reference(
+        request_candidate.get("evidence_bundle")
+        if isinstance(request_candidate, Mapping)
+        else None,
+        errors,
+        "deployment request review evidence bundle",
+    )
+    evidence_categories = (
+        request_evidence.get("evidence")
+        if isinstance(request_evidence, Mapping)
+        else None
+    )
+    review_summary = {
+        "formal_step56_accept_count": 3,
+        "gate_count": 7,
+        "real_sitina_review_count": 2,
+        "changed_source_count": len(expected_paths),
+        "deployment_operation_count": len(packet_operations),
+        "replace_count": sum(
+            operation.get("operation") == "REPLACE"
+            for operation in packet_operations
+            if isinstance(operation, Mapping)
+        ),
+        "create_count": sum(
+            operation.get("operation") == "CREATE"
+            for operation in packet_operations
+            if isinstance(operation, Mapping)
+        ),
+        "deployment_pending": True,
+        "step8_step9_not_entered": True,
+    }
+    if not isinstance(request_evidence, Mapping) or (
+        set(request_evidence) != DEPLOYMENT_REQUEST_EVIDENCE_FIELDS
+        or request_evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or not _valid_iso8601(request_evidence.get("created_at_utc"))
+        or request_evidence.get("source")
+        != {
+            "root": str(source_root),
+            "head": source_state.get("head"),
+            "tree": source_state.get("tree"),
+        }
+        or request_evidence.get("approval_id")
+        != (
+            packet.get("approval_id")
+            if isinstance(packet, Mapping)
+            else None
+        )
+        or request_evidence.get("approval_packet")
+        != (
+            {"path": str(packet_path), "sha256": _sha256(packet_path)}
+            if packet_path is not None
+            else None
+        )
+        or request_evidence.get("exact_file_operations_sha256")
+        != operations_sha256
+        or request_evidence.get("rollback_plan_sha256") != plan_sha256
+        or request_evidence.get("review_summary") != review_summary
+        or not isinstance(evidence_categories, Mapping)
+        or set(evidence_categories) != DEPLOYMENT_REQUEST_EVIDENCE_CATEGORIES
+    ):
+        errors.append("deployment request review evidence bundle mismatch")
+        evidence_categories = {}
+    supporting_evidence = candidate.get(
+        "deployment_request_supporting_evidence"
+    )
+    cleanup_value = candidate.get("cleanup")
+    cleanup_review_value = (
+        cleanup_value.get("real_sitina_review")
+        if isinstance(cleanup_value, Mapping)
+        else None
+    )
+    full_review_value = candidate.get("real_sitina_review")
+    changed_source_references = [
+        {
+            "path": str(source_root / relative),
+            "sha256": _sha256(source_root / relative),
+        }
+        for relative in changed_files
+        if isinstance(relative, str)
+        and (source_root / relative).is_file()
+        and not (source_root / relative).is_symlink()
+    ] if isinstance(changed_files, list) else []
+    expected_evidence_categories = {
+        "authority": {
+            "path": STEP7_AUTHORITY_PATH,
+            "sha256": STEP7_AUTHORITY_SHA256,
+        },
+        "entry_candidate": candidate.get("step56_entry_candidate"),
+        "step56_accepts": candidate.get("step56_independent_accepts"),
+        "gates": [
+            gate.get("evidence")
+            for gate in candidate.get("gates", [])
+            if isinstance(gate, Mapping)
+        ],
+        "real_sitina_reviews": [
+            cleanup_review_value.get("receipt")
+            if isinstance(cleanup_review_value, Mapping)
+            else None,
+            full_review_value.get("receipt")
+            if isinstance(full_review_value, Mapping)
+            else None,
+        ],
+        "static_integrity": (
+            supporting_evidence.get("static_integrity")
+            if isinstance(supporting_evidence, Mapping)
+            else None
+        ),
+        "excluded_attempts": (
+            supporting_evidence.get("excluded_attempts")
+            if isinstance(supporting_evidence, Mapping)
+            else None
+        ),
+        "revocation": (
+            supporting_evidence.get("revocation")
+            if isinstance(supporting_evidence, Mapping)
+            else None
+        ),
+        "changed_source": changed_source_references,
+    }
+    supporting_documents: dict[str, Any] = {}
+    if isinstance(supporting_evidence, Mapping):
+        for category in DEPLOYMENT_REQUEST_SUPPORTING_EVIDENCE_FIELDS:
+            _, document = _verify_file_reference(
+                supporting_evidence.get(category),
+                errors,
+                f"deployment request supporting evidence {category}",
+            )
+            supporting_documents[category] = document
+    static_integrity = supporting_documents.get("static_integrity")
+    static_source = (
+        static_integrity.get("source")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
+    static_deployment = (
+        static_integrity.get("deployment")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
+    static_forbidden = (
+        static_integrity.get("forbidden_actions")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
+    static_switches = (
+        static_integrity.get("execution_switches")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
+    static_gate_identities = [
+        {"path": item.get("path"), "sha256": item.get("sha256")}
+        for item in static_integrity.get("gates", [])
+        if isinstance(item, Mapping)
+    ] if isinstance(static_integrity, Mapping) else []
+    if not isinstance(static_integrity, Mapping) or (
+        static_integrity.get("schema")
+        != "SITINA_STEP7_SOURCE_BOUNDARY_STATIC_INTEGRITY_V2"
+        or not isinstance(static_source, Mapping)
+        or static_source.get("root") != str(source_root)
+        or static_source.get("head") != source_state.get("head")
+        or static_source.get("tree") != source_state.get("tree")
+        or static_source.get("worktree_clean") is not True
+        or static_source.get("changed_files_from_step7_base") != changed_files
+        or not isinstance(static_deployment, Mapping)
+        or static_deployment.get("root") != str(deployment_root)
+        or static_deployment.get("operation_count") != len(packet_operations)
+        or static_deployment.get("replace_count") != review_summary["replace_count"]
+        or static_deployment.get("create_count") != review_summary["create_count"]
+        or static_deployment.get("deployment_performed") is not False
+        or static_deployment.get("mismatch_paths") != changed_files
+        or static_deployment.get("exact_operations") != packet_operations
+        or not isinstance(static_switches, Mapping)
+        or static_switches.get("all_false") is not True
+        or not isinstance(static_forbidden, Mapping)
+        or any(value is not False for value in static_forbidden.values())
+        or static_integrity.get("formal_step56_accepts")
+        != candidate.get("step56_independent_accepts")
+        or static_gate_identities
+        != expected_evidence_categories["gates"]
+        or static_integrity.get("revocation")
+        != (
+            supporting_evidence.get("revocation")
+            if isinstance(supporting_evidence, Mapping)
+            else None
+        )
+    ):
+        errors.append("deployment request static-integrity evidence mismatch")
+    excluded_attempts = supporting_documents.get("excluded_attempts")
+    excluded_items = (
+        excluded_attempts.get("attempts")
+        if isinstance(excluded_attempts, Mapping)
+        else None
+    )
+    if not isinstance(excluded_attempts, Mapping) or (
+        excluded_attempts.get("schema") != "SITINA_STEP7_EXCLUDED_ATTEMPTS_V2"
+        or excluded_attempts.get("source")
+        != {
+            "head": source_state.get("head"),
+            "tree": source_state.get("tree"),
+        }
+        or excluded_attempts.get("all_counted_as_pass") is not False
+        or not isinstance(excluded_items, list)
+        or not excluded_items
+        or any(
+            not isinstance(item, Mapping)
+            or item.get("counted_as_pass") is not False
+            for item in excluded_items
+        )
+    ):
+        errors.append("deployment request excluded-attempt evidence mismatch")
+    revocation = supporting_documents.get("revocation")
+    if not isinstance(revocation, Mapping) or (
+        revocation.get("schema")
+        != "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V1"
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
+        or revocation.get("revoked_approval_id")
+        != "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z"
+        or revocation.get("revoked_candidate", {}).get("sha256")
+        != "593b64e1641a54759be3bc3d9eb6f647ea765b37feee295281b4240da498da53"
+        or revocation.get("revoked_packet", {}).get("sha256")
+        != "ec329c290b34e119f7e8408122a7faa085f146a5843ba69152abec10405d7ea6"
+        or any(
+            revocation.get(field) is not False
+            for field in (
+                "may_execute",
+                "may_request_authorization",
+                "may_reuse_candidate_sha256",
+                "may_reuse_packet_sha256",
+                "deployment_performed",
+                "production_canary_run",
+                "production_data_modified",
+                "baseline_modified",
+                "step8_step9_entered",
+            )
+        )
+    ):
+        errors.append("deployment request revocation evidence mismatch")
+    if not isinstance(supporting_evidence, Mapping) or (
+        set(supporting_evidence)
+        != DEPLOYMENT_REQUEST_SUPPORTING_EVIDENCE_FIELDS
+        or evidence_categories != expected_evidence_categories
+    ):
+        errors.append(
+            "deployment request review evidence category identities mismatch"
+        )
+        evidence_categories = {}
+    evidence_references: list[Any] = []
+    if isinstance(evidence_categories, Mapping):
+        for category in (
+            "authority",
+            "entry_candidate",
+            "static_integrity",
+            "excluded_attempts",
+            "revocation",
+        ):
+            evidence_references.append(evidence_categories.get(category))
+        for category, expected_count in (
+            ("step56_accepts", 3),
+            ("gates", 7),
+            ("real_sitina_reviews", 2),
+            ("changed_source", len(expected_paths)),
+        ):
+            values = evidence_categories.get(category)
+            if not isinstance(values, list) or len(values) != expected_count:
+                errors.append(
+                    f"deployment request review evidence {category} count mismatch"
+                )
+                continue
+            evidence_references.extend(values)
+    observed_bundle_references: list[tuple[str, str]] = []
+    for index, reference in enumerate(evidence_references):
+        path, _ = _verify_file_reference(
+            reference,
+            errors,
+            f"deployment request review evidence {index}",
+            require_json_object=(
+                isinstance(reference, Mapping)
+                and str(reference.get("path", "")).endswith(".json")
+            ),
+        )
+        if path is not None and isinstance(reference, Mapping):
+            observed_bundle_references.append(
+                (str(path), str(reference.get("sha256")))
+            )
+    if len(observed_bundle_references) != len(set(observed_bundle_references)):
+        errors.append("deployment request review evidence contains duplicates")
     expected_request_candidate = {
         "schema": DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
         "candidate_id": (
@@ -3468,6 +3787,15 @@ def _verify_rollback_and_bound_evidence(
         "exact_file_operation_count": len(packet_operations),
         "exact_file_operations_sha256": operations_sha256,
         "rollback_plan_sha256": plan_sha256,
+        "review_summary": review_summary,
+        "evidence_bundle": (
+            {
+                "path": str(request_evidence_path),
+                "sha256": _sha256(request_evidence_path),
+            }
+            if request_evidence_path is not None
+            else None
+        ),
         "authorized": False,
         "deployment_executed": False,
         "forbidden_boundaries": dict(packet_forbidden)
@@ -4002,13 +4330,13 @@ def _verify_rollback_and_bound_evidence(
             evidence_format = (
                 reference.get("format") if isinstance(reference, Mapping) else None
             )
-            if evidence_format not in (None, "json", "jsonl"):
+            if evidence_format not in (None, "json", "jsonl", "text"):
                 errors.append(f"bound evidence {index} format mismatch")
             _verify_file_reference(
                 reference,
                 errors,
                 f"bound evidence {index}",
-                require_json_object=evidence_format != "jsonl",
+                require_json_object=evidence_format not in ("jsonl", "text"),
             )
             observed_references.append(
                 (
@@ -4066,6 +4394,9 @@ def _verify_rollback_and_bound_evidence(
                 rollback.get("recovery_result"),
             )
         )
+        if isinstance(request_candidate, Mapping):
+            required_references.append(request_candidate.get("evidence_bundle"))
+        required_references.extend(evidence_references)
         required_identities = {
             (reference.get("path"), reference.get("sha256"))
             for reference in required_references
@@ -4188,11 +4519,13 @@ def validate_step7_candidate(
         full_review_references.extend(
             (
                 rollback_value.get("approval_packet"),
-                rollback_value.get("deployment_request_candidate"),
-                rollback_value.get("manifest"),
-                rollback_value.get("recovery_result"),
             )
         )
+    supporting_evidence = candidate.get(
+        "deployment_request_supporting_evidence"
+    )
+    if isinstance(supporting_evidence, Mapping):
+        full_review_references.extend(supporting_evidence.values())
     source_value = candidate.get("source")
     if isinstance(source_value, Mapping):
         for relative in source_value.get("changed_files", []):
