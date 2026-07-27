@@ -3621,11 +3621,24 @@ def _verify_rollback_and_bound_evidence(
         if isinstance(static_integrity, Mapping)
         else None
     )
+    static_gates = (
+        static_integrity.get("gates")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
     static_gate_identities = [
         {"path": item.get("path"), "sha256": item.get("sha256")}
-        for item in static_integrity.get("gates", [])
+        for item in static_gates
         if isinstance(item, Mapping)
-    ] if isinstance(static_integrity, Mapping) else []
+    ] if isinstance(static_gates, list) else []
+    expected_static_forbidden = {
+        "baseline_install_or_promotion": False,
+        "deployment": False,
+        "production_canary": False,
+        "production_data_mutation": False,
+        "step8_entered": False,
+        "step9_entered": False,
+    }
     if not isinstance(static_integrity, Mapping) or (
         static_integrity.get("schema")
         != "SITINA_STEP7_SOURCE_BOUNDARY_STATIC_INTEGRITY_V2"
@@ -3645,10 +3658,10 @@ def _verify_rollback_and_bound_evidence(
         or static_deployment.get("exact_operations") != packet_operations
         or not isinstance(static_switches, Mapping)
         or static_switches.get("all_false") is not True
-        or not isinstance(static_forbidden, Mapping)
-        or any(value is not False for value in static_forbidden.values())
+        or static_forbidden != expected_static_forbidden
         or static_integrity.get("formal_step56_accepts")
         != candidate.get("step56_independent_accepts")
+        or not isinstance(static_gates, list)
         or static_gate_identities
         != expected_evidence_categories["gates"]
         or static_integrity.get("revocation")
@@ -3683,6 +3696,16 @@ def _verify_rollback_and_bound_evidence(
     ):
         errors.append("deployment request excluded-attempt evidence mismatch")
     revocation = supporting_documents.get("revocation")
+    revoked_candidate = (
+        revocation.get("revoked_candidate")
+        if isinstance(revocation, Mapping)
+        else None
+    )
+    revoked_packet = (
+        revocation.get("revoked_packet")
+        if isinstance(revocation, Mapping)
+        else None
+    )
     if not isinstance(revocation, Mapping) or (
         revocation.get("schema")
         != "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V1"
@@ -3690,9 +3713,11 @@ def _verify_rollback_and_bound_evidence(
         or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
         or revocation.get("revoked_approval_id")
         != "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z"
-        or revocation.get("revoked_candidate", {}).get("sha256")
+        or not isinstance(revoked_candidate, Mapping)
+        or revoked_candidate.get("sha256")
         != "593b64e1641a54759be3bc3d9eb6f647ea765b37feee295281b4240da498da53"
-        or revocation.get("revoked_packet", {}).get("sha256")
+        or not isinstance(revoked_packet, Mapping)
+        or revoked_packet.get("sha256")
         != "ec329c290b34e119f7e8408122a7faa085f146a5843ba69152abec10405d7ea6"
         or any(
             revocation.get(field) is not False

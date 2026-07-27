@@ -3250,6 +3250,103 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+    def test_supporting_evidence_malformed_shapes_fail_closed(self) -> None:
+        bundle_original = self.rollback_request_evidence.read_text(
+            encoding="utf-8"
+        )
+        request_original = self.rollback_review_candidate.read_text(
+            encoding="utf-8"
+        )
+        cases = (
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document.__setitem__("gates", None),
+                "deployment request static-integrity evidence mismatch",
+            ),
+            (
+                "revocation",
+                self.rollback_revocation_stub,
+                lambda document: document.__setitem__(
+                    "revoked_candidate", []
+                ),
+                "deployment request revocation evidence mismatch",
+            ),
+            (
+                "revocation",
+                self.rollback_revocation_stub,
+                lambda document: document.__setitem__(
+                    "revoked_packet", None
+                ),
+                "deployment request revocation evidence mismatch",
+            ),
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document.__setitem__(
+                    "forbidden_actions", {}
+                ),
+                "deployment request static-integrity evidence mismatch",
+            ),
+        )
+        originals = {
+            path: path.read_text(encoding="utf-8")
+            for _, path, _, _ in cases
+        }
+        try:
+            for category, path, mutate, expected_error in cases:
+                document = json.loads(originals[path])
+                mutate(document)
+                path.write_text(
+                    json.dumps(document, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                replacement = self._reference(path)
+                bundle = json.loads(bundle_original)
+                bundle["evidence"][category] = replacement
+                self.rollback_request_evidence.write_text(
+                    json.dumps(bundle, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                request = json.loads(request_original)
+                request["evidence_bundle"] = self._reference(
+                    self.rollback_request_evidence
+                )
+                self.rollback_review_candidate.write_text(
+                    json.dumps(request, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                candidate = copy.deepcopy(self.candidate)
+                candidate["deployment_request_supporting_evidence"][
+                    category
+                ] = replacement
+                for index, existing in enumerate(candidate["evidence"]):
+                    if existing["path"] == str(path):
+                        candidate["evidence"][index] = replacement
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_request_evidence,
+                )
+                candidate["rollback_proof"]["deployment_request_candidate"] = (
+                    self._refresh_bound_reference(
+                        candidate,
+                        self.rollback_review_candidate,
+                    )
+                )
+                self.assertRejected(candidate, expected_error)
+                path.write_text(originals[path], encoding="utf-8")
+        finally:
+            for path, original in originals.items():
+                path.write_text(original, encoding="utf-8")
+            self.rollback_request_evidence.write_text(
+                bundle_original,
+                encoding="utf-8",
+            )
+            self.rollback_review_candidate.write_text(
+                request_original,
+                encoding="utf-8",
+            )
+
     def test_step56_accepts_cannot_be_missing_duplicated_or_tampered(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
