@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from tests.foundation.activation_gate_runner import RecordingResult, _flatten, _unittest_selector
+from tests.foundation.activation_gate_runner import (
+    RecordingResult,
+    _flatten,
+    _test_ids_sha256,
+    _unittest_selector,
+)
 
 
 SUMMARY_MARKER = "SITINA_REGISTRATION_GATE_JSON:"
@@ -152,6 +157,14 @@ def run_loaded_registration_suite(
     errors = len(result.errors)
     expected_failures = len(result.expectedFailures)
     unexpected_successes = len(result.unexpectedSuccesses)
+    nonpass_ids = {
+        *(test.id() for test, _detail_text in result.failures),
+        *(test.id() for test, _detail_text in result.errors),
+        *(test.id() for test, _reason in result.skipped),
+        *(test.id() for test, _detail_text in result.expectedFailures),
+        *(test.id() for test in result.unexpectedSuccesses),
+    }
+    passed = sum(1 for test_id in started if test_id not in nonpass_ids)
     skip_allowlist_match = observed_skips == expected_skips
     accepted = (
         collection_complete
@@ -168,11 +181,16 @@ def run_loaded_registration_suite(
         "accepted": accepted,
         "selector_count": len(loaded.selectors),
         "selector_counts": loaded.selector_counts,
+        "collected_test_ids": collected,
+        "collected_test_ids_sha256": _test_ids_sha256(collected),
+        "started_test_ids": started,
+        "started_test_ids_sha256": _test_ids_sha256(started),
         "collection_errors": list(loaded.collection_errors),
         "collection_complete": collection_complete,
         "execution_complete": execution_complete,
         "collected_test_count": len(collected),
         "executed_test_count": result.testsRun,
+        "passed": passed,
         "failures": failures,
         "errors": errors,
         "skipped": len(observed_skips),

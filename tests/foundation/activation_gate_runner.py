@@ -7,6 +7,7 @@ selected test was both collected and started exactly once.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import unittest
@@ -17,6 +18,15 @@ from typing import Sequence, TextIO
 
 SUMMARY_MARKER = "SITINA_ACTIVATION_GATE_JSON:"
 POLICY = "ZERO_NONPASS_AND_COMPLETE_V1"
+
+
+def _test_ids_sha256(test_ids: Sequence[str]) -> str:
+    encoded = json.dumps(
+        list(test_ids),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _unittest_selector(value: str) -> str:
@@ -141,6 +151,10 @@ def run_loaded_gate(
         "policy": POLICY,
         "accepted": accepted,
         "selector_counts": loaded.selector_counts,
+        "collected_test_ids": collected,
+        "collected_test_ids_sha256": _test_ids_sha256(collected),
+        "started_test_ids": started,
+        "started_test_ids_sha256": _test_ids_sha256(started),
         "collection_errors": list(loaded.collection_errors),
         "collection_complete": collection_complete,
         "execution_complete": execution_complete,

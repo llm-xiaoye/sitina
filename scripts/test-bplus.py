@@ -301,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("suite", nargs="?")
     parser.add_argument("--test", action="append", default=[])
+    parser.add_argument("--evidence-stage")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--live-approval")
     parser.add_argument("--execution-manifest", type=Path)
@@ -318,6 +319,45 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.suite == "live_provider_opt_in":
         raise SystemExit("The selected pre-cutover manifest does not authorize live-provider tests")
     definition = suites[arguments.suite]
+    evidence_stage = arguments.evidence_stage or arguments.suite
+    directed_stage_contracts = {
+        "minimal_negative_contract": {
+            "suite": "unit_fast",
+            "selectors": [
+                "tests/foundation/test_dependency_lock_gate.py",
+                "tests/foundation/test_registration_gate_runner.py",
+            ],
+        },
+        "identity_sentinel_directed": {
+            "suite": "unit_fast",
+            "selectors": [
+                "tests/foundation/test_sentinel_content_addressed.py",
+                "tests/test_execution_bridge.py",
+                "tests/test_execution_bridge_integration.py",
+                "tests/test_execution_sandbox.py",
+            ],
+        },
+    }
+    formal_stage_by_suite = {
+        "execution_activation_gate": "execution_activation",
+        "step7_readiness_gate": "step7_readiness_gate",
+        "unit_fast": "unit_fast",
+        "integration_isolated": "integration_isolated",
+        "all_registered_unique": "all_registered_unique",
+    }
+    if arguments.evidence_stage:
+        directed = directed_stage_contracts.get(evidence_stage)
+        if directed is not None:
+            if (
+                arguments.suite != directed["suite"]
+                or arguments.test != directed["selectors"]
+            ):
+                raise SystemExit("directed evidence stage does not match its exact suite/selectors")
+        elif (
+            formal_stage_by_suite.get(arguments.suite) != evidence_stage
+            or arguments.test
+        ):
+            raise SystemExit("formal evidence stage does not match its exact suite/selectors")
     manifest_path = arguments.execution_manifest or Path(definition.get("execution_manifest", PHASE_MINUS1_MANIFEST))
     manifest, dependency_gate = validate_control_plane(manifest_path, config)
     if manifest.production_home != Path(config["production_home"]).resolve(strict=True):
@@ -487,6 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         return_code = return_code or 126
     result = {
         "schema": "BPLUS_TEST_RESULT_V1",
+        "stage": evidence_stage,
         "suite": arguments.suite,
         "selectors": selectors,
         "mode": "tests",

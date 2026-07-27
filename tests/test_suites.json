@@ -100,7 +100,8 @@
       "timeout_seconds": 300,
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
-      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL"
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
     },
     "integration_isolated": {
       "selectors": [
@@ -133,7 +134,8 @@
       "timeout_seconds": 1800,
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
-      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL"
+      "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
+      "result_policy": "ZERO_NONPASS_AND_COMPLETE_V1"
     },
     "execution_activation_gate": {
       "selectors": [
