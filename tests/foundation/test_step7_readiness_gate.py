@@ -16,6 +16,7 @@ from scripts.step7_readiness_gate import (
     BACKUP_ROLLBACK_FORBIDDEN_FIELDS,
     BACKUP_ROLLBACK_PLAN_SCHEMA,
     ACTIVATION_RESULT_SCHEMA,
+    APPROVED_PYTHON_PATH,
     BASE_SENTINEL_PATH,
     BASE_SENTINEL_PHYSICAL_SHA256,
     BASE_SENTINEL_REPORT_SHA256,
@@ -69,8 +70,16 @@ from scripts.step7_readiness_gate import (
     _openai_wire_messages,
     _json_value_sha256,
     _normalize_source_authorization_transport,
+    _step7_v4_atomic_replace,
+    _step7_v4_copy_exclusive,
+    _step7_v4_dir_identity,
+    _step7_v4_production_gate_contract,
+    _step7_v4_rename_noreplace,
     _verify_backup_and_rollback_plan,
     _verify_step56_source_session,
+    execute_step7_v4,
+    recover_step7_v4_execution,
+    step7_v4_failure_injection_steps,
     validate_step7_candidate,
 )
 
@@ -279,18 +288,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 ),
                 "decision": "REJECT_DEPLOY_REQUEST",
                 "revoked_approval_id": (
-                    "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z"
+                    "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z"
                 ),
                 "revoked_candidate": {
                     "sha256": (
-                        "5fab0fc154ff8550b8efe5c7d61646f"
-                        "64591792ceb728e5f7a7bed96c88932b5"
+                        "6d2f5c8884ac4e4556af19a56a6de72"
+                        "cbac59db421f1cac6888d7e5fcc8ccd5e"
                     )
                 },
                 "revoked_packet": {
                     "sha256": (
-                        "6db1c14e792fefa0be3b76c38fe88797"
-                        "bcbcf3b100ef501302544ca65302fae6"
+                        "b08466b7ef37f6e96c507548c70f56b8"
+                        "3b628bb32c99ab8525067d884db5d556"
                     )
                 },
                 "may_execute": False,
@@ -307,7 +316,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self.rollback_approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
         self.rollback_root = (
             self.output.resolve()
-            / f"sitina-step7-deploy-v3-{self.rollback_approval_id}"
+            / f"sitina-step7-deploy-v4-{self.rollback_approval_id}"
+        )
+        self.rehearsal_quarantine_root = (
+            self.rollback_root / "rehearsal" / "quarantine" / "created"
         )
         self.rollback_quarantine_root = (
             self.rollback_root / "quarantine" / "created"
@@ -366,11 +378,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
         )
         rehearsal_source.parent.mkdir(parents=True)
         shutil.copy2(self.source / "created.txt", rehearsal_source)
+        self.rehearsal_quarantine_created = (
+            self.rehearsal_quarantine_root / "created.txt"
+        )
+        self.rehearsal_quarantine_created.parent.mkdir(parents=True)
+        self.rehearsal_quarantine_move = _step7_v4_rename_noreplace(
+            rehearsal_source,
+            self.rehearsal_quarantine_created,
+        )
         self.rollback_quarantine_created = (
             self.rollback_quarantine_root / "created.txt"
         )
         self.rollback_quarantine_created.parent.mkdir(parents=True)
-        rehearsal_source.replace(self.rollback_quarantine_created)
+        self.assertFalse(self.rollback_quarantine_created.exists())
         self.rollback_manifest = self.rollback_root / "backup-manifest.json"
         self.rollback_manifest.write_text(
             json.dumps(self._rollback_manifest_document(), sort_keys=True) + "\n",
@@ -915,7 +935,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 if kind == "REPLACE"
                 else None
             )
-            quarantine_path = (
+            rehearsal_quarantine_path = (
+                str(self.rehearsal_quarantine_root / relative)
+                if kind == "CREATE"
+                else None
+            )
+            rollback_quarantine_path = (
                 str(self.rollback_quarantine_root / relative)
                 if kind == "CREATE"
                 else None
@@ -929,7 +954,8 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "preimage_sha256": operation["preimage_sha256"],
                     "target_sha256": operation["target_sha256"],
                     "preimage_backup_path": backup_path,
-                    "rollback_quarantine_path": quarantine_path,
+                    "rehearsal_quarantine_path": rehearsal_quarantine_path,
+                    "rollback_quarantine_path": rollback_quarantine_path,
                     "rollback_action": (
                         "RESTORE_VERIFIED_PREIMAGE"
                         if kind == "REPLACE"
@@ -976,7 +1002,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "backup_manifest_path": str(
                 self.rollback_root / "backup-manifest.json"
             ),
+            "rehearsal_quarantine_root": str(
+                self.rehearsal_quarantine_root
+            ),
             "rollback_quarantine_root": str(self.rollback_quarantine_root),
+            "rehearsal_result_path": str(
+                self.rollback_root / "rehearsal-result.json"
+            ),
+            "execution_result_path": str(
+                self.rollback_root / "execution-result.json"
+            ),
+            "recovery_result_path": str(
+                self.rollback_root / "recovery-result.json"
+            ),
             "recovery_verification_path": str(
                 self.rollback_root / "recovery-verification.json"
             ),
@@ -1033,6 +1071,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "preimage_size": backup_stat.st_size,
                     "preimage_mode": oct(stat.S_IMODE(backup_stat.st_mode)),
                     "backup": self._reference(self.rollback_backup),
+                    "rehearsal_quarantine_path": None,
                     "rollback_quarantine_path": None,
                 },
                 {
@@ -1050,6 +1089,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "preimage_size": None,
                     "preimage_mode": None,
                     "backup": None,
+                    "rehearsal_quarantine_path": str(
+                        self.rehearsal_quarantine_created
+                    ),
                     "rollback_quarantine_path": str(
                         self.rollback_quarantine_created
                     ),
@@ -1364,7 +1406,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         manifest = json.loads(self.rollback_manifest.read_text(encoding="utf-8"))
         entry = manifest["entries"][0]
         created_entry = manifest["entries"][1]
-        quarantine_stat = self.rollback_quarantine_created.stat()
+        quarantine_stat = self.rehearsal_quarantine_created.stat()
         rehearsal_source = (
             self.rollback_root / "rehearsal" / "created" / "created.txt"
         )
@@ -1382,7 +1424,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "source_head": manifest["source_head"],
             "source_tree": manifest["source_tree"],
             "deployment_root": str(self.deployment.resolve()),
-            "method": "DISPOSABLE_ISOLATED_RESTORE_REHEARSAL_V1",
+            "method": "DISPOSABLE_ISOLATED_RESTORE_REHEARSAL_V4",
             "deployment_mutated": False,
             "verified": True,
             "mismatch_count": 0,
@@ -1412,8 +1454,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "reapplied_artifact": self._reference(
                         self.rollback_reapplied_snapshot
                     ),
-                    "quarantined_artifact": None,
-                    "quarantine_move": None,
+                    "rehearsal_quarantined_artifact": None,
+                    "rehearsal_quarantine_move": None,
+                    "live_rollback_quarantine_preflight": None,
                 },
                 {
                     "relative_path": "created.txt",
@@ -1434,22 +1477,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "reapplied_artifact": self._reference(
                         self.rollback_created_reapplied_snapshot
                     ),
-                    "quarantined_artifact": self._reference(
-                        self.rollback_quarantine_created
+                    "rehearsal_quarantined_artifact": self._reference(
+                        self.rehearsal_quarantine_created
                     ),
-                    "quarantine_move": {
-                        "method": "ATOMIC_RENAME_SAME_FILESYSTEM",
-                        "source_path": str(rehearsal_source),
-                        "destination_path": str(
-                            self.rollback_quarantine_created
+                    "rehearsal_quarantine_move": self.rehearsal_quarantine_move,
+                    "live_rollback_quarantine_preflight": {
+                        "path": str(self.rollback_quarantine_created),
+                        "existed": False,
+                        "overwrite_allowed": False,
+                        "exclusive_no_replace_required": True,
+                        "nofollow_required": True,
+                        "method": (
+                            "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
                         ),
-                        "source_device": quarantine_stat.st_dev,
-                        "source_inode": quarantine_stat.st_ino,
-                        "destination_device": quarantine_stat.st_dev,
-                        "destination_inode": quarantine_stat.st_ino,
-                        "inode_preserved": True,
-                        "source_absent_after_move": True,
-                        "delete_operation_count": 0,
                     },
                 },
             ],
@@ -2231,6 +2271,863 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             "authorization_to_enter_step8": False,
         }
+
+    def _step7_v4_execution_spec(self, root: Path) -> dict[str, object]:
+        root = root.resolve()
+        source, deployment, output = (
+            root / "source",
+            root / "deployment",
+            root / "output",
+        )
+        for path in (source, deployment, output):
+            path.mkdir()
+        (source / "replace.txt").write_text("new replace\n", encoding="utf-8")
+        (source / "create.txt").write_text("new create\n", encoding="utf-8")
+        (deployment / "replace.txt").write_text("old replace\n", encoding="utf-8")
+        sentinel = deployment / "sentinel.txt"
+        sentinel.write_text("stable sentinel\n", encoding="utf-8")
+        sentinel_stat = sentinel.stat()
+        backup_root = output / "step7-v4-run"
+        operations: list[dict[str, object]] = []
+        for relative, kind in (("replace.txt", "REPLACE"), ("create.txt", "CREATE")):
+            source_path, target_path = source / relative, deployment / relative
+            source_stat = source_path.stat()
+            operations.append(
+                {
+                    "relative_path": relative,
+                    "operation": kind,
+                    "source_path": str(source_path),
+                    "target_path": str(target_path),
+                    "target_sha256": sha256(source_path),
+                    "target_size": source_stat.st_size,
+                    "target_mode": oct(stat.S_IMODE(source_stat.st_mode)),
+                    "preimage_exists": kind == "REPLACE",
+                    "preimage_sha256": sha256(target_path) if kind == "REPLACE" else None,
+                    "preimage_size": target_path.stat().st_size if kind == "REPLACE" else None,
+                    "preimage_mode": (
+                        oct(stat.S_IMODE(target_path.stat().st_mode))
+                        if kind == "REPLACE"
+                        else None
+                    ),
+                    "preimage_backup_path": (
+                        str(backup_root / "preimages" / f"{relative}.preimage")
+                        if kind == "REPLACE"
+                        else None
+                    ),
+                    "rehearsal_quarantine_path": (
+                        str(backup_root / "rehearsal/quarantine/created" / relative)
+                        if kind == "CREATE"
+                        else None
+                    ),
+                    "rollback_quarantine_path": (
+                        str(backup_root / "quarantine/created" / relative)
+                        if kind == "CREATE"
+                        else None
+                    ),
+                }
+            )
+        sentinels = [
+            {
+                "path": str(sentinel),
+                "sha256": sha256(sentinel),
+                "size": sentinel_stat.st_size,
+                "mode": oct(stat.S_IMODE(sentinel_stat.st_mode)),
+                "type": "REGULAR_FILE",
+            }
+        ]
+        forbidden = {
+            field: False for field in BACKUP_ROLLBACK_FORBIDDEN_FIELDS
+        }
+        gate_contract = {
+            "schema": "SITINA_STEP7_TEST_ONLY_GATE_CONTRACT_V1",
+            "runner_mode": "EXPLICIT_TEST_ONLY_CALLBACK",
+        }
+        return {
+            "run_id": f"step7-v4-{root.name}",
+            "packet_sha256": "a" * 64,
+            "plan_sha256": "b" * 64,
+            "candidate_sha256": "c" * 64,
+            "authorization_receipt_sha256": "d" * 64,
+            "authorization_source_sha256": "e" * 64,
+            "authorization_wrapper_sha256": "f" * 64,
+            "source_head": "1" * 40,
+            "source_tree": "2" * 40,
+            "source_root": str(source),
+            "deployment_root": str(deployment),
+            "allowed_backup_parent": str(output),
+            "backup_root": str(backup_root),
+            "sentinels": sentinels,
+            "sentinels_sha256": _json_value_sha256(sentinels),
+            "operations": operations,
+            "operations_sha256": _json_value_sha256(
+                [
+                    {
+                        field: operation.get(field)
+                        for field in {
+                            "relative_path",
+                            "operation",
+                            "source_path",
+                            "target_path",
+                            "target_sha256",
+                            "target_size",
+                            "target_mode",
+                            "preimage_exists",
+                            "preimage_sha256",
+                            "preimage_size",
+                            "preimage_mode",
+                        }
+                    }
+                    for operation in operations
+                ]
+            ),
+            "forbidden_boundaries": forbidden,
+            "forbidden_boundaries_sha256": _json_value_sha256(forbidden),
+            "gate_contract": gate_contract,
+            "gate_contract_sha256": _json_value_sha256(gate_contract),
+        }
+
+    def _append_step7_v4_operation(
+        self,
+        spec: dict[str, object],
+        relative: str,
+        kind: str,
+    ) -> None:
+        source_root = Path(str(spec["source_root"]))
+        deployment_root = Path(str(spec["deployment_root"]))
+        backup_root = Path(str(spec["backup_root"]))
+        source = source_root / relative
+        source.write_text(f"new {relative}\n", encoding="utf-8")
+        target = deployment_root / relative
+        if kind == "REPLACE":
+            target.write_text(f"old {relative}\n", encoding="utf-8")
+        source_stat = source.stat()
+        operation = {
+            "relative_path": relative,
+            "operation": kind,
+            "source_path": str(source),
+            "target_path": str(target),
+            "target_sha256": sha256(source),
+            "target_size": source_stat.st_size,
+            "target_mode": oct(stat.S_IMODE(source_stat.st_mode)),
+            "preimage_exists": kind == "REPLACE",
+            "preimage_sha256": sha256(target) if kind == "REPLACE" else None,
+            "preimage_size": target.stat().st_size if kind == "REPLACE" else None,
+            "preimage_mode": (
+                oct(stat.S_IMODE(target.stat().st_mode))
+                if kind == "REPLACE"
+                else None
+            ),
+            "preimage_backup_path": (
+                str(backup_root / "preimages" / f"{relative}.preimage")
+                if kind == "REPLACE"
+                else None
+            ),
+            "rehearsal_quarantine_path": (
+                str(backup_root / "rehearsal/quarantine/created" / relative)
+                if kind == "CREATE"
+                else None
+            ),
+            "rollback_quarantine_path": (
+                str(backup_root / "quarantine/created" / relative)
+                if kind == "CREATE"
+                else None
+            ),
+        }
+        spec["operations"].append(operation)
+        core_fields = {
+            "relative_path",
+            "operation",
+            "source_path",
+            "target_path",
+            "target_sha256",
+            "target_size",
+            "target_mode",
+            "preimage_exists",
+            "preimage_sha256",
+            "preimage_size",
+            "preimage_mode",
+        }
+        spec["operations_sha256"] = _json_value_sha256(
+            [
+                {field: item.get(field) for field in core_fields}
+                for item in spec["operations"]
+            ]
+        )
+
+    def test_v4_executor_dry_run_then_real_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            backup_root = Path(str(spec["backup_root"]))
+            deployment = Path(str(spec["deployment_root"]))
+            dry_run = execute_step7_v4(
+                spec,
+                dry_run=True,
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(dry_run["status"], "DRY_RUN_VERIFIED")
+            self.assertFalse(backup_root.exists())
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True, "gate": "temporary"},
+                _test_only=True,
+            )
+            self.assertEqual(result["status"], "EXECUTED", result)
+            self.assertEqual(
+                (deployment / "replace.txt").read_text(encoding="utf-8"),
+                "new replace\n",
+            )
+            created = deployment / "create.txt"
+            self.assertEqual(created.read_text(encoding="utf-8"), "new create\n")
+            self.assertNotEqual(
+                created.stat().st_ino,
+                (Path(str(spec["source_root"])) / "create.txt").stat().st_ino,
+            )
+            rehearsal = Path(str(spec["operations"][1]["rehearsal_quarantine_path"]))
+            live = Path(str(spec["operations"][1]["rollback_quarantine_path"]))
+            self.assertTrue(rehearsal.is_file())
+            self.assertFalse(live.exists())
+            self.assertTrue((backup_root / "backup-manifest.json").is_file())
+            self.assertTrue((backup_root / "execution-result.json").is_file())
+            manifest_document = json.loads(
+                (backup_root / "backup-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                manifest_document["schema"],
+                "SITINA_STEP7_EXECUTION_MANIFEST_V1",
+            )
+            self.assertNotEqual(
+                manifest_document["schema"], ROLLBACK_MANIFEST_SCHEMA
+            )
+            self.assertEqual(
+                manifest_document["gate_contract"], spec["gate_contract"]
+            )
+            self.assertEqual(result["sentinels"], spec["sentinels"])
+            self.assertEqual(result["gate_contract"], spec["gate_contract"])
+            self.assertEqual(result["applied_indices"], [0, 1])
+            self.assertEqual(result["reverse_recovery_indices"], [])
+            self.assertEqual(
+                result["manifest"]["sha256"],
+                sha256(backup_root / "backup-manifest.json"),
+            )
+            self.assertEqual(
+                result["rehearsal_result"]["sha256"],
+                sha256(backup_root / "rehearsal-result.json"),
+            )
+            for field in ("delete_operation_count", "unlink_operation_count", "rmtree_operation_count"):
+                self.assertEqual(result[field], 0)
+
+    def test_v4_executor_partial_failure_resumes_from_disk_idempotently(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            first = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at={"WRITE_SUCCESS_RESULT", "ROLLBACK_REPLACE"},
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(first["status"], "MANUAL_RECOVERY_REQUIRED", first)
+            resumed = recover_step7_v4_execution(
+                spec, run_id=str(spec["run_id"]), _test_only=True
+            )
+            self.assertEqual(resumed["status"], "RECOVERED_AFTER_FAILURE", resumed)
+            self.assertEqual(resumed["applied_indices"], [0, 1])
+            self.assertEqual(resumed["reverse_recovery_indices"], [1, 0])
+            self.assertEqual(
+                resumed["recovered_checkpoints_sha256"],
+                _json_value_sha256(resumed["recovered_checkpoints"]),
+            )
+            for item in resumed["recovered_checkpoints"]:
+                reference = item["reference"]
+                self.assertEqual(
+                    reference["sha256"], sha256(Path(reference["path"]))
+                )
+            deployment = Path(str(spec["deployment_root"]))
+            self.assertEqual(
+                (deployment / "replace.txt").read_text(encoding="utf-8"),
+                "old replace\n",
+            )
+            self.assertFalse((deployment / "create.txt").exists())
+            self.assertTrue(
+                Path(str(spec["operations"][1]["rollback_quarantine_path"])).is_file()
+            )
+            repeated = recover_step7_v4_execution(
+                spec, run_id=str(spec["run_id"]), _test_only=True
+            )
+            self.assertEqual(repeated, resumed)
+            wrong = recover_step7_v4_execution(
+                spec, run_id="different-run", _test_only=True
+            )
+            self.assertEqual(wrong["status"], "MANUAL_RECOVERY_REQUIRED")
+
+    def test_v4_executor_failure_injection_covers_every_side_effect(self) -> None:
+        recovery_steps = {"ROLLBACK_CREATE", "ROLLBACK_REPLACE", "WRITE_RECOVERY_RESULT"}
+        with tempfile.TemporaryDirectory() as directory:
+            template = self._step7_v4_execution_spec(Path(directory))
+            self._append_step7_v4_operation(template, "replace-2.txt", "REPLACE")
+            self._append_step7_v4_operation(template, "create-2.txt", "CREATE")
+            steps = step7_v4_failure_injection_steps(template["operations"])
+        self.assertEqual(len(steps), len(set(steps)))
+        for index in range(4):
+            self.assertIn(f"AFTER_INTENT:{index}", steps)
+            self.assertIn(f"AFTER_MUTATION_BEFORE_COMMIT:{index}", steps)
+            self.assertIn(f"AFTER_APPLY:{index}", steps)
+        self.assertIn("RUN_CREATE_REHEARSAL:1", steps)
+        self.assertIn("RUN_CREATE_REHEARSAL:3", steps)
+        self.assertNotIn("RUN_CREATE_REHEARSAL:0", steps)
+        self.assertNotIn("RUN_CREATE_REHEARSAL:2", steps)
+        for step in steps:
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+                self._append_step7_v4_operation(
+                    spec, "replace-2.txt", "REPLACE"
+                )
+                self._append_step7_v4_operation(
+                    spec, "create-2.txt", "CREATE"
+                )
+                fail_at: object = (
+                    {"WRITE_SUCCESS_RESULT", step} if step in recovery_steps else step
+                )
+                result = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=fail_at,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+                self.assertNotEqual(result["status"], "EXECUTED", result)
+                for field in ("delete_operation_count", "unlink_operation_count", "rmtree_operation_count"):
+                    self.assertEqual(result.get(field), 0)
+
+    def test_v4_executor_rejects_drift_and_symlink_after_dry_run(self) -> None:
+        for mutation in (
+            "preimage",
+            "preimage_mode",
+            "sentinel",
+            "create_symlink",
+            "broken_symlink",
+            "derived_artifact",
+        ):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+                deployment = Path(str(spec["deployment_root"]))
+                if mutation == "preimage":
+                    (deployment / "replace.txt").write_text("drift\n", encoding="utf-8")
+                elif mutation == "preimage_mode":
+                    (deployment / "replace.txt").chmod(0o600)
+                elif mutation == "sentinel":
+                    (deployment / "sentinel.txt").write_text("drift\n", encoding="utf-8")
+                elif mutation == "create_symlink":
+                    (deployment / "create.txt").symlink_to(deployment / "replace.txt")
+                elif mutation == "broken_symlink":
+                    (deployment / "create.txt").symlink_to(deployment / "missing")
+                else:
+                    spec["operations"][1]["rollback_quarantine_path"] = str(
+                        Path(str(spec["backup_root"]))
+                        / "quarantine/created/drift.txt"
+                    )
+                with self.assertRaises(ValueError):
+                    execute_step7_v4(
+                        spec,
+                        dry_run=False,
+                        gate_callback=lambda _: {"accepted": True},
+                        _test_only=True,
+                    )
+                self.assertFalse(Path(str(spec["backup_root"])).exists())
+
+    def test_v4_atomic_noreplace_preserves_preoccupied_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve(strict=True)
+            source, destination = root / "source", root / "destination"
+            source.write_text("source\n", encoding="utf-8")
+            destination.write_text("occupied\n", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                _step7_v4_rename_noreplace(source, destination)
+            self.assertEqual(source.read_text(encoding="utf-8"), "source\n")
+            self.assertEqual(destination.read_text(encoding="utf-8"), "occupied\n")
+
+    def test_v4_recovery_result_tamper_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at="WRITE_SUCCESS_RESULT",
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE")
+            result_path = Path(str(spec["backup_root"])) / "recovery-result.json"
+            tampered = json.loads(result_path.read_text(encoding="utf-8"))
+            tampered["delete_operation_count"] = 1
+            result_path.write_text(
+                json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            rejected = recover_step7_v4_execution(
+                spec, run_id=str(spec["run_id"]), _test_only=True
+            )
+            self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
+
+    def test_v4_recovered_checkpoint_tamper_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at="WRITE_SUCCESS_RESULT",
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE")
+            checkpoint = (
+                Path(str(spec["backup_root"]))
+                / "checkpoints/recovered-0000-replace.json"
+            )
+            value = json.loads(checkpoint.read_text(encoding="utf-8"))
+            value["action"] = "TAMPERED"
+            checkpoint.write_text(
+                json.dumps(value, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            rejected = recover_step7_v4_execution(
+                spec, run_id=str(spec["run_id"]), _test_only=True
+            )
+            self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
+
+    def test_v4_executor_same_byte_symlink_artifacts_are_rejected(self) -> None:
+        for artifact in ("manifest", "checkpoint", "recovery_result"):
+            with self.subTest(artifact=artifact), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+                failure = (
+                    "AFTER_INTENT:0"
+                    if artifact == "manifest"
+                    else "AFTER_MUTATION_BEFORE_COMMIT:0"
+                    if artifact == "checkpoint"
+                    else "WRITE_SUCCESS_RESULT"
+                )
+                execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=failure,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+                backup_root = Path(str(spec["backup_root"]))
+                path = (
+                    backup_root / "backup-manifest.json"
+                    if artifact == "manifest"
+                    else backup_root
+                    / "checkpoints/recovered-0000-replace.json"
+                    if artifact == "checkpoint"
+                    else backup_root / "recovery-result.json"
+                )
+                backing = path.with_name(f"{path.name}.same-bytes")
+                shutil.copy2(path, backing)
+                path.unlink()
+                path.symlink_to(backing)
+                rejected = recover_step7_v4_execution(
+                    spec, run_id=str(spec["run_id"]), _test_only=True
+                )
+                self.assertEqual(
+                    rejected["status"], "MANUAL_RECOVERY_REQUIRED", rejected
+                )
+
+    def test_v3_runtime_manifest_and_recovery_result_are_rejected(self) -> None:
+        for artifact in ("manifest", "recovery_result"):
+            with self.subTest(artifact=artifact), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+                failure = (
+                    "AFTER_INTENT:0"
+                    if artifact == "manifest"
+                    else "WRITE_SUCCESS_RESULT"
+                )
+                execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=failure,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+                path = Path(str(spec["backup_root"])) / (
+                    "backup-manifest.json"
+                    if artifact == "manifest"
+                    else "recovery-result.json"
+                )
+                value = json.loads(path.read_text(encoding="utf-8"))
+                value["schema"] = (
+                    "SITINA_STEP7_BACKUP_MANIFEST_V3"
+                    if artifact == "manifest"
+                    else "SITINA_STEP7_ROLLBACK_VERIFICATION_V3"
+                )
+                path.write_text(
+                    json.dumps(value, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                rejected = recover_step7_v4_execution(
+                    spec, run_id=str(spec["run_id"]), _test_only=True
+                )
+                self.assertEqual(
+                    rejected["status"], "MANUAL_RECOVERY_REQUIRED", rejected
+                )
+
+    def test_v4_recovery_requires_this_run_applied_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            stopped = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at="AFTER_APPLY:0",
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(stopped["status"], "RECOVERED_AFTER_FAILURE", stopped)
+            deployment = Path(str(spec["deployment_root"]))
+            (deployment / "create.txt").write_text(
+                "new create\n", encoding="utf-8"
+            )
+            result_path = Path(str(spec["backup_root"])) / "recovery-result.json"
+            result_path.rename(result_path.with_suffix(".prior"))
+            rejected = recover_step7_v4_execution(
+                spec, run_id=str(spec["run_id"]), _test_only=True
+            )
+            self.assertEqual(rejected["status"], "MANUAL_RECOVERY_REQUIRED")
+            self.assertIn("strict apply intent", rejected["recovery_error"])
+
+    def test_v4_deployed_gate_rejection_and_mutation_are_rolled_back(self) -> None:
+        for behavior in ("reject", "mutate"):
+            with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+
+                def gate(_: object) -> dict[str, object]:
+                    if behavior == "mutate":
+                        deployment = Path(str(spec["deployment_root"]))
+                        (deployment / "sentinel.txt").write_text(
+                            "sentinel drift\n", encoding="utf-8"
+                        )
+                        return {"accepted": True}
+                    return {"accepted": False}
+
+                result = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    gate_callback=gate,
+                    _test_only=True,
+                )
+                expected = (
+                    "MANUAL_RECOVERY_REQUIRED"
+                    if behavior == "mutate"
+                    else "RECOVERED_AFTER_FAILURE"
+                )
+                self.assertEqual(result["status"], expected, result)
+                deployment = Path(str(spec["deployment_root"]))
+                self.assertEqual(
+                    (deployment / "replace.txt").read_text(encoding="utf-8"),
+                    "old replace\n",
+                )
+                self.assertFalse((deployment / "create.txt").exists())
+
+    def test_v4_executor_defaults_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            with self.assertRaisesRegex(ValueError, "callback is required"):
+                execute_step7_v4(spec, dry_run=True, _test_only=True)
+            with self.assertRaisesRegex(ValueError, "production"):
+                execute_step7_v4(
+                    spec,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                )
+            with self.assertRaisesRegex(ValueError, "production"):
+                execute_step7_v4(spec, dry_run=True)
+            empty_sentinels = copy.deepcopy(spec)
+            empty_sentinels["sentinels"] = []
+            empty_sentinels["sentinels_sha256"] = _json_value_sha256([])
+            with self.assertRaisesRegex(ValueError, "sentinel"):
+                execute_step7_v4(empty_sentinels, dry_run=True)
+            noncanonical = copy.deepcopy(spec)
+            noncanonical["source_root"] = (
+                str(Path(str(spec["source_root"])) / ".." / "source")
+            )
+            with self.assertRaisesRegex(ValueError, "canonical"):
+                execute_step7_v4(
+                    noncanonical,
+                    dry_run=True,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+
+    def test_v4_preapply_and_manifestless_residue_states_are_distinct(self) -> None:
+        for failure, expected in (
+            ("CREATE_BACKUP_ROOT", "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION"),
+            ("CREATE_BACKUP_LAYOUT", "MANUAL_RECOVERY_REQUIRED"),
+            ("RUN_CREATE_REHEARSAL", "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION"),
+            ("RUN_CREATE_REHEARSAL:1", "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION"),
+        ):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                spec = self._step7_v4_execution_spec(Path(directory))
+                result = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=failure,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_only=True,
+                )
+                self.assertEqual(result["status"], expected, result)
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            Path(str(spec["backup_root"])).mkdir()
+            occupied = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(
+                occupied["status"], "MANUAL_RECOVERY_REQUIRED", occupied
+            )
+
+    def test_v4_intent_covers_interruption_before_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at="AFTER_MUTATION_BEFORE_COMMIT:0",
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(result["status"], "RECOVERED_AFTER_FAILURE", result)
+            backup_root = Path(str(spec["backup_root"]))
+            self.assertTrue(
+                (backup_root / "checkpoints/intent-0000.json").is_file()
+            )
+            self.assertFalse(
+                (backup_root / "checkpoints/commit-0000.json").exists()
+            )
+            deployment = Path(str(spec["deployment_root"]))
+            self.assertEqual(
+                (deployment / "replace.txt").read_text(encoding="utf-8"),
+                "old replace\n",
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+            preapply = execute_step7_v4(
+                spec,
+                dry_run=False,
+                fail_at="AFTER_INTENT:0",
+                gate_callback=lambda _: {"accepted": True},
+                _test_only=True,
+            )
+            self.assertEqual(
+                preapply["status"],
+                "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                preapply,
+            )
+
+    def test_v4_gate_unlisted_tree_mutation_requires_manual_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            spec = self._step7_v4_execution_spec(Path(directory))
+
+            def gate(_: object) -> dict[str, object]:
+                deployment = Path(str(spec["deployment_root"]))
+                (deployment / "unlisted.txt").write_text(
+                    "forbidden\n", encoding="utf-8"
+                )
+                return {"accepted": True}
+
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=gate,
+                _test_only=True,
+            )
+            self.assertEqual(result["status"], "MANUAL_RECOVERY_REQUIRED", result)
+            self.assertTrue(
+                (
+                    Path(str(spec["deployment_root"])) / "unlisted.txt"
+                ).is_file()
+            )
+
+    def test_v4_dirfd_parent_identity_drift_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source.txt"
+            source.write_text("source\n", encoding="utf-8")
+            parent = root / "target"
+            parent.mkdir()
+            identity = _step7_v4_dir_identity(parent)
+            original = root / "target-original"
+            parent.rename(original)
+            parent.mkdir()
+            with self.assertRaisesRegex(ValueError, "parent identity drift"):
+                _step7_v4_copy_exclusive(
+                    source,
+                    parent / "created.txt",
+                    expected_parent_identity=identity,
+                )
+            self.assertFalse((parent / "created.txt").exists())
+
+    def test_v4_rename_rejects_symlink_parent_dirfd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            real_parent = root / "real"
+            real_parent.mkdir()
+            source = real_parent / "source.txt"
+            source.write_text("source\n", encoding="utf-8")
+            linked_parent = root / "linked"
+            linked_parent.symlink_to(real_parent, target_is_directory=True)
+            with self.assertRaises(OSError):
+                _step7_v4_rename_noreplace(
+                    linked_parent / "source.txt",
+                    real_parent / "destination.txt",
+                )
+
+    def test_v4_copy_and_replace_reject_symlink_source_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            real_source = root / "real-source.txt"
+            real_source.write_text("same bytes\n", encoding="utf-8")
+            linked_source = root / "linked-source.txt"
+            linked_source.symlink_to(real_source)
+            copy_destination = root / "copy.txt"
+            replace_destination = root / "replace.txt"
+            replace_destination.write_text("preimage\n", encoding="utf-8")
+            with self.assertRaises(OSError):
+                _step7_v4_copy_exclusive(linked_source, copy_destination)
+            with self.assertRaises(OSError):
+                _step7_v4_atomic_replace(
+                    linked_source, replace_destination
+                )
+            self.assertFalse(copy_destination.exists())
+            self.assertEqual(
+                replace_destination.read_text(encoding="utf-8"),
+                "preimage\n",
+            )
+
+    def test_v4_packet_plan_schema_rejects_v3(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        packet["schema"] = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V3"
+        packet["backup_and_rollback_plan"]["schema"] = (
+            "SITINA_STEP7_BACKUP_AND_ROLLBACK_PLAN_V3"
+        )
+        errors: list[str] = []
+        _verify_backup_and_rollback_plan(
+            packet["backup_and_rollback_plan"],
+            approval_id=packet["approval_id"],
+            packet_operations=packet["exact_file_operations"],
+            source_root=self.source.resolve(),
+            deployment_root=self.deployment.resolve(),
+            source_state={
+                "head": packet["source_binding"]["head"],
+                "tree": packet["source_binding"]["tree"],
+            },
+            errors=errors,
+        )
+        self.assertTrue(any("binding mismatch" in error for error in errors))
+
+    def test_v4_production_gate_contract_binds_physical_runner_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = Path(directory).resolve()
+            foundation = deployment / "tests/foundation"
+            foundation.mkdir(parents=True)
+            activation = foundation / "activation_gate_runner.py"
+            registration = foundation / "registration_gate_runner.py"
+            activation.write_text("activation\n", encoding="utf-8")
+            registration.write_text("registration\n", encoding="utf-8")
+            registry = {
+                "schema": "BPLUS_TEST_SUITES_V1",
+                "approved_python": (
+                    "/Users/moss/Desktop/sitina/bplus-test-runtime/"
+                    "cpython-3.12.13-lock-dbc3f95b77ed/bin/python"
+                ),
+                "historical_skip_allowlist": [
+                    {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
+                    for test_id in HISTORICAL_SKIP_IDS
+                ],
+                "suites": {
+                    "execution_activation_gate": {
+                        "selectors": ["tests/test_execution_bridge.py"]
+                    }
+                },
+            }
+            registry_path = deployment / "tests/test_suites.json"
+            registry_path.write_text(
+                json.dumps(registry, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            first = _step7_v4_production_gate_contract(deployment)
+            self.assertEqual(
+                first["activation_runner"]["sha256"], sha256(activation)
+            )
+            activation.write_text("changed\n", encoding="utf-8")
+            second = _step7_v4_production_gate_contract(deployment)
+            self.assertNotEqual(
+                first["activation_runner"]["sha256"],
+                second["activation_runner"]["sha256"],
+            )
+
+    def test_v4_production_gate_contract_binds_postimage_to_deployment_path(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            deployment = root / "deployment"
+            for tree in (source, deployment):
+                (tree / "tests/foundation").mkdir(parents=True)
+                (tree / "tests/foundation/activation_gate_runner.py").write_text(
+                    f"{tree.name}-activation\n", encoding="utf-8"
+                )
+                (tree / "tests/foundation/registration_gate_runner.py").write_text(
+                    f"{tree.name}-registration\n", encoding="utf-8"
+                )
+                registry = {
+                    "schema": "BPLUS_TEST_SUITES_V1",
+                    "approved_python": APPROVED_PYTHON_PATH,
+                    "historical_skip_allowlist": [
+                        {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
+                        for test_id in HISTORICAL_SKIP_IDS
+                    ],
+                    "suites": {
+                        "execution_activation_gate": {
+                            "selectors": ["tests/test_execution_bridge.py"]
+                        }
+                    },
+                }
+                (tree / "tests/test_suites.json").write_text(
+                    json.dumps(registry, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            contract = _step7_v4_production_gate_contract(
+                deployment, content_root=source
+            )
+            self.assertEqual(
+                contract["activation_runner"]["path"],
+                str(
+                    deployment
+                    / "tests/foundation/activation_gate_runner.py"
+                ),
+            )
+            self.assertEqual(
+                contract["activation_runner"]["sha256"],
+                sha256(source / "tests/foundation/activation_gate_runner.py"),
+            )
+            self.assertNotEqual(
+                contract["activation_runner"]["sha256"],
+                sha256(
+                    deployment
+                    / "tests/foundation/activation_gate_runner.py"
+                ),
+            )
 
     def _validate(self, candidate: dict[str, object] | None = None) -> dict[str, object]:
         return validate_step7_candidate(
@@ -3505,9 +4402,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
     ) -> None:
         packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
         plan = packet["backup_and_rollback_plan"]
-        self.assertEqual(len(plan["execution_sequence"]), 11)
+        self.assertEqual(len(plan["execution_sequence"]), 16)
         self.assertEqual(
-            plan["execution_sequence"][3],
+            plan["execution_sequence"][4],
             "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE_NOFOLLOW",
         )
         self.assertEqual(
@@ -3537,7 +4434,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "allowed_parent_must_exist_before_authorized_execution"
                 ] = False
             else:
-                mutated["execution_sequence"][3] = (
+                mutated["execution_sequence"][4] = (
                     "CREATE_ALLOWED_PARENT_IF_ABSENT_AND_UNIQUE_BACKUP_ROOT_"
                     "EXCLUSIVE_NOFOLLOW"
                 )
@@ -3581,24 +4478,69 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def test_create_quarantine_parent_symlink_is_rejected(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
-        quarantine = self.rollback_quarantine_root
-        original = self.rollback_root / "quarantine-created-original"
+        quarantine = self.rehearsal_quarantine_root
+        original = self.rollback_root / "rehearsal-quarantine-created-original"
         outside = self.output / "outside-quarantine"
         outside.mkdir()
         shutil.copy2(
-            self.rollback_quarantine_created,
-            outside / self.rollback_quarantine_created.name,
+            self.rehearsal_quarantine_created,
+            outside / self.rehearsal_quarantine_created.name,
         )
         quarantine.rename(original)
         quarantine.symlink_to(outside, target_is_directory=True)
         try:
             self.assertRejected(
                 copy.deepcopy(self.candidate),
-                "rollback quarantine snapshot created.txt component is a symlink",
+                (
+                    "rollback rehearsal quarantine snapshot created.txt "
+                    "component is a symlink"
+                ),
             )
         finally:
             quarantine.unlink()
             original.rename(quarantine)
+
+    def test_live_create_quarantine_must_remain_unoccupied(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        shutil.copy2(
+            self.source / "created.txt",
+            self.rollback_quarantine_created,
+        )
+        try:
+            self.assertRejected(
+                copy.deepcopy(self.candidate),
+                "live rollback quarantine created.txt must be absent",
+            )
+        finally:
+            self.rollback_quarantine_created.unlink()
+
+    def test_rehearsal_and_live_quarantine_paths_cannot_alias(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        plan = copy.deepcopy(packet["backup_and_rollback_plan"])
+        create_object = next(
+            item for item in plan["objects"] if item["operation"] == "CREATE"
+        )
+        create_object["rehearsal_quarantine_path"] = create_object[
+            "rollback_quarantine_path"
+        ]
+        errors: list[str] = []
+        _verify_backup_and_rollback_plan(
+            plan,
+            approval_id=packet["approval_id"],
+            packet_operations=packet["exact_file_operations"],
+            source_root=self.source.resolve(),
+            deployment_root=self.deployment.resolve(),
+            source_state={
+                "head": packet["source_binding"]["head"],
+                "tree": packet["source_binding"]["tree"],
+            },
+            errors=errors,
+        )
+        self.assertTrue(
+            any("operation binding mismatch" in error for error in errors),
+            errors,
+        )
 
     def test_preimage_capture_requires_safe_existing_parent_and_unused_root(
         self,

@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Fail-closed validator for the current Step 7 CANARY_READY contract.
+"""Fail-closed validator and explicitly authorized Step 7 V4 executor.
 
-This gate is intentionally read-only.  It verifies a candidate and its bound
-evidence against the current repository and deployment, but never creates,
-copies, quarantines, deletes, deploys, promotes, or enables anything.
+The command-line validation path is read-only.  Executor helpers are reachable
+only through an explicit authorization-bound invocation (or isolated test
+fixtures); validation alone never creates, copies, quarantines, deploys,
+promotes, or enables anything.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import subprocess
+import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -122,10 +127,10 @@ DEPLOYMENT_DELEGATION_MARKER = (
 )
 CODEX_SESSION_ROOT = Path("/Users/moss/.codex/sessions")
 SENTINEL_SAMPLE_SCHEMA = "SITINA_STEP7_PRODUCTION_SENTINEL_SAMPLE_V1"
-ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V3"
-ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V3"
-DEPLOYMENT_PACKET_SCHEMA = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V3"
-BACKUP_ROLLBACK_PLAN_SCHEMA = "SITINA_STEP7_BACKUP_AND_ROLLBACK_PLAN_V3"
+ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V4"
+ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V4"
+DEPLOYMENT_PACKET_SCHEMA = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V4"
+BACKUP_ROLLBACK_PLAN_SCHEMA = "SITINA_STEP7_BACKUP_AND_ROLLBACK_PLAN_V4"
 DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_REQUEST_REVIEW_CANDIDATE_V2"
 )
@@ -141,6 +146,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z",
     "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z",
     "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z",
+    "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z",
 }
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
@@ -375,7 +381,11 @@ BACKUP_ROLLBACK_PLAN_FIELDS = {
     "exact_file_operations_sha256",
     "backup_root",
     "backup_manifest_path",
+    "rehearsal_quarantine_root",
     "rollback_quarantine_root",
+    "rehearsal_result_path",
+    "execution_result_path",
+    "recovery_result_path",
     "recovery_verification_path",
     "objects",
     "execution_sequence",
@@ -390,6 +400,7 @@ BACKUP_ROLLBACK_OBJECT_FIELDS = {
     "preimage_sha256",
     "target_sha256",
     "preimage_backup_path",
+    "rehearsal_quarantine_path",
     "rollback_quarantine_path",
     "rollback_action",
     "recovery_verification",
@@ -483,30 +494,81 @@ BACKUP_ROLLBACK_FORBIDDEN_FIELDS = (
     "external_mutation_allowed",
     "packet_plan_or_candidate_mutation_after_authorization_allowed",
     "backup_cleanup_after_failure_allowed",
+    "hard_link_publish_allowed",
+    "apply_without_persisted_intent_allowed",
+    "forward_resume_after_interruption_allowed",
+    "cross_filesystem_quarantine_allowed",
+    "undeclared_deployment_tree_mutation_allowed",
+    "test_only_executor_on_non_temporary_root_allowed",
 )
 BACKUP_ROLLBACK_EXECUTION_SEQUENCE = (
     "VERIFY_IMMUTABLE_ARTIFACTS_AND_USER_AUTHORIZATION",
     "VERIFY_HEAD_TREE_CLEAN_SWITCHES_AND_SENTINELS",
     "RECAPTURE_PREIMAGES_AND_COMPARE_PACKET",
+    "CAPTURE_COMPLETE_DEPLOYMENT_TREE_INVENTORY",
     "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE_NOFOLLOW",
     "COPY_AND_VERIFY_REPLACE_PREIMAGES",
     "WRITE_AND_VERIFY_BACKUP_MANIFEST_EXCLUSIVE",
-    "RUN_DISPOSABLE_RESTORE_REAPPLY_REHEARSAL",
-    "APPLY_OPERATIONS_IN_PACKET_ORDER",
-    "VERIFY_POSTIMAGES",
+    "RUN_DISPOSABLE_REPLACE_RESTORE_REAPPLY_REHEARSAL",
+    "RUN_DISPOSABLE_CREATE_REHEARSAL_TO_RETAINED_QUARANTINE",
+    "VERIFY_LIVE_ROLLBACK_QUARANTINE_LEAVES_ABSENT",
+    "REVERIFY_ALL_BOUND_INPUTS_BEFORE_APPLY",
+    "PERSIST_INTENT_APPLY_AND_PERSIST_COMMIT_IN_PACKET_ORDER",
+    "VERIFY_POSTIMAGES_SENTINELS_AND_EXACT_TREE_INVENTORY",
     "RUN_AUTHORIZED_DEPLOYED_STEP7_GATES",
+    "REVERIFY_POSTIMAGES_SENTINELS_AND_EXACT_TREE_INVENTORY",
     "WRITE_EXECUTION_OR_RECOVERY_RESULT",
 )
 BACKUP_ROLLBACK_FAILURE_POLICY = {
     "preapply_failure": "STOP_WITHOUT_DEPLOYMENT_MUTATION",
     "postapply_failure": "ROLLBACK_APPLIED_OPERATIONS_IN_REVERSE_ORDER",
     "replace_restore": "RESTORE_VERIFIED_PREIMAGE_ATOMIC_REPLACE",
-    "create_restore": "MOVE_CREATED_TARGET_TO_QUARANTINE_ATOMIC_RENAME",
+    "create_restore": "MOVE_CREATED_TARGET_TO_QUARANTINE_EXCLUSIVE_NOFOLLOW",
     "permanent_delete": "FORBIDDEN",
     "unknown_target": "STOP_FOR_MANUAL_RECOVERY",
     "verify_recovery_result": "REQUIRED",
     "retain_backups_and_quarantine": "REQUIRED",
 }
+STEP7_V4_STATIC_SIDE_EFFECT_STEPS = (
+    "CREATE_BACKUP_ROOT",
+    "CREATE_BACKUP_LAYOUT",
+    "CAPTURE_PREIMAGES",
+    "WRITE_EXECUTION_MANIFEST",
+    "RUN_CREATE_REHEARSAL",
+    "APPLY_REPLACE",
+    "APPLY_CREATE",
+    "AFTER_POSTIMAGE_VERIFY",
+    "DURING_DEPLOYED_STEP7_GATE",
+    "WRITE_SUCCESS_RESULT",
+    "ROLLBACK_CREATE",
+    "ROLLBACK_REPLACE",
+    "WRITE_RECOVERY_RESULT",
+)
+STEP7_V4_EXECUTION_MANIFEST_SCHEMA = "SITINA_STEP7_EXECUTION_MANIFEST_V1"
+STEP7_V4_REHEARSAL_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_REHEARSAL_RESULT_V4"
+STEP7_V4_EXECUTION_RESULT_SCHEMA = "SITINA_STEP7_EXECUTION_RESULT_V1"
+STEP7_V4_RECOVERY_RESULT_SCHEMA = "SITINA_STEP7_RECOVERY_RESULT_V1"
+
+
+def step7_v4_failure_injection_steps(
+    operations: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    """Return the exact failure surface for the bound operation list."""
+
+    dynamic: list[str] = []
+    for index, operation in enumerate(operations):
+        dynamic.extend(
+            (
+                f"AFTER_INTENT:{index}",
+                f"AFTER_MUTATION_BEFORE_COMMIT:{index}",
+                f"AFTER_APPLY:{index}",
+            )
+        )
+        if operation.get("operation") == "CREATE":
+            dynamic.append(f"RUN_CREATE_REHEARSAL:{index}")
+    return (*STEP7_V4_STATIC_SIDE_EFFECT_STEPS, *dynamic)
+
+
 ROLLBACK_OPERATION_FIELDS = {
     "relative_path",
     "operation",
@@ -1490,6 +1552,2072 @@ def _verify_nofollow_descendant(
             errors.append(f"{label} component is not a directory: {component}")
             valid = False
     return valid
+
+
+def _verify_nofollow_absent_leaf(
+    path: Path,
+    *,
+    trusted_root: Path,
+    errors: list[str],
+    label: str,
+) -> bool:
+    """Require a missing leaf below existing, non-symlink directory ancestors."""
+
+    if (
+        not path.is_absolute()
+        or path == trusted_root
+        or not path.is_relative_to(trusted_root)
+    ):
+        errors.append(f"{label} escapes its trusted root")
+        return False
+    valid = _verify_nofollow_descendant(
+        path.parent,
+        trusted_root=trusted_root,
+        leaf_kind="directory",
+        errors=errors,
+        label=f"{label} parent",
+    )
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return valid
+    except OSError:
+        errors.append(f"{label} cannot be inspected: {path}")
+        return False
+    errors.append(f"{label} must be absent before live rollback: {path}")
+    return False
+
+
+def _step7_v4_open_dir_nofollow(path: Path) -> int:
+    if not path.is_absolute() or any(part in {".", ".."} for part in path.parts):
+        raise ValueError(f"dirfd anchor must be an absolute normalized path: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open("/", flags)
+    try:
+        for part in path.parts[1:]:
+            next_descriptor = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_descriptor
+            if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise ValueError(f"dirfd anchor is not a directory: {path}")
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _step7_v4_open_regular_fd(path: Path) -> tuple[int, os.stat_result]:
+    parent_descriptor = _step7_v4_open_dir_nofollow(path.parent)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+    finally:
+        os.close(parent_descriptor)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode):
+        os.close(descriptor)
+        raise ValueError(f"executor file is not regular: {path}")
+    return descriptor, metadata
+
+
+def _step7_v4_read_regular(path: Path) -> tuple[bytes, os.stat_result]:
+    descriptor, metadata = _step7_v4_open_regular_fd(path)
+    try:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks), metadata
+    finally:
+        os.close(descriptor)
+
+
+def _step7_v4_load_json(path: Path) -> dict[str, Any]:
+    raw, _ = _step7_v4_read_regular(path)
+    value = json.loads(raw.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"executor JSON is not an object: {path}")
+    return value
+
+
+def _step7_v4_verify_json_reference(
+    reference: Any,
+    *,
+    label: str,
+) -> tuple[Path, dict[str, Any]]:
+    if (
+        not isinstance(reference, Mapping)
+        or set(reference) != {"path", "sha256"}
+        or not isinstance(reference.get("path"), str)
+        or not _valid_sha256(reference.get("sha256"))
+    ):
+        raise ValueError(f"{label} reference is malformed")
+    path = Path(reference["path"])
+    raw, _ = _step7_v4_read_regular(path)
+    if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+        raise ValueError(f"{label} reference SHA-256 mismatch")
+    value = json.loads(raw.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} reference is not a JSON object")
+    return path, value
+
+
+def _step7_v4_dir_identity(path: Path) -> dict[str, int]:
+    descriptor = _step7_v4_open_dir_nofollow(path)
+    try:
+        metadata = os.fstat(descriptor)
+        return {"device": metadata.st_dev, "inode": metadata.st_ino}
+    finally:
+        os.close(descriptor)
+
+
+def _step7_v4_mkdir_exclusive(parent: Path, name: str) -> Path:
+    if not name or Path(name).name != name:
+        raise ValueError("exclusive mkdir requires one relative leaf")
+    descriptor = _step7_v4_open_dir_nofollow(parent)
+    try:
+        os.mkdir(name, mode=0o700, dir_fd=descriptor)
+        metadata = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("exclusive mkdir produced a non-directory")
+    finally:
+        os.close(descriptor)
+    return parent / name
+
+
+def _step7_v4_ensure_relative_directories(
+    base: Path, relative_parent: Path
+) -> Path:
+    current = base
+    for part in relative_parent.parts:
+        candidate = current / part
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            candidate = _step7_v4_mkdir_exclusive(current, part)
+        else:
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                metadata.st_mode
+            ):
+                raise ValueError("relative layout component is not a directory")
+        current = candidate
+    return current
+
+
+def _step7_v4_rename_noreplace_at(
+    source_parent_fd: int,
+    source_name: str,
+    destination_parent_fd: int,
+    destination_name: str,
+    source: Path,
+    destination: Path,
+) -> dict[str, Any]:
+    source_metadata = os.stat(
+        source_name, dir_fd=source_parent_fd, follow_symlinks=False
+    )
+    if stat.S_ISLNK(source_metadata.st_mode) or not stat.S_ISREG(
+        source_metadata.st_mode
+    ):
+        raise ValueError("rename source must be a regular non-symlink file")
+    try:
+        os.stat(
+            destination_name,
+            dir_fd=destination_parent_fd,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        pass
+    else:
+        raise FileExistsError(errno.EEXIST, "destination exists", destination)
+    library = ctypes.CDLL(None, use_errno=True)
+    renameatx_np = library.renameatx_np
+    renameatx_np.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameatx_np.restype = ctypes.c_int
+    result = renameatx_np(
+        source_parent_fd,
+        os.fsencode(source_name),
+        destination_parent_fd,
+        os.fsencode(destination_name),
+        0x00000004,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        if error_number == errno.EEXIST:
+            raise FileExistsError(
+                error_number, os.strerror(error_number), destination
+            )
+        raise OSError(error_number, os.strerror(error_number), destination)
+    destination_metadata = os.stat(
+        destination_name,
+        dir_fd=destination_parent_fd,
+        follow_symlinks=False,
+    )
+    try:
+        os.stat(source_name, dir_fd=source_parent_fd, follow_symlinks=False)
+        source_absent = False
+    except FileNotFoundError:
+        source_absent = True
+    return {
+        "method": "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM",
+        "source_path": str(source),
+        "destination_path": str(destination),
+        "source_device": source_metadata.st_dev,
+        "source_inode": source_metadata.st_ino,
+        "destination_device": destination_metadata.st_dev,
+        "destination_inode": destination_metadata.st_ino,
+        "inode_preserved": (
+            source_metadata.st_dev == destination_metadata.st_dev
+            and source_metadata.st_ino == destination_metadata.st_ino
+        ),
+        "source_absent_after_move": source_absent,
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+
+
+def _step7_v4_rename_noreplace(
+    source: Path,
+    destination: Path,
+    *,
+    expected_source_parent_identity: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """Atomic RENAME_EXCL using NOFOLLOW parent dirfd anchors."""
+
+    source_parent_fd = _step7_v4_open_dir_nofollow(source.parent)
+    destination_parent_fd = _step7_v4_open_dir_nofollow(destination.parent)
+    try:
+        source_parent_metadata = os.fstat(source_parent_fd)
+        if expected_source_parent_identity is not None and dict(
+            expected_source_parent_identity
+        ) != {
+            "device": source_parent_metadata.st_dev,
+            "inode": source_parent_metadata.st_ino,
+        }:
+            raise ValueError("rename source parent identity drift")
+        return _step7_v4_rename_noreplace_at(
+            source_parent_fd,
+            source.name,
+            destination_parent_fd,
+            destination.name,
+            source,
+            destination,
+        )
+    finally:
+        os.close(source_parent_fd)
+        os.close(destination_parent_fd)
+
+
+def _step7_v4_inject(fail_at: Any, step: str) -> None:
+    selected = {fail_at} if isinstance(fail_at, str) else set(fail_at or ())
+    if step in selected:
+        raise RuntimeError(f"injected failure at {step}")
+
+
+def _step7_v4_copy_exclusive(
+    source: Path,
+    destination: Path,
+    *,
+    expected_parent_identity: Mapping[str, int] | None = None,
+) -> None:
+    source_descriptor, metadata = _step7_v4_open_regular_fd(source)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    parent_descriptor = _step7_v4_open_dir_nofollow(destination.parent)
+    parent_metadata = os.fstat(parent_descriptor)
+    if expected_parent_identity is not None and dict(
+        expected_parent_identity
+    ) != {
+        "device": parent_metadata.st_dev,
+        "inode": parent_metadata.st_ino,
+    }:
+        os.close(source_descriptor)
+        os.close(parent_descriptor)
+        raise ValueError("destination parent identity drift")
+    try:
+        descriptor = os.open(
+            destination.name,
+            flags,
+            stat.S_IMODE(metadata.st_mode),
+            dir_fd=parent_descriptor,
+        )
+    except Exception:
+        os.close(source_descriptor)
+        os.close(parent_descriptor)
+        raise
+    source_digest = hashlib.sha256()
+    copied_size = 0
+    try:
+        while True:
+            chunk = os.read(source_descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            source_digest.update(chunk)
+            copied_size += len(chunk)
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("exclusive copy made no progress")
+                remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(source_descriptor)
+        os.close(descriptor)
+        os.close(parent_descriptor)
+    destination_bytes, destination_metadata = _step7_v4_read_regular(destination)
+    if (
+        len(destination_bytes) != copied_size
+        or hashlib.sha256(destination_bytes).hexdigest()
+        != source_digest.hexdigest()
+        or stat.S_IMODE(destination_metadata.st_mode)
+        != stat.S_IMODE(metadata.st_mode)
+    ):
+        raise ValueError(f"exclusive copy verification failed: {destination}")
+
+
+def _step7_v4_publish_json(path: Path, value: Mapping[str, Any]) -> None:
+    payload = (
+        json.dumps(dict(value), sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    parent_descriptor = _step7_v4_open_dir_nofollow(path.parent)
+    temporary_name = (
+        f".{path.name}.pending-{os.getpid()}-{secrets.token_hex(8)}"
+    )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(
+        temporary_name, flags, 0o600, dir_fd=parent_descriptor
+    )
+    temporary = path.parent / temporary_name
+    try:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("JSON publication made no progress")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        _step7_v4_rename_noreplace_at(
+            parent_descriptor,
+            temporary_name,
+            parent_descriptor,
+            path.name,
+            temporary,
+            path,
+        )
+    finally:
+        os.close(parent_descriptor)
+
+
+def _step7_v4_atomic_replace(
+    source: Path,
+    destination: Path,
+    *,
+    expected_parent_identity: Mapping[str, int] | None = None,
+) -> None:
+    source_descriptor, metadata = _step7_v4_open_regular_fd(source)
+    parent_descriptor = _step7_v4_open_dir_nofollow(destination.parent)
+    parent_metadata = os.fstat(parent_descriptor)
+    if expected_parent_identity is not None and dict(
+        expected_parent_identity
+    ) != {
+        "device": parent_metadata.st_dev,
+        "inode": parent_metadata.st_ino,
+    }:
+        os.close(source_descriptor)
+        os.close(parent_descriptor)
+        raise ValueError("destination parent identity drift")
+    temporary_name = (
+        f".{destination.name}.pending-{os.getpid()}-{secrets.token_hex(8)}"
+    )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(
+            temporary_name,
+            flags,
+            stat.S_IMODE(metadata.st_mode),
+            dir_fd=parent_descriptor,
+        )
+    except Exception:
+        os.close(source_descriptor)
+        os.close(parent_descriptor)
+        raise
+    try:
+        os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
+        while True:
+            chunk = os.read(source_descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("atomic replace made no progress")
+                remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(source_descriptor)
+        os.close(descriptor)
+    try:
+        os.replace(
+            temporary_name,
+            destination.name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+    finally:
+        os.close(parent_descriptor)
+
+
+def _step7_v4_checkpoint(
+    backup_root: Path,
+    name: str,
+    value: Mapping[str, Any],
+) -> None:
+    checkpoint_root = backup_root / "checkpoints"
+    descriptor = _step7_v4_open_dir_nofollow(checkpoint_root)
+    os.close(descriptor)
+    path = checkpoint_root / f"{name}.json"
+    document = dict(value)
+    try:
+        current = _step7_v4_load_json(path)
+    except FileNotFoundError:
+        _step7_v4_publish_json(path, document)
+    else:
+        if current != document:
+            raise ValueError(f"checkpoint conflicts with immutable state: {name}")
+
+
+def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
+    run_id = specification.get("run_id")
+    packet_sha256 = specification.get("packet_sha256")
+    plan_sha256 = specification.get("plan_sha256")
+    if not isinstance(run_id, str) or not run_id:
+        raise ValueError("execution run_id is required")
+    sha_fields = (
+        "candidate_sha256",
+        "authorization_receipt_sha256",
+        "authorization_source_sha256",
+        "authorization_wrapper_sha256",
+        "operations_sha256",
+        "sentinels_sha256",
+        "forbidden_boundaries_sha256",
+        "gate_contract_sha256",
+    )
+    if (
+        not _valid_sha256(packet_sha256)
+        or not _valid_sha256(plan_sha256)
+        or any(not _valid_sha256(specification.get(field)) for field in sha_fields)
+    ):
+        raise ValueError("complete execution authority SHA-256 binding is required")
+    source_head = specification.get("source_head")
+    source_tree = specification.get("source_tree")
+    if (
+        not isinstance(source_head, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_head) is None
+        or not isinstance(source_tree, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_tree) is None
+    ):
+        raise ValueError("source HEAD/tree binding is required")
+    return {
+        "run_id": run_id,
+        "packet_sha256": packet_sha256,
+        "plan_sha256": plan_sha256,
+        **{field: specification[field] for field in sha_fields},
+        "source_head": source_head,
+        "source_tree": source_tree,
+        "source_root": str(Path(str(specification["source_root"]))),
+        "deployment_root": str(Path(str(specification["deployment_root"]))),
+        "allowed_backup_parent": str(
+            Path(str(specification["allowed_backup_parent"]))
+        ),
+        "backup_root": str(Path(str(specification["backup_root"]))),
+    }
+
+
+def _step7_v4_core_operations(
+    operations: Any,
+) -> list[dict[str, Any]]:
+    if not isinstance(operations, Sequence) or isinstance(
+        operations, (str, bytes)
+    ):
+        raise ValueError("execution operations must be a sequence")
+    return [
+        {field: operation.get(field) for field in ROLLBACK_OPERATION_FIELDS}
+        for operation in operations
+        if isinstance(operation, Mapping)
+    ]
+
+
+def _step7_v4_file_tuple(path: Path) -> dict[str, Any]:
+    parent_descriptor = _step7_v4_open_dir_nofollow(path.parent)
+    try:
+        try:
+            metadata = os.stat(
+                path.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return {
+                "exists": False,
+                "type": None,
+                "sha256": None,
+                "size": None,
+                "mode": None,
+            }
+        if stat.S_ISLNK(metadata.st_mode):
+            object_type = "SYMLINK"
+            digest = None
+        elif stat.S_ISREG(metadata.st_mode):
+            object_type = "REGULAR_FILE"
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(
+                path.name, flags, dir_fd=parent_descriptor
+            )
+            try:
+                opened_metadata = os.fstat(descriptor)
+                if (
+                    opened_metadata.st_dev != metadata.st_dev
+                    or opened_metadata.st_ino != metadata.st_ino
+                    or not stat.S_ISREG(opened_metadata.st_mode)
+                ):
+                    raise ValueError(f"executor file identity drift: {path}")
+                hasher = hashlib.sha256()
+                while True:
+                    chunk = os.read(descriptor, 1024 * 1024)
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+                digest = hasher.hexdigest()
+                metadata = opened_metadata
+            finally:
+                os.close(descriptor)
+        elif stat.S_ISDIR(metadata.st_mode):
+            object_type = "DIRECTORY"
+            digest = None
+        else:
+            object_type = "OTHER"
+            digest = None
+        return {
+            "exists": True,
+            "type": object_type,
+            "sha256": digest,
+            "size": metadata.st_size,
+            "mode": oct(stat.S_IMODE(metadata.st_mode)),
+        }
+    finally:
+        os.close(parent_descriptor)
+
+
+def _step7_v4_expected_tuple(
+    operation: Mapping[str, Any], *, postimage: bool
+) -> dict[str, Any]:
+    prefix = "target" if postimage else "preimage"
+    exists = postimage or operation["operation"] == "REPLACE"
+    return {
+        "exists": exists,
+        "type": "REGULAR_FILE" if exists else None,
+        "sha256": operation.get(f"{prefix}_sha256") if exists else None,
+        "size": operation.get(f"{prefix}_size") if exists else None,
+        "mode": operation.get(f"{prefix}_mode") if exists else None,
+    }
+
+
+def _step7_v4_inventory(root: Path) -> dict[str, dict[str, Any]]:
+    inventory: dict[str, dict[str, Any]] = {}
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        for child in sorted(directory.iterdir(), key=lambda item: item.name):
+            relative = child.relative_to(root).as_posix()
+            value = _step7_v4_file_tuple(child)
+            if value["type"] in {"SYMLINK", "OTHER"}:
+                raise ValueError(
+                    f"deployment inventory contains forbidden object: {relative}"
+                )
+            inventory[relative] = value
+            if value["type"] == "DIRECTORY":
+                pending.append(child)
+    return dict(sorted(inventory.items()))
+
+
+def _step7_v4_post_inventory(
+    before: Mapping[str, Mapping[str, Any]],
+    operations: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    expected = json.loads(json.dumps(dict(before)))
+    for operation in operations:
+        expected[operation["relative_path"]] = _step7_v4_expected_tuple(
+            operation, postimage=True
+        )
+    return dict(sorted(expected.items()))
+
+
+def _step7_v4_require_authority(
+    specification: Mapping[str, Any],
+    *,
+    test_only: bool,
+) -> None:
+    binding = _step7_v4_binding(specification)
+    roots = [
+        Path(binding[field])
+        for field in (
+            "source_root",
+            "deployment_root",
+            "allowed_backup_parent",
+            "backup_root",
+        )
+    ]
+    if any(str(path.resolve(strict=False)) != str(path) for path in roots):
+        raise ValueError("executor paths must be absolute canonical paths")
+    if test_only:
+        temporary_root = Path(tempfile.gettempdir()).resolve(strict=True)
+        if any(not path.is_relative_to(temporary_root) for path in roots):
+            raise ValueError("test-only executor roots must be canonical temporary paths")
+        return
+    if specification.get("sentinels") != _step7_v4_production_sentinels():
+        raise ValueError("production sentinel specification is not authoritative")
+    expected_gate_contract = _step7_v4_production_gate_contract(
+        Path(binding["deployment_root"]),
+        content_root=Path(binding["source_root"]),
+    )
+    if (
+        specification.get("gate_contract") != expected_gate_contract
+        or _json_value_sha256(expected_gate_contract)
+        != binding["gate_contract_sha256"]
+    ):
+        raise ValueError("production gate contract physical binding mismatch")
+    packet_ref = specification.get("packet")
+    candidate_ref = specification.get("candidate")
+    receipt = specification.get("authorization_receipt")
+    _, packet = _step7_v4_verify_json_reference(
+        packet_ref, label="execution approval packet"
+    )
+    _, candidate = _step7_v4_verify_json_reference(
+        candidate_ref, label="execution review candidate"
+    )
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or not isinstance(candidate, Mapping)
+        or candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or packet_ref.get("sha256") != binding["packet_sha256"]
+        or candidate_ref.get("sha256") != binding["candidate_sha256"]
+        or packet.get("backup_and_rollback_plan_sha256")
+        != binding["plan_sha256"]
+        or _json_value_sha256(packet.get("exact_file_operations"))
+        != binding["operations_sha256"]
+        or packet.get("exact_file_operations")
+        != _step7_v4_core_operations(specification.get("operations"))
+        or packet.get("source_binding")
+        != {
+            "head": binding["source_head"],
+            "tree": binding["source_tree"],
+        }
+        or packet.get("deployment_binding")
+        != {"root": binding["deployment_root"]}
+        or candidate.get("approval_id") != packet.get("approval_id")
+        or packet.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
+        or packet.get("requires_exact_user_authorization") is not True
+        or packet.get("self_authorizes_execution") is not False
+        or packet.get("deployment_executed_at_creation") is not False
+        or packet.get("forbidden_boundaries")
+        != specification.get("forbidden_boundaries")
+        or candidate.get("approval_packet") != packet_ref
+        or candidate.get("status") != "AWAITING_EXACT_USER_AUTHORIZATION"
+        or candidate.get("source_binding")
+        != {
+            "root": binding["source_root"],
+            "head": binding["source_head"],
+            "tree": binding["source_tree"],
+        }
+        or candidate.get("deployment_binding")
+        != {"root": binding["deployment_root"]}
+        or candidate.get("exact_file_operations_sha256")
+        != binding["operations_sha256"]
+        or candidate.get("rollback_plan_sha256") != binding["plan_sha256"]
+        or candidate.get("forbidden_boundaries")
+        != specification.get("forbidden_boundaries")
+        or candidate.get("authorized") is not False
+        or candidate.get("deployment_executed") is not False
+    ):
+        raise ValueError("production packet/candidate authority verification failed")
+    plan_errors: list[str] = []
+    plan_verification = _verify_backup_and_rollback_plan(
+        packet.get("backup_and_rollback_plan"),
+        approval_id=packet.get("approval_id"),
+        packet_operations=packet.get("exact_file_operations", []),
+        source_root=Path(binding["source_root"]),
+        deployment_root=Path(binding["deployment_root"]),
+        source_state={
+            "head": binding["source_head"],
+            "tree": binding["source_tree"],
+        },
+        errors=plan_errors,
+    )
+    if (
+        plan_errors
+        or plan_verification.get("sha256") != binding["plan_sha256"]
+        or plan_verification.get("backup_root") != binding["backup_root"]
+        or plan_verification.get("manifest_path")
+        != str(Path(binding["backup_root"]) / "backup-manifest.json")
+        or plan_verification.get("rehearsal_result_path")
+        != str(Path(binding["backup_root"]) / "rehearsal-result.json")
+        or plan_verification.get("execution_result_path")
+        != str(Path(binding["backup_root"]) / "execution-result.json")
+        or plan_verification.get("recovery_result_path")
+        != str(Path(binding["backup_root"]) / "recovery-result.json")
+    ):
+        raise ValueError("production V4 rollback plan verification failed")
+    switches = specification.get("execution_switches")
+    if switches != {field: False for field in SWITCHES}:
+        raise ValueError("all four execution switches must remain false")
+    source_root = Path(binding["source_root"])
+    deployment_root = Path(binding["deployment_root"])
+    source_policy_path = source_root / POLICY_RELATIVE_PATH
+    deployment_policy_path = deployment_root / POLICY_RELATIVE_PATH
+    if (
+        source_policy_path.is_symlink()
+        or deployment_policy_path.is_symlink()
+        or not source_policy_path.is_file()
+        or not deployment_policy_path.is_file()
+        or hashlib.sha256(
+            _step7_v4_read_regular(source_policy_path)[0]
+        ).hexdigest()
+        != hashlib.sha256(
+            _step7_v4_read_regular(deployment_policy_path)[0]
+        ).hexdigest()
+    ):
+        raise ValueError("source/deployment physical execution policy mismatch")
+    source_policy = _step7_v4_load_json(source_policy_path)
+    deployment_policy = _step7_v4_load_json(deployment_policy_path)
+    if any(
+        source_policy.get(field) is not False
+        or deployment_policy.get(field) is not False
+        for field in SWITCHES
+    ):
+        raise ValueError("physical execution policy switch is not false")
+    if (
+        _git(source_root, "rev-parse", "HEAD^{commit}") != binding["source_head"]
+        or _git(source_root, "rev-parse", "HEAD^{tree}") != binding["source_tree"]
+        or _git(source_root, "status", "--porcelain")
+    ):
+        raise ValueError("source HEAD/tree/clean binding mismatch")
+    expected_payload = {
+        "approval_id": packet.get("approval_id"),
+        "approval_packet_sha256": binding["packet_sha256"],
+        "exact_file_operation_count": len(specification["operations"]),
+        "exact_file_operations_sha256": binding["operations_sha256"],
+        "rollback_plan_sha256": binding["plan_sha256"],
+        "review_candidate_sha256": binding["candidate_sha256"],
+        "source_head": binding["source_head"],
+        "source_tree": binding["source_tree"],
+        "deployment_root": binding["deployment_root"],
+    }
+    auth_errors: list[str] = []
+    _verify_user_authorization(
+        receipt,
+        expected_payload=expected_payload,
+        anchor_root=CODEX_SESSION_ROOT,
+        errors=auth_errors,
+    )
+    if (
+        auth_errors
+        or _json_value_sha256(receipt)
+        != binding["authorization_receipt_sha256"]
+        or receipt.get("source_authorization", {}).get("raw_record_sha256")
+        != binding["authorization_source_sha256"]
+        or receipt.get("raw_record_sha256")
+        != binding["authorization_wrapper_sha256"]
+    ):
+        raise ValueError("production two-hop authorization verification failed")
+
+
+def _step7_v4_production_sentinels() -> list[dict[str, Any]]:
+    expected = (
+        ("base", BASE_SENTINEL_PATH, BASE_SENTINEL_PHYSICAL_SHA256),
+        ("mutable", MUTABLE_SENTINEL_PATH, MUTABLE_SENTINEL_PHYSICAL_SHA256),
+        (
+            "execution_manifest",
+            EXECUTION_MANIFEST_PATH,
+            EXECUTION_MANIFEST_PHYSICAL_SHA256,
+        ),
+    )
+    sentinels: list[dict[str, Any]] = []
+    for name, raw_path, physical_sha256 in expected:
+        path = Path(raw_path)
+        value = _step7_v4_file_tuple(path)
+        if (
+            value["type"] != "REGULAR_FILE"
+            or value["sha256"] != physical_sha256
+        ):
+            raise ValueError(f"fixed production sentinel drift: {name}")
+        sentinels.append(
+            {
+                "name": name,
+                "path": str(path),
+                "sha256": physical_sha256,
+                "size": value["size"],
+                "mode": value["mode"],
+                "type": "REGULAR_FILE",
+            }
+        )
+    return sentinels
+
+
+def _step7_v4_production_gate_contract(
+    deployment_root: Path,
+    *,
+    content_root: Path | None = None,
+) -> dict[str, Any]:
+    content_root = content_root or deployment_root
+    target_registry_path = deployment_root / TEST_REGISTRY_RELATIVE_PATH
+    target_activation_runner = (
+        deployment_root / "tests/foundation/activation_gate_runner.py"
+    )
+    target_registration_runner = (
+        deployment_root / "tests/foundation/registration_gate_runner.py"
+    )
+    content_registry_path = content_root / TEST_REGISTRY_RELATIVE_PATH
+    content_activation_runner = (
+        content_root / "tests/foundation/activation_gate_runner.py"
+    )
+    content_registration_runner = (
+        content_root / "tests/foundation/registration_gate_runner.py"
+    )
+    for path, label in (
+        (content_registry_path, "registry"),
+        (content_activation_runner, "activation runner"),
+        (content_registration_runner, "registration runner"),
+    ):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"official {label} is not a physical regular file")
+    registry = _step7_v4_load_json(content_registry_path)
+    suites = registry.get("suites")
+    activation_suite = (
+        suites.get("execution_activation_gate")
+        if isinstance(suites, Mapping)
+        else None
+    )
+    selectors = (
+        activation_suite.get("selectors")
+        if isinstance(activation_suite, Mapping)
+        else None
+    )
+    expected_skips = [
+        {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
+        for test_id in HISTORICAL_SKIP_IDS
+    ]
+    if (
+        registry.get("schema") != "BPLUS_TEST_SUITES_V1"
+        or registry.get("approved_python") != APPROVED_PYTHON_PATH
+        or not isinstance(selectors, list)
+        or not selectors
+        or registry.get("historical_skip_allowlist") != expected_skips
+    ):
+        raise ValueError("versioned official gate registry contract mismatch")
+    return {
+        "schema": "SITINA_STEP7_OFFICIAL_GATE_CONTRACT_V1",
+        "runner_mode": "CAPTURE_STDOUT_ONLY_NO_EVIDENCE_FILE",
+        "registry": {
+            "path": str(target_registry_path),
+            "sha256": hashlib.sha256(
+                _step7_v4_read_regular(content_registry_path)[0]
+            ).hexdigest(),
+        },
+        "activation_runner": {
+            "path": str(target_activation_runner),
+            "sha256": hashlib.sha256(
+                _step7_v4_read_regular(content_activation_runner)[0]
+            ).hexdigest(),
+        },
+        "registration_runner": {
+            "path": str(target_registration_runner),
+            "sha256": hashlib.sha256(
+                _step7_v4_read_regular(content_registration_runner)[0]
+            ).hexdigest(),
+        },
+        "approved_python": APPROVED_PYTHON_PATH,
+        "activation_selectors": selectors,
+        "historical_skip_allowlist": expected_skips,
+        "environment": {"PYTHONDONTWRITEBYTECODE": "1"},
+    }
+
+
+def _step7_v4_run_official_gates(
+    deployment_root: Path,
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected_contract = _step7_v4_production_gate_contract(deployment_root)
+    if contract != expected_contract:
+        raise ValueError("deployed official gate bytes do not match bound postimages")
+    environment = dict(os.environ)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    registry_path = contract["registry"]["path"]
+    commands = {
+        "activation": [
+            APPROVED_PYTHON_PATH,
+            "-m",
+            "tests.foundation.activation_gate_runner",
+            *contract["activation_selectors"],
+        ],
+        "registration": [
+            APPROVED_PYTHON_PATH,
+            "-m",
+            "tests.foundation.registration_gate_runner",
+            "--registry",
+            registry_path,
+        ],
+    }
+    markers = {
+        "activation": "SITINA_ACTIVATION_GATE_JSON:",
+        "registration": "SITINA_REGISTRATION_GATE_JSON:",
+    }
+    results: dict[str, Any] = {}
+    for name, command in commands.items():
+        completed = subprocess.run(
+            command,
+            cwd=deployment_root,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=900,
+            check=False,
+        )
+        summaries = [
+            line[len(markers[name]) :]
+            for line in completed.stdout.splitlines()
+            if line.startswith(markers[name])
+        ]
+        if completed.returncode != 0 or len(summaries) != 1:
+            raise ValueError(f"official {name} gate did not return one PASS summary")
+        result = json.loads(summaries[0])
+        results[name] = result
+    activation = results["activation"]
+    registration = results["registration"]
+    common_zero = (
+        "failures",
+        "errors",
+        "expected_failures",
+        "unexpected_successes",
+    )
+    if (
+        set(activation) != STRICT_COMMON_FIELDS
+        or activation.get("schema") != ACTIVATION_RESULT_SCHEMA
+        or activation.get("policy") != "ZERO_NONPASS_AND_COMPLETE_V1"
+        or activation.get("accepted") is not True
+        or activation.get("collection_complete") is not True
+        or activation.get("execution_complete") is not True
+        or activation.get("skipped") != 0
+        or any(activation.get(field) != 0 for field in common_zero)
+        or activation.get("selector_counts", {}).keys()
+        != set(contract["activation_selectors"])
+        or activation.get("executed_test_count")
+        != activation.get("collected_test_count")
+        or activation.get("passed") != activation.get("executed_test_count")
+        or activation.get("started_test_ids")
+        != activation.get("collected_test_ids")
+        or activation.get("collected_test_ids_sha256")
+        != _json_value_sha256(activation.get("collected_test_ids"))
+        or activation.get("started_test_ids_sha256")
+        != _json_value_sha256(activation.get("started_test_ids"))
+        or len(activation.get("collected_test_ids", []))
+        != activation.get("collected_test_count")
+        or any(
+            activation.get(field) != []
+            for field in (
+                "collection_errors",
+                "failure_details",
+                "error_details",
+                "skip_details",
+                "expected_failure_details",
+                "unexpected_success_details",
+                "missing_test_ids",
+                "unexpected_test_ids",
+            )
+        )
+    ):
+        raise ValueError("official activation gate strict result mismatch")
+    expected_skip_details = contract["historical_skip_allowlist"]
+    if (
+        set(registration) != STRICT_COMMON_FIELDS | REGISTRATION_EXTRA_FIELDS
+        or registration.get("schema") != REGISTRATION_RESULT_SCHEMA
+        or registration.get("policy") != "EXACT_HISTORICAL_SKIP_ALLOWLIST_V1"
+        or registration.get("accepted") is not True
+        or registration.get("collection_complete") is not True
+        or registration.get("execution_complete") is not True
+        or registration.get("skipped") != len(HISTORICAL_SKIP_IDS)
+        or registration.get("skip_allowlist_match") is not True
+        or registration.get("skip_details") != expected_skip_details
+        or registration.get("expected_skip_details") != expected_skip_details
+        or any(registration.get(field) != 0 for field in common_zero)
+        or registration.get("executed_test_count")
+        != registration.get("collected_test_count")
+        or registration.get("passed") + registration.get("skipped")
+        != registration.get("executed_test_count")
+        or registration.get("started_test_ids")
+        != registration.get("collected_test_ids")
+        or registration.get("collected_test_ids_sha256")
+        != _json_value_sha256(registration.get("collected_test_ids"))
+        or registration.get("started_test_ids_sha256")
+        != _json_value_sha256(registration.get("started_test_ids"))
+        or registration.get("selector_count")
+        != len(registration.get("selector_counts", {}))
+        or sum(registration.get("selector_counts", {}).values())
+        != registration.get("collected_test_count")
+        or len(registration.get("collected_test_ids", []))
+        != registration.get("collected_test_count")
+        or any(
+            registration.get(field) != []
+            for field in (
+                "collection_errors",
+                "failure_details",
+                "error_details",
+                "expected_failure_details",
+                "unexpected_success_details",
+                "missing_test_ids",
+                "unexpected_test_ids",
+            )
+        )
+    ):
+        raise ValueError("official registration gate strict result mismatch")
+    return {
+        "schema": "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V1",
+        "contract_sha256": _json_value_sha256(contract),
+        "activation": activation,
+        "registration": registration,
+    }
+
+
+def _step7_v4_preflight(specification: Mapping[str, Any]) -> list[dict[str, Any]]:
+    _step7_v4_binding(specification)
+    source_root = Path(str(specification.get("source_root", "")))
+    deployment_root = Path(str(specification.get("deployment_root", "")))
+    allowed_parent = Path(str(specification.get("allowed_backup_parent", "")))
+    backup_root = Path(str(specification.get("backup_root", "")))
+    for root, label in (
+        (source_root, "source root"),
+        (deployment_root, "deployment root"),
+        (allowed_parent, "allowed backup parent"),
+    ):
+        metadata = root.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError(f"{label} is not a non-symlink directory")
+    if (
+        backup_root.parent != allowed_parent
+        or backup_root.exists()
+        or backup_root.is_symlink()
+    ):
+        raise ValueError("backup root is occupied or outside its allowed parent")
+    forbidden = specification.get("forbidden_boundaries")
+    if (
+        not isinstance(forbidden, Mapping)
+        or set(forbidden) != set(BACKUP_ROLLBACK_FORBIDDEN_FIELDS)
+        or any(forbidden.get(field) is not False for field in forbidden)
+        or _json_value_sha256(forbidden)
+        != specification.get("forbidden_boundaries_sha256")
+    ):
+        raise ValueError("forbidden-boundary binding mismatch")
+    if (
+        _json_value_sha256(specification.get("sentinels"))
+        != specification.get("sentinels_sha256")
+        or _json_value_sha256(
+            _step7_v4_core_operations(specification.get("operations"))
+        )
+        != specification.get("operations_sha256")
+    ):
+        raise ValueError("operation or sentinel binding mismatch")
+    for sentinel in specification.get("sentinels", []):
+        path = Path(str(sentinel.get("path", "")))
+        if _step7_v4_file_tuple(path) != {
+            "exists": True,
+            "type": sentinel.get("type"),
+            "sha256": sentinel.get("sha256"),
+            "size": sentinel.get("size"),
+            "mode": sentinel.get("mode"),
+        }:
+            raise ValueError("sentinel drift")
+    normalized: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for index, operation in enumerate(specification.get("operations", [])):
+        relative = operation.get("relative_path")
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or ".." in Path(relative).parts
+            or Path(relative).as_posix() != relative
+            or relative in {"", "."}
+        ):
+            raise ValueError(f"operation {index} has an unsafe path")
+        kind = operation.get("operation")
+        source = source_root / relative
+        target = deployment_root / relative
+        if (
+            operation.get("source_path") != str(source)
+            or operation.get("target_path") != str(target)
+            or kind not in {"REPLACE", "CREATE"}
+        ):
+            raise ValueError(f"operation {index} binding mismatch")
+        source_metadata = source.lstat()
+        if stat.S_ISLNK(source_metadata.st_mode) or not stat.S_ISREG(
+            source_metadata.st_mode
+        ):
+            raise ValueError(f"operation {index} source is not regular")
+        component_errors: list[str] = []
+        _verify_nofollow_descendant(
+            source,
+            trusted_root=source_root,
+            leaf_kind="file",
+            errors=component_errors,
+            label=f"operation {index} source",
+        )
+        if component_errors:
+            raise ValueError(component_errors[0])
+        if (
+            _step7_v4_file_tuple(source)["sha256"]
+            != operation.get("target_sha256")
+            or source_metadata.st_size != operation.get("target_size")
+            or oct(stat.S_IMODE(source_metadata.st_mode))
+            != operation.get("target_mode")
+        ):
+            raise ValueError(f"operation {index} source drift")
+        if kind == "REPLACE":
+            target_metadata = target.lstat()
+            if stat.S_ISLNK(target_metadata.st_mode) or not stat.S_ISREG(
+                target_metadata.st_mode
+            ):
+                raise ValueError(f"operation {index} preimage is not regular")
+            component_errors = []
+            _verify_nofollow_descendant(
+                target,
+                trusted_root=deployment_root,
+                leaf_kind="file",
+                errors=component_errors,
+                label=f"operation {index} target",
+            )
+            if component_errors:
+                raise ValueError(component_errors[0])
+            if (
+                _step7_v4_file_tuple(target)["sha256"]
+                != operation.get("preimage_sha256")
+                or target_metadata.st_size != operation.get("preimage_size")
+                or oct(stat.S_IMODE(target_metadata.st_mode))
+                != operation.get("preimage_mode")
+            ):
+                raise ValueError(f"operation {index} preimage drift")
+        else:
+            component_errors = []
+            _verify_nofollow_absent_leaf(
+                target,
+                trusted_root=deployment_root,
+                errors=component_errors,
+                label=f"operation {index} CREATE target",
+            )
+            if component_errors:
+                raise ValueError(component_errors[0])
+        rehearsal = operation.get("rehearsal_quarantine_path")
+        live = operation.get("rollback_quarantine_path")
+        backup = operation.get("preimage_backup_path")
+        expected_backup = (
+            str(backup_root / "preimages" / f"{relative}.preimage")
+            if kind == "REPLACE"
+            else None
+        )
+        expected_rehearsal = (
+            str(backup_root / "rehearsal/quarantine/created" / relative)
+            if kind == "CREATE"
+            else None
+        )
+        expected_live = (
+            str(backup_root / "quarantine/created" / relative)
+            if kind == "CREATE"
+            else None
+        )
+        if (
+            backup != expected_backup
+            or rehearsal != expected_rehearsal
+            or live != expected_live
+        ):
+            raise ValueError(f"operation {index} derived artifact path mismatch")
+        if kind == "CREATE":
+            if (
+                not isinstance(rehearsal, str)
+                or not isinstance(live, str)
+                or rehearsal == live
+                or not Path(rehearsal).is_relative_to(backup_root)
+                or not Path(live).is_relative_to(backup_root)
+            ):
+                raise ValueError(f"operation {index} quarantine mismatch")
+        elif rehearsal is not None or live is not None:
+            raise ValueError(f"operation {index} unexpected quarantine")
+        for path_value in (backup, rehearsal, live):
+            if path_value is None:
+                continue
+            if (
+                path_value in seen_paths
+                or not Path(str(path_value)).is_relative_to(backup_root)
+            ):
+                raise ValueError(f"operation {index} artifact path collision")
+            seen_paths.add(str(path_value))
+        normalized.append(
+            dict(operation)
+        )
+    if not normalized:
+        raise ValueError("execution requires at least one operation")
+    return normalized
+
+
+def _step7_v4_load_manifest(
+    specification: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> tuple[Path, dict[str, Any]]:
+    binding = _step7_v4_binding(specification)
+    if binding["run_id"] != run_id:
+        raise ValueError("recovery run identity mismatch")
+    backup_root = Path(binding["backup_root"])
+    manifest_path = backup_root / "backup-manifest.json"
+    manifest = _step7_v4_load_json(manifest_path)
+    expected_paths = {
+        "manifest": str(manifest_path),
+        "rehearsal_result": str(backup_root / "rehearsal-result.json"),
+        "execution_result": str(backup_root / "execution-result.json"),
+        "recovery_result": str(backup_root / "recovery-result.json"),
+    }
+    if (
+        set(manifest)
+        != {
+            "schema",
+            "binding",
+            "run_id",
+            "status",
+            "operations",
+            "sentinels",
+            "forbidden_boundaries",
+            "gate_contract",
+            "paths",
+            "deployment_inventory_before",
+            "deployment_inventory_expected_after",
+            "target_parent_identities",
+        }
+        or
+        manifest.get("schema") != STEP7_V4_EXECUTION_MANIFEST_SCHEMA
+        or manifest.get("binding") != binding
+        or manifest.get("operations") != specification.get("operations")
+        or manifest.get("sentinels") != specification.get("sentinels")
+        or manifest.get("forbidden_boundaries")
+        != specification.get("forbidden_boundaries")
+        or manifest.get("gate_contract") != specification.get("gate_contract")
+        or manifest.get("paths") != expected_paths
+    ):
+        raise ValueError("immutable execution manifest binding mismatch")
+    return backup_root, manifest
+
+
+def _step7_v4_reference(path: Path) -> dict[str, str]:
+    raw, _ = _step7_v4_read_regular(path)
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _step7_v4_verify_sentinels(
+    sentinels: Sequence[Mapping[str, Any]],
+) -> None:
+    for sentinel in sentinels:
+        path = Path(str(sentinel["path"]))
+        expected = {
+            "exists": True,
+            "type": "REGULAR_FILE",
+            "sha256": sentinel["sha256"],
+            "size": sentinel["size"],
+            "mode": sentinel["mode"],
+        }
+        if _step7_v4_file_tuple(path) != expected:
+            raise ValueError(f"sentinel physical tuple drift: {path}")
+
+
+def _step7_v4_intent(
+    binding: Mapping[str, Any],
+    index: int,
+    operation: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "SITINA_STEP7_APPLY_INTENT_V1",
+        "binding_sha256": _json_value_sha256(binding),
+        "run_id": binding["run_id"],
+        "index": index,
+        "relative_path": operation["relative_path"],
+        "operation": operation["operation"],
+        "preimage": _step7_v4_expected_tuple(operation, postimage=False),
+        "postimage": _step7_v4_expected_tuple(operation, postimage=True),
+    }
+
+
+def _step7_v4_commit(
+    binding: Mapping[str, Any],
+    index: int,
+    operation: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "SITINA_STEP7_APPLY_COMMIT_V1",
+        "binding_sha256": _json_value_sha256(binding),
+        "run_id": binding["run_id"],
+        "index": index,
+        "relative_path": operation["relative_path"],
+        "operation": operation["operation"],
+        "postimage": _step7_v4_expected_tuple(operation, postimage=True),
+    }
+
+
+def _step7_v4_recovered_checkpoint(
+    binding: Mapping[str, Any],
+    index: int,
+    operation: Mapping[str, Any],
+) -> dict[str, Any]:
+    create = operation["operation"] == "CREATE"
+    return {
+        "schema": "SITINA_STEP7_RECOVERED_CHECKPOINT_V1",
+        "binding_sha256": _json_value_sha256(binding),
+        "run_id": binding["run_id"],
+        "index": index,
+        "relative_path": operation["relative_path"],
+        "operation": operation["operation"],
+        "action": (
+            "QUARANTINED_CREATE_NOREPLACE"
+            if create
+            else "RESTORED_REPLACE_ATOMIC"
+        ),
+        "target_terminal_tuple": _step7_v4_expected_tuple(
+            operation, postimage=False
+        ),
+        "quarantine_terminal_tuple": (
+            _step7_v4_expected_tuple(operation, postimage=True)
+            if create
+            else None
+        ),
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+
+
+def _step7_v4_verify_bound_inputs(
+    specification: Mapping[str, Any],
+    operations: Sequence[Mapping[str, Any]],
+) -> None:
+    _step7_v4_verify_sentinels(specification["sentinels"])
+    for operation in operations:
+        if _step7_v4_file_tuple(
+            Path(operation["source_path"])
+        ) != _step7_v4_expected_tuple(operation, postimage=True):
+            raise ValueError(
+                f"source tuple drift: {operation['relative_path']}"
+            )
+        if _step7_v4_file_tuple(
+            Path(operation["target_path"])
+        ) != _step7_v4_expected_tuple(operation, postimage=False):
+            raise ValueError(
+                f"preimage tuple drift: {operation['relative_path']}"
+            )
+
+
+def recover_step7_v4_execution(
+    specification: Mapping[str, Any],
+    *,
+    run_id: str,
+    fail_at: Any = None,
+    _test_only: bool = False,
+) -> dict[str, Any]:
+    """Recover only exact intent-bound mutations from immutable disk evidence."""
+
+    try:
+        _step7_v4_require_authority(
+            specification, test_only=_test_only
+        )
+        backup_root, manifest = _step7_v4_load_manifest(
+            specification, run_id=run_id
+        )
+        binding = manifest["binding"]
+        manifest_path = backup_root / "backup-manifest.json"
+        rehearsal_path = backup_root / "rehearsal-result.json"
+        if not rehearsal_path.is_file() or rehearsal_path.is_symlink():
+            return {
+                "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+                "run_id": run_id,
+                "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            }
+        rehearsal_document = _step7_v4_load_json(rehearsal_path)
+        rehearsal_entries = rehearsal_document.get("entries")
+        if (
+            rehearsal_document.get("schema")
+            != STEP7_V4_REHEARSAL_RESULT_SCHEMA
+            or rehearsal_document.get("binding") != binding
+            or rehearsal_document.get("manifest")
+            != _step7_v4_reference(manifest_path)
+            or not isinstance(rehearsal_entries, list)
+            or [
+                entry.get("index")
+                for entry in rehearsal_entries
+                if isinstance(entry, Mapping)
+            ]
+            != [
+                index
+                for index, operation in enumerate(manifest["operations"])
+                if operation["operation"] == "CREATE"
+            ]
+            or any(
+                rehearsal_document.get(field) != 0
+                for field in (
+                    "delete_operation_count",
+                    "unlink_operation_count",
+                    "rmtree_operation_count",
+                )
+            )
+        ):
+            raise ValueError("immutable rehearsal-result binding mismatch")
+        for entry in rehearsal_entries:
+            index = entry["index"]
+            operation = manifest["operations"][index]
+            artifact_path = Path(operation["rehearsal_quarantine_path"])
+            if (
+                set(entry)
+                != {
+                    "index",
+                    "relative_path",
+                    "artifact",
+                    "artifact_tuple",
+                    "move",
+                }
+                or entry["relative_path"] != operation["relative_path"]
+                or entry["artifact"] != _step7_v4_reference(artifact_path)
+                or entry["artifact_tuple"]
+                != _step7_v4_expected_tuple(operation, postimage=True)
+                or _step7_v4_file_tuple(artifact_path)
+                != entry["artifact_tuple"]
+                or entry["move"].get("method")
+                != "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
+                or any(
+                    entry["move"].get(field) != 0
+                    for field in (
+                        "delete_operation_count",
+                        "unlink_operation_count",
+                        "rmtree_operation_count",
+                    )
+                )
+            ):
+                raise ValueError(
+                    f"rehearsal entry {index} physical binding mismatch"
+                )
+        intent_paths = [
+            backup_root / "checkpoints" / f"intent-{index:04d}.json"
+            for index in range(len(manifest["operations"]))
+        ]
+        if not any(path.exists() for path in intent_paths):
+            return {
+                "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+                "run_id": run_id,
+                "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            }
+        recovered_operations: list[dict[str, Any]] = []
+        applied_indices: list[int] = []
+        reverse_recovery_indices: list[int] = []
+        for index, operation in reversed(
+            list(enumerate(manifest["operations"]))
+        ):
+            target = Path(operation["target_path"])
+            parent_identity = manifest["target_parent_identities"].get(
+                operation["relative_path"]
+            )
+            if (
+                not isinstance(parent_identity, Mapping)
+                or _step7_v4_dir_identity(target.parent)
+                != dict(parent_identity)
+            ):
+                raise ValueError("target parent identity drift during recovery")
+            intent_path = intent_paths[index]
+            commit_path = (
+                backup_root / "checkpoints" / f"commit-{index:04d}.json"
+            )
+            intent_exists = intent_path.exists() or intent_path.is_symlink()
+            commit_exists = commit_path.exists() or commit_path.is_symlink()
+            if intent_exists and (
+                intent_path.is_symlink()
+                or _step7_v4_load_json(intent_path)
+                != _step7_v4_intent(binding, index, operation)
+            ):
+                raise ValueError(f"apply intent {index} binding mismatch")
+            if commit_exists and (
+                commit_path.is_symlink()
+                or not intent_exists
+                or _step7_v4_load_json(commit_path)
+                != _step7_v4_commit(binding, index, operation)
+            ):
+                raise ValueError(f"apply commit {index} binding mismatch")
+            target_tuple = _step7_v4_file_tuple(target)
+            preimage_tuple = _step7_v4_expected_tuple(
+                operation, postimage=False
+            )
+            postimage_tuple = _step7_v4_expected_tuple(
+                operation, postimage=True
+            )
+            if operation["operation"] == "CREATE":
+                rehearsal = Path(operation["rehearsal_quarantine_path"])
+                live = Path(operation["rollback_quarantine_path"])
+                if _step7_v4_file_tuple(rehearsal) != postimage_tuple:
+                    raise ValueError("retained rehearsal quarantine drift")
+                live_tuple = _step7_v4_file_tuple(live)
+                if not intent_exists:
+                    if target_tuple != preimage_tuple or live_tuple != preimage_tuple:
+                        raise ValueError(
+                            "CREATE state exists without strict apply intent"
+                        )
+                    recovered = False
+                elif target_tuple == postimage_tuple and live_tuple == preimage_tuple:
+                    applied_indices.append(index)
+                    _step7_v4_inject(fail_at, "ROLLBACK_CREATE")
+                    move = _step7_v4_rename_noreplace(
+                        target,
+                        live,
+                        expected_source_parent_identity=parent_identity,
+                    )
+                    _step7_v4_checkpoint(
+                        backup_root,
+                        f"recovered-{index:04d}-create",
+                        _step7_v4_recovered_checkpoint(
+                            binding, index, operation
+                        ),
+                    )
+                    reverse_recovery_indices.append(index)
+                    recovered = True
+                elif target_tuple == preimage_tuple and live_tuple == postimage_tuple:
+                    applied_indices.append(index)
+                    _step7_v4_checkpoint(
+                        backup_root,
+                        f"recovered-{index:04d}-create",
+                        _step7_v4_recovered_checkpoint(
+                            binding, index, operation
+                        ),
+                    )
+                    recovered = True
+                elif (
+                    not commit_exists
+                    and target_tuple == preimage_tuple
+                    and live_tuple == preimage_tuple
+                ):
+                    recovered = False
+                else:
+                    raise ValueError("ambiguous CREATE intent/commit/state tuple")
+            else:
+                backup = Path(operation["preimage_backup_path"])
+                if _step7_v4_file_tuple(backup) != preimage_tuple:
+                    raise ValueError("REPLACE backup drift")
+                if not intent_exists:
+                    if target_tuple != preimage_tuple:
+                        raise ValueError(
+                            "REPLACE state changed without strict apply intent"
+                        )
+                    recovered = False
+                elif target_tuple == postimage_tuple:
+                    applied_indices.append(index)
+                    _step7_v4_inject(fail_at, "ROLLBACK_REPLACE")
+                    _step7_v4_atomic_replace(
+                        backup,
+                        target,
+                        expected_parent_identity=parent_identity,
+                    )
+                    _step7_v4_checkpoint(
+                        backup_root,
+                        f"recovered-{index:04d}-replace",
+                        _step7_v4_recovered_checkpoint(
+                            binding, index, operation
+                        ),
+                    )
+                    reverse_recovery_indices.append(index)
+                    recovered = True
+                elif target_tuple == preimage_tuple:
+                    recovered_checkpoint_path = (
+                        backup_root
+                        / "checkpoints"
+                        / f"recovered-{index:04d}-replace.json"
+                    )
+                    recovered = commit_exists or recovered_checkpoint_path.exists()
+                    if recovered:
+                        applied_indices.append(index)
+                        _step7_v4_checkpoint(
+                            backup_root,
+                            f"recovered-{index:04d}-replace",
+                            _step7_v4_recovered_checkpoint(
+                                binding, index, operation
+                            ),
+                        )
+                else:
+                    raise ValueError("ambiguous REPLACE intent/commit/state tuple")
+            recovered_operations.append(
+                {
+                    "relative_path": operation["relative_path"],
+                    "operation": operation["operation"],
+                    "recovered": recovered,
+                }
+            )
+        recovered_operations.reverse()
+        reverse_recovery_indices = [
+            index
+            for index in reversed(range(len(manifest["operations"])))
+            if (
+                backup_root
+                / "checkpoints"
+                / (
+                    f"recovered-{index:04d}-"
+                    f"{manifest['operations'][index]['operation'].lower()}.json"
+                )
+            ).exists()
+        ]
+        recovered_checkpoint_references = [
+            {
+                "index": index,
+                "reference": _step7_v4_reference(
+                    backup_root
+                    / "checkpoints"
+                    / (
+                        f"recovered-{index:04d}-"
+                        f"{manifest['operations'][index]['operation'].lower()}.json"
+                    )
+                ),
+            }
+            for index in reverse_recovery_indices
+        ]
+        before_inventory = manifest["deployment_inventory_before"]
+        if _step7_v4_inventory(
+            Path(binding["deployment_root"])
+        ) != before_inventory:
+            raise ValueError(
+                "undeclared deployment-tree mutation remains after rollback"
+            )
+        _step7_v4_verify_sentinels(manifest["sentinels"])
+        if not applied_indices:
+            return {
+                "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+                "run_id": run_id,
+                "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                "manifest": _step7_v4_reference(manifest_path),
+                "rehearsal_result": _step7_v4_reference(rehearsal_path),
+                "applied_indices": [],
+                "reverse_recovery_indices": [],
+                "sentinels": manifest["sentinels"],
+                "gate_contract": manifest["gate_contract"],
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            }
+        result_path = backup_root / "recovery-result.json"
+        expected_result = {
+            "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+            "binding": binding,
+            "run_id": run_id,
+            "status": "RECOVERED_AFTER_FAILURE",
+            "manifest": _step7_v4_reference(manifest_path),
+            "rehearsal_result": _step7_v4_reference(rehearsal_path),
+            "applied_indices": sorted(set(applied_indices)),
+            "reverse_recovery_indices": reverse_recovery_indices,
+            "recovered_checkpoints": recovered_checkpoint_references,
+            "recovered_checkpoints_sha256": _json_value_sha256(
+                recovered_checkpoint_references
+            ),
+            "deployment_inventory_after_sha256": _json_value_sha256(
+                before_inventory
+            ),
+            "sentinels": manifest["sentinels"],
+            "gate_contract": manifest["gate_contract"],
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+            "operations": recovered_operations,
+        }
+        if result_path.exists():
+            result = _step7_v4_load_json(result_path)
+            if result != expected_result:
+                raise ValueError(
+                    "recovery result or physical terminal state mismatch"
+                )
+            return result
+        _step7_v4_inject(fail_at, "WRITE_RECOVERY_RESULT")
+        result = expected_result
+        _step7_v4_publish_json(result_path, result)
+        return result
+    except Exception as exc:
+        return {
+            "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+            "run_id": run_id,
+            "status": "MANUAL_RECOVERY_REQUIRED",
+            "recovery_error": str(exc),
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+        }
+
+
+def execute_step7_v4(
+    specification: Mapping[str, Any],
+    *,
+    dry_run: bool,
+    fail_at: Any = None,
+    gate_callback: Any = None,
+    _test_only: bool = False,
+) -> dict[str, Any]:
+    """Validate, rehearse, apply, and recover a V4 plan in one bounded run."""
+
+    if _test_only and gate_callback is None:
+        raise ValueError("deployed Step 7 gate callback is required")
+    if not _test_only and gate_callback is not None:
+        raise ValueError("production executor forbids injected gate callbacks")
+    _step7_v4_require_authority(specification, test_only=_test_only)
+    preexisting_backup_root = Path(str(specification["backup_root"]))
+    if preexisting_backup_root.exists() or preexisting_backup_root.is_symlink():
+        return {
+            "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
+            "run_id": specification.get("run_id"),
+            "status": "MANUAL_RECOVERY_REQUIRED",
+            "failure_step": "backup root is preoccupied before execution",
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+        }
+    operations = _step7_v4_preflight(specification)
+    deployment_root = Path(str(specification["deployment_root"]))
+    before_inventory = _step7_v4_inventory(deployment_root)
+    expected_post_inventory = _step7_v4_post_inventory(
+        before_inventory, operations
+    )
+    if dry_run:
+        return {
+            "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
+            "run_id": specification.get("run_id"),
+            "status": "DRY_RUN_VERIFIED",
+            "side_effect_count": 0,
+            "operations": operations,
+        }
+    backup_root = Path(str(specification["backup_root"]))
+    binding = _step7_v4_binding(specification)
+    target_parent_identities = {
+        operation["relative_path"]: _step7_v4_dir_identity(
+            Path(operation["target_path"]).parent
+        )
+        for operation in operations
+    }
+    manifest_path = backup_root / "backup-manifest.json"
+    rehearsal_result_path = backup_root / "rehearsal-result.json"
+    try:
+        _step7_v4_inject(fail_at, "CREATE_BACKUP_ROOT")
+        _step7_v4_mkdir_exclusive(
+            Path(str(specification["allowed_backup_parent"])),
+            backup_root.name,
+        )
+        _step7_v4_inject(fail_at, "CREATE_BACKUP_LAYOUT")
+        preimages = _step7_v4_mkdir_exclusive(backup_root, "preimages")
+        rehearsal = _step7_v4_mkdir_exclusive(backup_root, "rehearsal")
+        _step7_v4_mkdir_exclusive(rehearsal, "created")
+        rehearsal_quarantine = _step7_v4_mkdir_exclusive(
+            rehearsal, "quarantine"
+        )
+        _step7_v4_mkdir_exclusive(rehearsal_quarantine, "created")
+        quarantine = _step7_v4_mkdir_exclusive(backup_root, "quarantine")
+        _step7_v4_mkdir_exclusive(quarantine, "created")
+        _step7_v4_mkdir_exclusive(backup_root, "checkpoints")
+        _step7_v4_inject(fail_at, "CAPTURE_PREIMAGES")
+        for operation in operations:
+            if operation["operation"] == "REPLACE":
+                _step7_v4_copy_exclusive(
+                    Path(operation["target_path"]),
+                    Path(operation["preimage_backup_path"]),
+                )
+                if _step7_v4_file_tuple(
+                    Path(operation["preimage_backup_path"])
+                ) != _step7_v4_expected_tuple(operation, postimage=False):
+                    raise ValueError("captured preimage tuple mismatch")
+        _step7_v4_inject(fail_at, "WRITE_EXECUTION_MANIFEST")
+        _step7_v4_publish_json(
+            manifest_path,
+            {
+                "schema": STEP7_V4_EXECUTION_MANIFEST_SCHEMA,
+                "binding": binding,
+                "run_id": binding["run_id"],
+                "status": "VERIFIED_BEFORE_APPLY",
+                "operations": operations,
+                "sentinels": specification["sentinels"],
+                "forbidden_boundaries": specification[
+                    "forbidden_boundaries"
+                ],
+                "gate_contract": specification["gate_contract"],
+                "paths": {
+                    "manifest": str(manifest_path),
+                    "rehearsal_result": str(rehearsal_result_path),
+                    "execution_result": str(
+                        backup_root / "execution-result.json"
+                    ),
+                    "recovery_result": str(
+                        backup_root / "recovery-result.json"
+                    ),
+                },
+                "deployment_inventory_before": before_inventory,
+                "deployment_inventory_expected_after": expected_post_inventory,
+                "target_parent_identities": target_parent_identities,
+            },
+        )
+        _step7_v4_inject(fail_at, "RUN_CREATE_REHEARSAL")
+        rehearsal_entries: list[dict[str, Any]] = []
+        for index, operation in enumerate(operations):
+            if operation["operation"] != "CREATE":
+                continue
+            _step7_v4_inject(fail_at, f"RUN_CREATE_REHEARSAL:{index}")
+            rehearsal_source = (
+                backup_root / "rehearsal" / "created"
+                / operation["relative_path"]
+            )
+            _step7_v4_ensure_relative_directories(
+                backup_root / "rehearsal" / "created",
+                Path(operation["relative_path"]).parent,
+            )
+            rehearsal_destination = Path(
+                operation["rehearsal_quarantine_path"]
+            )
+            _step7_v4_ensure_relative_directories(
+                backup_root / "rehearsal" / "quarantine" / "created",
+                Path(operation["relative_path"]).parent,
+            )
+            _step7_v4_copy_exclusive(
+                Path(operation["source_path"]), rehearsal_source
+            )
+            rehearsal_move = _step7_v4_rename_noreplace(
+                rehearsal_source, rehearsal_destination
+            )
+            _step7_v4_checkpoint(
+                backup_root,
+                f"rehearsal-{operation['relative_path'].replace('/', '_')}",
+                {
+                    "run_id": binding["run_id"],
+                    "relative_path": operation["relative_path"],
+                    "move": rehearsal_move,
+                },
+            )
+            if (
+                Path(operation["rollback_quarantine_path"]).exists()
+                or Path(operation["rollback_quarantine_path"]).is_symlink()
+            ):
+                raise FileExistsError("live rollback leaf occupied after rehearsal")
+            rehearsal_entries.append(
+                {
+                    "index": index,
+                    "relative_path": operation["relative_path"],
+                    "artifact": _step7_v4_reference(rehearsal_destination),
+                    "artifact_tuple": _step7_v4_file_tuple(
+                        rehearsal_destination
+                    ),
+                    "move": rehearsal_move,
+                }
+            )
+        _step7_v4_publish_json(
+            rehearsal_result_path,
+            {
+                "schema": STEP7_V4_REHEARSAL_RESULT_SCHEMA,
+                "binding": binding,
+                "manifest": _step7_v4_reference(manifest_path),
+                "entries": rehearsal_entries,
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            },
+        )
+        _step7_v4_verify_bound_inputs(specification, operations)
+        if deployment_root.stat().st_dev != backup_root.stat().st_dev:
+            raise ValueError("deployment and rollback quarantine are cross-filesystem")
+        applied_indices: list[int] = []
+        for index, operation in enumerate(operations):
+            _step7_v4_verify_sentinels(specification["sentinels"])
+            current_expected = json.loads(json.dumps(before_inventory))
+            for prior in operations[:index]:
+                current_expected[prior["relative_path"]] = (
+                    _step7_v4_expected_tuple(prior, postimage=True)
+                )
+            if _step7_v4_inventory(deployment_root) != dict(
+                sorted(current_expected.items())
+            ):
+                raise ValueError("deployment inventory drift immediately before apply")
+            if _step7_v4_file_tuple(
+                Path(operation["source_path"])
+            ) != _step7_v4_expected_tuple(operation, postimage=True):
+                raise ValueError("source drift immediately before apply")
+            intent = _step7_v4_intent(binding, index, operation)
+            _step7_v4_checkpoint(
+                backup_root, f"intent-{index:04d}", intent
+            )
+            _step7_v4_inject(fail_at, f"AFTER_INTENT:{index}")
+            step = (
+                "APPLY_REPLACE"
+                if operation["operation"] == "REPLACE"
+                else "APPLY_CREATE"
+            )
+            _step7_v4_inject(fail_at, step)
+            if operation["operation"] == "REPLACE":
+                _step7_v4_atomic_replace(
+                    Path(operation["source_path"]),
+                    Path(operation["target_path"]),
+                    expected_parent_identity=target_parent_identities[
+                        operation["relative_path"]
+                    ],
+                )
+            else:
+                _step7_v4_copy_exclusive(
+                    Path(operation["source_path"]),
+                    Path(operation["target_path"]),
+                    expected_parent_identity=target_parent_identities[
+                        operation["relative_path"]
+                    ],
+                )
+                if (
+                    Path(operation["source_path"]).stat().st_ino
+                    == Path(operation["target_path"]).stat().st_ino
+                ):
+                    raise ValueError("CREATE target shares source inode")
+            if _step7_v4_file_tuple(
+                Path(operation["target_path"])
+            ) != _step7_v4_expected_tuple(operation, postimage=True):
+                raise ValueError("post-mutation tuple mismatch")
+            _step7_v4_inject(
+                fail_at, f"AFTER_MUTATION_BEFORE_COMMIT:{index}"
+            )
+            _step7_v4_checkpoint(
+                backup_root,
+                f"commit-{index:04d}",
+                _step7_v4_commit(binding, index, operation),
+            )
+            applied_indices.append(index)
+            _step7_v4_inject(fail_at, f"AFTER_APPLY:{index}")
+        if _step7_v4_inventory(deployment_root) != expected_post_inventory:
+            raise ValueError("postimage deployment inventory mismatch")
+        _step7_v4_verify_sentinels(specification["sentinels"])
+        _step7_v4_inject(fail_at, "AFTER_POSTIMAGE_VERIFY")
+        _step7_v4_inject(fail_at, "DURING_DEPLOYED_STEP7_GATE")
+        if _test_only:
+            callback_result = gate_callback(specification)
+            if not isinstance(callback_result, Mapping):
+                raise ValueError("deployed Step 7 gate returned no evidence")
+            gate_result = callback_result
+        else:
+            gate_result = _step7_v4_run_official_gates(
+                deployment_root, specification["gate_contract"]
+            )
+            gate_result = {**gate_result, "accepted": True}
+        if gate_result.get("accepted") is not True:
+            raise ValueError("deployed Step 7 gate rejected postimages")
+        _step7_v4_checkpoint(
+            backup_root,
+            "deployed-step7-gate",
+            {
+                "run_id": binding["run_id"],
+                "result": dict(gate_result),
+            },
+        )
+        _step7_v4_verify_sentinels(specification["sentinels"])
+        if _step7_v4_inventory(deployment_root) != expected_post_inventory:
+            raise ValueError(
+                "undeclared deployment-tree mutation after deployed Step 7 gate"
+            )
+        _step7_v4_inject(fail_at, "WRITE_SUCCESS_RESULT")
+        result = {
+            "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
+            "binding": binding,
+            "run_id": binding["run_id"],
+            "status": "EXECUTED",
+            "manifest": _step7_v4_reference(manifest_path),
+            "rehearsal_result": _step7_v4_reference(
+                rehearsal_result_path
+            ),
+            "applied_indices": applied_indices,
+            "reverse_recovery_indices": [],
+            "deployment_inventory_after_sha256": _json_value_sha256(
+                expected_post_inventory
+            ),
+            "sentinels": specification["sentinels"],
+            "gate_contract": specification["gate_contract"],
+            "gate_result": dict(gate_result),
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+            "operations": operations,
+        }
+        _step7_v4_publish_json(
+            backup_root / "execution-result.json", result
+        )
+        return result
+    except Exception as exc:
+        manifest_path = backup_root / "backup-manifest.json"
+        if not manifest_path.exists():
+            status = (
+                "MANUAL_RECOVERY_REQUIRED"
+                if backup_root.exists()
+                else "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION"
+            )
+            return {
+                "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
+                "run_id": binding["run_id"],
+                "status": status,
+                "failure_step": str(exc),
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            }
+        intent_exists = any(
+            (backup_root / "checkpoints").glob("intent-*.json")
+        )
+        if not intent_exists:
+            return {
+                "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
+                "run_id": binding["run_id"],
+                "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                "failure_step": str(exc),
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            }
+        _step7_v4_checkpoint(
+            backup_root,
+            "failure",
+            {
+                "run_id": binding["run_id"],
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+        return recover_step7_v4_execution(
+            specification,
+            run_id=binding["run_id"],
+            fail_at=fail_at,
+            _test_only=_test_only,
+        )
 
 
 def _verify_file_reference(
@@ -3568,7 +5696,7 @@ def _verify_backup_and_rollback_plan(
         errors.append(f"{label} approval ID is unsafe")
         return {}
     allowed_parent = source_root.parent / "output"
-    expected_root = allowed_parent / f"sitina-step7-deploy-v3-{approval_id}"
+    expected_root = allowed_parent / f"sitina-step7-deploy-v4-{approval_id}"
     root_value = plan.get("backup_root")
     if not isinstance(root_value, Mapping) or root_value != {
         "path": str(expected_root),
@@ -3592,12 +5720,28 @@ def _verify_backup_and_rollback_plan(
         label=f"{label} allowed parent",
     )
     expected_manifest = expected_root / "backup-manifest.json"
+    expected_rehearsal_quarantine = (
+        expected_root / "rehearsal" / "quarantine" / "created"
+    )
     expected_quarantine = expected_root / "quarantine" / "created"
+    expected_rehearsal_result = expected_root / "rehearsal-result.json"
+    expected_execution_result = expected_root / "execution-result.json"
+    expected_recovery_result = expected_root / "recovery-result.json"
     expected_recovery = expected_root / "recovery-verification.json"
     if plan.get("backup_manifest_path") != str(expected_manifest):
         errors.append(f"{label} manifest path mismatch")
     if plan.get("rollback_quarantine_root") != str(expected_quarantine):
         errors.append(f"{label} quarantine root mismatch")
+    if plan.get("rehearsal_quarantine_root") != str(
+        expected_rehearsal_quarantine
+    ):
+        errors.append(f"{label} rehearsal quarantine root mismatch")
+    if plan.get("rehearsal_result_path") != str(expected_rehearsal_result):
+        errors.append(f"{label} rehearsal result path mismatch")
+    if plan.get("execution_result_path") != str(expected_execution_result):
+        errors.append(f"{label} execution result path mismatch")
+    if plan.get("recovery_result_path") != str(expected_recovery_result):
+        errors.append(f"{label} recovery result path mismatch")
     if plan.get("recovery_verification_path") != str(expected_recovery):
         errors.append(f"{label} recovery-verification path mismatch")
     raw_objects = plan.get("objects")
@@ -3630,7 +5774,12 @@ def _verify_backup_and_rollback_plan(
             if kind == "REPLACE"
             else None
         )
-        quarantine_path = (
+        rehearsal_quarantine_path = (
+            str(expected_rehearsal_quarantine / relative)
+            if kind == "CREATE"
+            else None
+        )
+        rollback_quarantine_path = (
             str(expected_quarantine / relative) if kind == "CREATE" else None
         )
         recovery_verification = (
@@ -3653,7 +5802,8 @@ def _verify_backup_and_rollback_plan(
             "preimage_sha256": operation.get("preimage_sha256"),
             "target_sha256": operation.get("target_sha256"),
             "preimage_backup_path": backup_path,
-            "rollback_quarantine_path": quarantine_path,
+            "rehearsal_quarantine_path": rehearsal_quarantine_path,
+            "rollback_quarantine_path": rollback_quarantine_path,
             "rollback_action": (
                 "RESTORE_VERIFIED_PREIMAGE"
                 if kind == "REPLACE"
@@ -3667,10 +5817,17 @@ def _verify_backup_and_rollback_plan(
             or dict(plan_object) != expected_object
         ):
             errors.append(f"{label} object {index} operation binding mismatch")
-        artifact_path = backup_path or quarantine_path
-        if artifact_path is not None:
+        for artifact_path in (
+            backup_path,
+            rehearsal_quarantine_path,
+            rollback_quarantine_path,
+        ):
+            if artifact_path is None:
+                continue
             if artifact_path in seen_artifact_paths:
-                errors.append(f"{label} object {index} artifact path is duplicated")
+                errors.append(
+                    f"{label} object {index} artifact path is duplicated"
+                )
             seen_artifact_paths.add(artifact_path)
         objects[relative] = plan_object
     if len(objects) != len(raw_objects):
@@ -3679,7 +5836,11 @@ def _verify_backup_and_rollback_plan(
         "sha256": _json_value_sha256(plan),
         "backup_root": str(expected_root),
         "manifest_path": str(expected_manifest),
+        "rehearsal_quarantine_root": str(expected_rehearsal_quarantine),
         "quarantine_root": str(expected_quarantine),
+        "rehearsal_result_path": str(expected_rehearsal_result),
+        "execution_result_path": str(expected_execution_result),
+        "recovery_result_path": str(expected_recovery_result),
         "recovery_path": str(expected_recovery),
         "objects": objects,
         "forbidden_boundaries": dict(forbidden)
@@ -4052,13 +6213,13 @@ def _verify_rollback_and_bound_evidence(
         or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
         or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
         or revocation.get("revoked_approval_id")
-        != "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z"
+        != "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z"
         or not isinstance(revoked_candidate, Mapping)
         or revoked_candidate.get("sha256")
-        != "5fab0fc154ff8550b8efe5c7d61646f64591792ceb728e5f7a7bed96c88932b5"
+        != "6d2f5c8884ac4e4556af19a56a6de72cbac59db421f1cac6888d7e5fcc8ccd5e"
         or not isinstance(revoked_packet, Mapping)
         or revoked_packet.get("sha256")
-        != "6db1c14e792fefa0be3b76c38fe88797bcbcf3b100ef501302544ca65302fae6"
+        != "b08466b7ef37f6e96c507548c70f56b83b628bb32c99ab8525067d884db5d556"
         or any(
             revocation.get(field) is not False
             for field in (
@@ -4395,6 +6556,7 @@ def _verify_rollback_and_bound_evidence(
         relative = entry.get("relative_path")
         if set(entry) != ROLLBACK_OPERATION_FIELDS | {
             "backup",
+            "rehearsal_quarantine_path",
             "rollback_quarantine_path",
         }:
             errors.append(f"rollback manifest entry {index} field set mismatch")
@@ -4444,6 +6606,8 @@ def _verify_rollback_and_bound_evidence(
             or plan_object.get("target_path") != entry.get("target_path")
             or plan_object.get("preimage_sha256") != entry.get("preimage_sha256")
             or plan_object.get("target_sha256") != entry.get("target_sha256")
+            or plan_object.get("rehearsal_quarantine_path")
+            != entry.get("rehearsal_quarantine_path")
             or plan_object.get("rollback_quarantine_path")
             != entry.get("rollback_quarantine_path")
         ):
@@ -4481,6 +6645,7 @@ def _verify_rollback_and_bound_evidence(
                 or not isinstance(plan_object, Mapping)
                 or str(backup_path)
                 != plan_object.get("preimage_backup_path")
+                or entry.get("rehearsal_quarantine_path") is not None
                 or entry.get("rollback_quarantine_path") is not None
             ):
                 errors.append(f"rollback replace preimage {relative} is incomplete")
@@ -4506,12 +6671,23 @@ def _verify_rollback_and_bound_evidence(
             or entry.get("preimage_mode") is not None
             or backup_ref is not None
             or not isinstance(plan_object, Mapping)
+            or entry.get("rehearsal_quarantine_path")
+            != plan_object.get("rehearsal_quarantine_path")
             or entry.get("rollback_quarantine_path")
             != plan_object.get("rollback_quarantine_path")
+            or entry.get("rehearsal_quarantine_path")
+            == entry.get("rollback_quarantine_path")
             or plan_object.get("rollback_action")
             != "QUARANTINE_CREATED_TARGET"
         ):
             errors.append(f"rollback create preimage {relative} must be absent")
+        elif operation == "CREATE":
+            _verify_nofollow_absent_leaf(
+                Path(str(entry.get("rollback_quarantine_path", ""))),
+                trusted_root=trusted_backup_parent,
+                errors=errors,
+                label=f"live rollback quarantine {relative}",
+            )
 
     recovery_entries = recovery.get("entries") if isinstance(recovery, Mapping) else None
     if not isinstance(recovery, Mapping) or (
@@ -4536,7 +6712,7 @@ def _verify_rollback_and_bound_evidence(
         or recovery.get("source_head") != source_state.get("head")
         or recovery.get("source_tree") != source_state.get("tree")
         or recovery.get("deployment_root") != str(deployment_root)
-        or recovery.get("method") != "DISPOSABLE_ISOLATED_RESTORE_REHEARSAL_V1"
+        or recovery.get("method") != "DISPOSABLE_ISOLATED_RESTORE_REHEARSAL_V4"
         or recovery.get("deployment_mutated") is not False
         or recovery.get("verified") is not True
         or recovery.get("mismatch_count") != 0
@@ -4581,8 +6757,9 @@ def _verify_rollback_and_bound_evidence(
             "reapplied",
             "restored_artifact",
             "reapplied_artifact",
-            "quarantined_artifact",
-            "quarantine_move",
+            "rehearsal_quarantined_artifact",
+            "rehearsal_quarantine_move",
+            "live_rollback_quarantine_preflight",
         }:
             errors.append(f"rollback recovery entry {index} field set mismatch")
         source_entry = manifest_by_path.get(relative)
@@ -4608,8 +6785,15 @@ def _verify_rollback_and_bound_evidence(
         }
         restored_artifact = result.get("restored_artifact")
         reapplied_artifact = result.get("reapplied_artifact")
-        quarantined_artifact = result.get("quarantined_artifact")
-        quarantine_move = result.get("quarantine_move")
+        rehearsal_quarantined_artifact = result.get(
+            "rehearsal_quarantined_artifact"
+        )
+        rehearsal_quarantine_move = result.get(
+            "rehearsal_quarantine_move"
+        )
+        live_rollback_quarantine_preflight = result.get(
+            "live_rollback_quarantine_preflight"
+        )
         if (
             result.get("operation") != operation
             or result.get("restored") != expected_restored
@@ -4630,54 +6814,66 @@ def _verify_rollback_and_bound_evidence(
                 != source_entry.get("preimage_mode")
             ):
                 errors.append(f"rollback restored snapshot {relative} mismatch")
-            if quarantined_artifact is not None:
+            if rehearsal_quarantined_artifact is not None:
                 errors.append(
                     f"rollback replace entry {relative} has a quarantine snapshot"
                 )
-            if quarantine_move is not None:
+            if rehearsal_quarantine_move is not None:
                 errors.append(
                     f"rollback replace entry {relative} has quarantine move evidence"
+                )
+            if live_rollback_quarantine_preflight is not None:
+                errors.append(
+                    f"rollback replace entry {relative} has live quarantine preflight"
                 )
         elif restored_artifact is not None:
             errors.append(f"rollback create entry {relative} has a restored snapshot")
         elif operation == "CREATE":
-            quarantine_path, _ = _verify_file_reference(
-                quarantined_artifact,
+            rehearsal_quarantine_path, _ = _verify_file_reference(
+                rehearsal_quarantined_artifact,
                 errors,
-                f"rollback quarantine snapshot {relative}",
+                f"rollback rehearsal quarantine snapshot {relative}",
                 require_json_object=False,
             )
             plan_object = plan_verification.get("objects", {}).get(relative)
             if (
-                quarantine_path is None
+                rehearsal_quarantine_path is None
                 or not isinstance(plan_object, Mapping)
-                or str(quarantine_path)
-                != plan_object.get("rollback_quarantine_path")
-                or _sha256(quarantine_path) != source_entry.get("target_sha256")
-                or quarantine_path.stat().st_size != source_entry.get("target_size")
-                or oct(stat.S_IMODE(quarantine_path.stat().st_mode))
+                or str(rehearsal_quarantine_path)
+                != plan_object.get("rehearsal_quarantine_path")
+                or _sha256(rehearsal_quarantine_path)
+                != source_entry.get("target_sha256")
+                or rehearsal_quarantine_path.stat().st_size
+                != source_entry.get("target_size")
+                or oct(
+                    stat.S_IMODE(rehearsal_quarantine_path.stat().st_mode)
+                )
                 != source_entry.get("target_mode")
             ):
-                errors.append(f"rollback quarantine snapshot {relative} mismatch")
-            if quarantine_path is not None:
+                errors.append(
+                    f"rollback rehearsal quarantine snapshot {relative} mismatch"
+                )
+            if rehearsal_quarantine_path is not None:
                 _verify_nofollow_descendant(
-                    quarantine_path,
+                    rehearsal_quarantine_path,
                     trusted_root=trusted_backup_parent,
                     leaf_kind="file",
                     errors=errors,
-                    label=f"rollback quarantine snapshot {relative}",
+                    label=f"rollback rehearsal quarantine snapshot {relative}",
                 )
-                quarantine_stat = quarantine_path.stat()
+                quarantine_stat = rehearsal_quarantine_path.stat()
                 expected_rehearsal_source = (
                     Path(str(plan_verification.get("backup_root", "")))
                     / "rehearsal"
                     / "created"
                     / relative
                 )
-                if quarantine_move != {
-                    "method": "ATOMIC_RENAME_SAME_FILESYSTEM",
+                if rehearsal_quarantine_move != {
+                    "method": (
+                        "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
+                    ),
                     "source_path": str(expected_rehearsal_source),
-                    "destination_path": str(quarantine_path),
+                    "destination_path": str(rehearsal_quarantine_path),
                     "source_device": quarantine_stat.st_dev,
                     "source_inode": quarantine_stat.st_ino,
                     "destination_device": quarantine_stat.st_dev,
@@ -4685,9 +6881,27 @@ def _verify_rollback_and_bound_evidence(
                     "inode_preserved": True,
                     "source_absent_after_move": True,
                     "delete_operation_count": 0,
+                    "unlink_operation_count": 0,
+                    "rmtree_operation_count": 0,
                 } or expected_rehearsal_source.exists():
                     errors.append(
-                        f"rollback quarantine move evidence {relative} mismatch"
+                        f"rollback rehearsal quarantine move {relative} mismatch"
+                    )
+                expected_live_path = plan_object.get(
+                    "rollback_quarantine_path"
+                )
+                if live_rollback_quarantine_preflight != {
+                    "path": expected_live_path,
+                    "existed": False,
+                    "overwrite_allowed": False,
+                    "exclusive_no_replace_required": True,
+                    "nofollow_required": True,
+                    "method": (
+                        "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
+                    ),
+                }:
+                    errors.append(
+                        f"live rollback quarantine preflight {relative} mismatch"
                     )
         reapplied_path, _ = _verify_file_reference(
             reapplied_artifact,
