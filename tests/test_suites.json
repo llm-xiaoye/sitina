@@ -146,7 +146,7 @@
     },
     "all_registered_unique": {
       "selectors": [],
-      "selector_source": "ALL_REGISTERED_UNIQUE_EXCEPT_LIVE_PROVIDER_OPT_IN_V1",
+      "selector_source": "ALL_REGISTERED_UNIQUE_INCLUDING_LIVE_PROVIDER_OFFLINE_CONTRACT_V2",
       "timeout_seconds": 900,
       "expected_duration": "complete-registration-gate",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",

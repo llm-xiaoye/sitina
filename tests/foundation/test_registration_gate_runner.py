@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 class RegistrationGateRunnerTests(unittest.TestCase):
     def test_registry_derivation_is_unique_and_complete(self) -> None:
         registry = json.loads((ROOT / "tests/test_suites.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            registry["suites"]["all_registered_unique"]["selector_source"],
+            "ALL_REGISTERED_UNIQUE_INCLUDING_LIVE_PROVIDER_OFFLINE_CONTRACT_V2",
+        )
         selectors = unique_registered_selectors(registry)
         self.assertEqual(len(selectors), len(set(selectors)))
         self.assertIn("tests/foundation/test_dependency_lock_gate.py", selectors)

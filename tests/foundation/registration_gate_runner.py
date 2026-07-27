@@ -57,7 +57,7 @@ def unique_registered_selectors(registry: dict[str, object]) -> tuple[str, ...]:
                 seen.add(selector)
                 selectors.append(selector)
     if not selectors:
-        raise ValueError("test registry has no non-live selectors")
+        raise ValueError("test registry has no registered selectors")
     return tuple(selectors)
 
 
