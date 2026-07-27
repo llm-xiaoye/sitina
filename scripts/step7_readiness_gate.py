@@ -107,15 +107,18 @@ DEPENDENCY_RESULT_SCHEMA = "SITINA_BPLUS_DEPENDENCY_GATE_V1"
 AUTONOMOUS_AUDIT_SCHEMA = "SITINA_AUTONOMOUS_RUN_EVENT_V1"
 REAL_REVIEW_RECEIPT_SCHEMA = "SITINA_STEP7_REAL_REVIEW_CAPTURE_RECEIPT_V1"
 CODEX_CAPTURE_ANCHOR_SCHEMA = "SITINA_CODEX_APPEND_ONLY_CAPTURE_ANCHOR_V1"
-CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V2"
+CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3"
 CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA = (
-    "SITINA_CODEX_SOURCE_USER_AUTHORIZATION_RECORD_V1"
+    "SITINA_CODEX_SOURCE_USER_AUTHORIZATION_RECORD_V2"
+)
+SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA = (
+    "SITINA_STEP7_UI_TEXT_TRANSPORT_NORMALIZATION_V1"
 )
 AUDIT_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_AUDIT_CAPTURE_ANCHOR_V1"
 PREIMAGE_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1"
 DEPLOYMENT_AUTHORIZATION_MARKER = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V2"
 DEPLOYMENT_DELEGATION_MARKER = (
-    "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_DELEGATION_V1"
+    "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_DELEGATION_V2"
 )
 CODEX_SESSION_ROOT = Path("/Users/moss/.codex/sessions")
 SENTINEL_SAMPLE_SCHEMA = "SITINA_STEP7_PRODUCTION_SENTINEL_SAMPLE_V1"
@@ -130,13 +133,14 @@ DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_REQUEST_REVIEW_EVIDENCE_V1"
 )
 DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA = (
-    "SITINA_STEP7_EXACT_AUTHORIZATION_CONTRACT_V1"
+    "SITINA_STEP7_EXACT_AUTHORIZATION_CONTRACT_V2"
 )
 REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z",
     "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z",
     "SITINA_STEP7_DEPLOY_CBBD2E1_6F_20260727T113530Z",
     "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z",
+    "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z",
 }
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
@@ -283,6 +287,31 @@ CODEX_RECORD_REFERENCE_FIELDS = {
 CODEX_USER_AUTHORIZATION_RECEIPT_FIELDS = CODEX_RECORD_REFERENCE_FIELDS | {
     "source_authorization"
 }
+CODEX_SOURCE_USER_AUTHORIZATION_REFERENCE_FIELDS = (
+    CODEX_RECORD_REFERENCE_FIELDS - {"content_sha256"}
+) | {
+    "actual_content_sha256",
+    "actual_content_length",
+    "canonical_logical_sha256",
+    "canonical_logical_length",
+    "transport_normalization_mode",
+    "transport_removed_suffix_hex",
+    "transport_removed_byte_count",
+}
+SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT = {
+    "schema": SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA,
+    "scope": "SOURCE_ROLE_USER_INPUT_TEXT_ONLY",
+    "encoding": "UTF-8",
+    "accepted_raw_forms": [
+        "LOGICAL_EXACT",
+        "LOGICAL_EXACT_PLUS_SINGLE_LF",
+    ],
+    "normalization": "REMOVE_ONLY_ONE_PROVEN_TERMINAL_0A",
+    "carriage_return_allowed": False,
+    "generic_trimming_allowed": False,
+    "unicode_normalization_allowed": False,
+    "delegation_wrapper_normalization_allowed": False,
+}
 DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS = (
     "approval_id",
     "source_thread_id",
@@ -291,19 +320,32 @@ DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS = (
     "source_line_number",
     "source_record_id",
     "source_raw_record_sha256",
-    "source_content_sha256",
+    "source_actual_content_sha256",
+    "source_actual_content_length",
+    "source_canonical_logical_sha256",
+    "source_canonical_logical_length",
+    "source_transport_normalization_schema",
+    "source_transport_normalization_mode",
+    "source_transport_removed_suffix_hex",
+    "source_transport_removed_byte_count",
 )
 DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE = {
     "receipt_schema": CODEX_USER_AUTHORIZATION_SCHEMA,
     "source_record_schema": CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
     "source_record_role": "user",
     "delegation_record_role": "user",
-    "source_record_reference_fields": sorted(CODEX_RECORD_REFERENCE_FIELDS),
+    "source_record_reference_fields": sorted(
+        CODEX_SOURCE_USER_AUTHORIZATION_REFERENCE_FIELDS
+    ),
     "delegation_wrapper_reference_fields": sorted(CODEX_RECORD_REFERENCE_FIELDS),
     "delegation_wrapper_source_record_binding_fields": list(
         DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
     ),
     "source_approval_text_must_equal_exact_payload": True,
+    "source_ui_transport_normalization": (
+        SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT
+    ),
+    "source_content_length_unit": "UTF8_BYTES",
     "delegation_input_is_canonical_source_record_binding": True,
     "source_and_delegation_sessions_must_differ": True,
     "source_record_must_precede_delegation_record": True,
@@ -411,6 +453,7 @@ DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS = {
     "delegated_source_session",
     "delegation_source_binding_fields",
     "two_hop_structure",
+    "source_ui_transport_normalization",
     "self_authorizes_execution",
 }
 DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS = (
@@ -1013,6 +1056,19 @@ def _verify_codex_capture_anchor(
         errors.append(f"{label} append-only anchor content mismatch")
 
 
+def _normalize_source_authorization_transport(text: str) -> str | None:
+    """Accept exact UI text or that text plus one terminal LF, nothing else."""
+
+    if "\r" in text:
+        return None
+    if text.endswith("\n"):
+        canonical = text[:-1]
+        if canonical.endswith("\n"):
+            return None
+        return canonical
+    return text
+
+
 def _read_user_authorization_record(
     reference: Any,
     *,
@@ -1021,10 +1077,19 @@ def _read_user_authorization_record(
     anchor_root: Path,
     errors: list[str],
     label: str,
+    normalize_source_transport: bool = False,
 ) -> dict[str, Any]:
     """Read one physically bound role=user record without following aliases."""
 
-    if not isinstance(reference, Mapping) or set(reference) != CODEX_RECORD_REFERENCE_FIELDS:
+    expected_reference_fields = (
+        CODEX_SOURCE_USER_AUTHORIZATION_REFERENCE_FIELDS
+        if normalize_source_transport
+        else CODEX_RECORD_REFERENCE_FIELDS
+    )
+    if (
+        not isinstance(reference, Mapping)
+        or set(reference) != expected_reference_fields
+    ):
         errors.append(f"{label} reference schema mismatch")
         return {}
     if (
@@ -1036,7 +1101,32 @@ def _read_user_authorization_record(
         or not isinstance(reference.get("record_id"), str)
         or not reference.get("record_id")
         or not _valid_sha256(reference.get("raw_record_sha256"))
-        or not _valid_sha256(reference.get("content_sha256"))
+        or (
+            not normalize_source_transport
+            and not _valid_sha256(reference.get("content_sha256"))
+        )
+        or (
+            normalize_source_transport
+            and (
+                not _valid_sha256(reference.get("actual_content_sha256"))
+                or not _integer(reference.get("actual_content_length"))
+                or reference.get("actual_content_length") < 0
+                or not _valid_sha256(
+                    reference.get("canonical_logical_sha256")
+                )
+                or not _integer(reference.get("canonical_logical_length"))
+                or reference.get("canonical_logical_length") < 0
+                or reference.get("transport_normalization_mode")
+                not in ("IDENTITY", "REMOVE_ONE_TERMINAL_LF")
+                or reference.get("transport_removed_suffix_hex")
+                not in ("", "0a")
+                or not _integer(
+                    reference.get("transport_removed_byte_count")
+                )
+                or reference.get("transport_removed_byte_count")
+                not in (0, 1)
+            )
+        )
     ):
         errors.append(f"{label} reference binding mismatch")
         return {}
@@ -1091,6 +1181,28 @@ def _read_user_authorization_record(
         and isinstance(content_item.get("text"), str)
         else None
     )
+    canonical_text = (
+        _normalize_source_authorization_transport(text)
+        if normalize_source_transport and isinstance(text, str)
+        else text
+    )
+    text_bytes = text.encode("utf-8") if isinstance(text, str) else b""
+    canonical_bytes = (
+        canonical_text.encode("utf-8")
+        if isinstance(canonical_text, str)
+        else b""
+    )
+    transport_mode = (
+        "IDENTITY"
+        if isinstance(text, str) and canonical_text == text
+        else "REMOVE_ONE_TERMINAL_LF"
+    )
+    transport_removed_suffix_hex = (
+        "" if transport_mode == "IDENTITY" else "0a"
+    )
+    transport_removed_byte_count = (
+        0 if transport_mode == "IDENTITY" else 1
+    )
     if (
         not isinstance(meta_payload, Mapping)
         or meta.get("type") != "session_meta"
@@ -1106,7 +1218,29 @@ def _read_user_authorization_record(
         or payload.get("role") != "user"
         or not _valid_iso8601(record.get("timestamp"))
         or not isinstance(text, str)
-        or _sha256_text(text) != reference.get("content_sha256")
+        or canonical_text is None
+        or (
+            not normalize_source_transport
+            and _sha256_text(text) != reference.get("content_sha256")
+        )
+        or (
+            normalize_source_transport
+            and (
+                hashlib.sha256(text_bytes).hexdigest()
+                != reference.get("actual_content_sha256")
+                or len(text_bytes) != reference.get("actual_content_length")
+                or hashlib.sha256(canonical_bytes).hexdigest()
+                != reference.get("canonical_logical_sha256")
+                or len(canonical_bytes)
+                != reference.get("canonical_logical_length")
+                or transport_mode
+                != reference.get("transport_normalization_mode")
+                or transport_removed_suffix_hex
+                != reference.get("transport_removed_suffix_hex")
+                or transport_removed_byte_count
+                != reference.get("transport_removed_byte_count")
+            )
+        )
     ):
         errors.append(f"{label} content mismatch")
         return {}
@@ -1116,6 +1250,10 @@ def _read_user_authorization_record(
         "meta_raw": meta_raw,
         "meta": meta_payload,
         "text": text,
+        "canonical_text": canonical_text,
+        "transport_normalization_mode": transport_mode,
+        "transport_removed_suffix_hex": transport_removed_suffix_hex,
+        "transport_removed_byte_count": transport_removed_byte_count,
         "timestamp": record.get("timestamp"),
     }
 
@@ -1147,6 +1285,7 @@ def _verify_user_authorization(
         anchor_root=anchor_root,
         errors=errors,
         label=f"{label} source",
+        normalize_source_transport=True,
     )
     wrapper = _read_user_authorization_record(
         wrapper_reference,
@@ -1174,7 +1313,30 @@ def _verify_user_authorization(
         "source_line_number": source_reference.get("line_number"),
         "source_record_id": source_reference.get("record_id"),
         "source_raw_record_sha256": source_reference.get("raw_record_sha256"),
-        "source_content_sha256": source_reference.get("content_sha256"),
+        "source_actual_content_sha256": source_reference.get(
+            "actual_content_sha256"
+        ),
+        "source_actual_content_length": source_reference.get(
+            "actual_content_length"
+        ),
+        "source_canonical_logical_sha256": source_reference.get(
+            "canonical_logical_sha256"
+        ),
+        "source_canonical_logical_length": source_reference.get(
+            "canonical_logical_length"
+        ),
+        "source_transport_normalization_schema": (
+            SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA
+        ),
+        "source_transport_normalization_mode": source_reference.get(
+            "transport_normalization_mode"
+        ),
+        "source_transport_removed_suffix_hex": source_reference.get(
+            "transport_removed_suffix_hex"
+        ),
+        "source_transport_removed_byte_count": source_reference.get(
+            "transport_removed_byte_count"
+        ),
     }
     delegation_input = DEPLOYMENT_DELEGATION_MARKER + " " + json.dumps(
         source_record_binding,
@@ -1229,7 +1391,7 @@ def _verify_user_authorization(
     if (
         not source_identity_valid
         or not wrapper_identity_valid
-        or source["text"] != expected_text
+        or source["canonical_text"] != expected_text
         or wrapper["text"] != expected_wrapper
         or _iso_datetime(source["timestamp"])
         >= _iso_datetime(wrapper["timestamp"])
@@ -3616,6 +3778,9 @@ def _verify_rollback_and_bound_evidence(
                 DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
             ),
             "two_hop_structure": DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
+            "source_ui_transport_normalization": (
+                SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT
+            ),
             "self_authorizes_execution": False,
         }
         or not isinstance(packet_forbidden, Mapping)
@@ -3887,13 +4052,13 @@ def _verify_rollback_and_bound_evidence(
         or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
         or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
         or revocation.get("revoked_approval_id")
-        != "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z"
+        != "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z"
         or not isinstance(revoked_candidate, Mapping)
         or revoked_candidate.get("sha256")
-        != "1da8d42cc57678ec23e26c6d0d6355d413bdf9b163d3e6daaa2120d3058a548e"
+        != "5fab0fc154ff8550b8efe5c7d61646f64591792ceb728e5f7a7bed96c88932b5"
         or not isinstance(revoked_packet, Mapping)
         or revoked_packet.get("sha256")
-        != "9966bf3e6766e8d4f5943576c38bc7c6bca2383860867e7c43885423f6b33e03"
+        != "6db1c14e792fefa0be3b76c38fe88797bcbcf3b100ef501302544ca65302fae6"
         or any(
             revocation.get(field) is not False
             for field in (

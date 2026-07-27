@@ -20,6 +20,7 @@ from scripts.step7_readiness_gate import (
     BASE_SENTINEL_PHYSICAL_SHA256,
     BASE_SENTINEL_REPORT_SHA256,
     CANDIDATE_SCHEMA,
+    CODEX_SOURCE_USER_AUTHORIZATION_REFERENCE_FIELDS,
     CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
     CODEX_USER_AUTHORIZATION_SCHEMA,
     DEPENDENCY_RESULT_SCHEMA,
@@ -62,9 +63,12 @@ from scripts.step7_readiness_gate import (
     STEP56_SOURCE_SESSION_PREFIX_SHA256,
     STEP7_DELEGATED_SOURCE_SESSION,
     STEP7_SOURCE_THREAD_ID,
+    SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT,
+    SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA,
     TEST_RESULT_SCHEMA,
     _openai_wire_messages,
     _json_value_sha256,
+    _normalize_source_authorization_transport,
     _verify_backup_and_rollback_plan,
     _verify_step56_source_session,
     validate_step7_candidate,
@@ -275,18 +279,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 ),
                 "decision": "REJECT_DEPLOY_REQUEST",
                 "revoked_approval_id": (
-                    "SITINA_STEP7_DEPLOY_B7CA082_6F_20260727T123400Z"
+                    "SITINA_STEP7_DEPLOY_E09F72C_6F_20260727T133600Z"
                 ),
                 "revoked_candidate": {
                     "sha256": (
-                        "1da8d42cc57678ec23e26c6d0d6355d"
-                        "413bdf9b163d3e6daaa2120d3058a548e"
+                        "5fab0fc154ff8550b8efe5c7d61646f"
+                        "64591792ceb728e5f7a7bed96c88932b5"
                     )
                 },
                 "revoked_packet": {
                     "sha256": (
-                        "9966bf3e6766e8d4f5943576c38bc7c6"
-                        "bca2383860867e7c43885423f6b33e03"
+                        "6db1c14e792fefa0be3b76c38fe88797"
+                        "bcbcf3b100ef501302544ca65302fae6"
                     )
                 },
                 "may_execute": False,
@@ -488,6 +492,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         delegated: bool = True,
         source_thread_id: str = STEP7_SOURCE_THREAD_ID,
         input_suffix: str = "",
+        source_text_prefix: str = "",
         source_text_suffix: str = "",
         self_delegated: bool = False,
         source_role: str = "user",
@@ -518,7 +523,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             sort_keys=True,
             separators=(",", ":"),
         )
-        source_text = exact_authorization + source_text_suffix
+        source_text = (
+            source_text_prefix + exact_authorization + source_text_suffix
+        )
         source_existing = self.source_authorization_session.read_bytes().splitlines(
             keepends=True
         )
@@ -545,13 +552,39 @@ class Step7ReadinessGateTests(unittest.TestCase):
         ).encode("utf-8")
         with self.source_authorization_session.open("ab") as handle:
             handle.write(source_raw)
+        canonical_source_text = _normalize_source_authorization_transport(
+            source_text
+        )
+        if canonical_source_text is None:
+            canonical_source_text = source_text
+        source_text_bytes = source_text.encode("utf-8")
+        canonical_source_text_bytes = canonical_source_text.encode("utf-8")
+        transport_mode = (
+            "IDENTITY"
+            if canonical_source_text == source_text
+            else "REMOVE_ONE_TERMINAL_LF"
+        )
         source_reference = {
             "schema": CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA,
             "session_path": str(self.source_authorization_session.resolve()),
             "line_number": source_line_number,
             "record_id": source_record_id,
             "raw_record_sha256": hashlib.sha256(source_raw).hexdigest(),
-            "content_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+            "actual_content_sha256": hashlib.sha256(
+                source_text_bytes
+            ).hexdigest(),
+            "actual_content_length": len(source_text_bytes),
+            "canonical_logical_sha256": hashlib.sha256(
+                canonical_source_text_bytes
+            ).hexdigest(),
+            "canonical_logical_length": len(canonical_source_text_bytes),
+            "transport_normalization_mode": transport_mode,
+            "transport_removed_suffix_hex": (
+                "" if transport_mode == "IDENTITY" else "0a"
+            ),
+            "transport_removed_byte_count": (
+                0 if transport_mode == "IDENTITY" else 1
+            ),
             "marker": marker,
             "author": "user",
         }
@@ -570,7 +603,30 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "source_raw_record_sha256": source_reference[
                 "raw_record_sha256"
             ],
-            "source_content_sha256": source_reference["content_sha256"],
+            "source_actual_content_sha256": source_reference[
+                "actual_content_sha256"
+            ],
+            "source_actual_content_length": source_reference[
+                "actual_content_length"
+            ],
+            "source_canonical_logical_sha256": source_reference[
+                "canonical_logical_sha256"
+            ],
+            "source_canonical_logical_length": source_reference[
+                "canonical_logical_length"
+            ],
+            "source_transport_normalization_schema": (
+                SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA
+            ),
+            "source_transport_normalization_mode": source_reference[
+                "transport_normalization_mode"
+            ],
+            "source_transport_removed_suffix_hex": source_reference[
+                "transport_removed_suffix_hex"
+            ],
+            "source_transport_removed_byte_count": source_reference[
+                "transport_removed_byte_count"
+            ],
         }
         if binding_override is not None:
             source_binding.update(binding_override)
@@ -1133,6 +1189,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     DEPLOYMENT_DELEGATION_SOURCE_BINDING_FIELDS
                 ),
                 "two_hop_structure": DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
+                "source_ui_transport_normalization": (
+                    SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT
+                ),
                 "self_authorizes_execution": False,
             },
             "forbidden_boundaries": forbidden,
@@ -3028,11 +3087,135 @@ class Step7ReadinessGateTests(unittest.TestCase):
             contract["two_hop_structure"],
             DEPLOYMENT_AUTHORIZATION_TWO_HOP_STRUCTURE,
         )
+        self.assertEqual(
+            contract["source_ui_transport_normalization"],
+            SOURCE_UI_TRANSPORT_NORMALIZATION_CONTRACT,
+        )
         self.assertIn("source_authorization", self.rollback_authorization)
+        self.assertEqual(
+            set(self.rollback_authorization["source_authorization"]),
+            CODEX_SOURCE_USER_AUTHORIZATION_REFERENCE_FIELDS,
+        )
+        self.assertEqual(
+            self.rollback_authorization["source_authorization"][
+                "transport_normalization_mode"
+            ],
+            "IDENTITY",
+        )
+        self.assertEqual(
+            self.rollback_authorization["source_authorization"][
+                "transport_removed_suffix_hex"
+            ],
+            "",
+        )
         self.assertEqual(evidence["authorization_contract"], contract)
         self.assertEqual(review_candidate["authorization_contract"], contract)
         result = self._validate(copy.deepcopy(self.candidate))
         self.assertTrue(result["accepted"], result["errors"])
+
+    def test_deployment_authorization_accepts_one_terminal_source_lf(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        receipt = self._user_authorization(
+            self.rollback_packet,
+            packet,
+            source_text_suffix="\n",
+        )
+        source_reference = receipt["source_authorization"]
+        self.assertEqual(
+            source_reference["actual_content_length"],
+            source_reference["canonical_logical_length"] + 1,
+        )
+        self.assertNotEqual(
+            source_reference["actual_content_sha256"],
+            source_reference["canonical_logical_sha256"],
+        )
+        self.assertEqual(
+            source_reference["transport_normalization_mode"],
+            "REMOVE_ONE_TERMINAL_LF",
+        )
+        self.assertEqual(
+            source_reference["transport_removed_suffix_hex"],
+            "0a",
+        )
+        self.assertEqual(
+            source_reference["transport_removed_byte_count"],
+            1,
+        )
+        wrapper_lines = self.anchor_session.read_bytes().splitlines(
+            keepends=True
+        )
+        wrapper_record = json.loads(
+            wrapper_lines[receipt["line_number"] - 1]
+        )
+        wrapper_text = wrapper_record["payload"]["content"][0]["text"]
+        delegation_input = wrapper_text.split("<input>", 1)[1].split(
+            "</input>",
+            1,
+        )[0]
+        source_binding = json.loads(
+            delegation_input.removeprefix(
+                DEPLOYMENT_DELEGATION_MARKER + " "
+            )
+        )
+        self.assertEqual(
+            source_binding["source_actual_content_sha256"],
+            source_reference["actual_content_sha256"],
+        )
+        self.assertEqual(
+            source_binding["source_actual_content_length"],
+            source_reference["actual_content_length"],
+        )
+        self.assertEqual(
+            source_binding["source_canonical_logical_sha256"],
+            source_reference["canonical_logical_sha256"],
+        )
+        self.assertEqual(
+            source_binding["source_canonical_logical_length"],
+            source_reference["canonical_logical_length"],
+        )
+        self.assertEqual(
+            source_binding["source_transport_normalization_schema"],
+            SOURCE_UI_TRANSPORT_NORMALIZATION_SCHEMA,
+        )
+        self.assertEqual(
+            source_binding["source_transport_normalization_mode"],
+            source_reference["transport_normalization_mode"],
+        )
+        self.assertEqual(
+            source_binding["source_transport_removed_suffix_hex"],
+            source_reference["transport_removed_suffix_hex"],
+        )
+        self.assertEqual(
+            source_binding["source_transport_removed_byte_count"],
+            source_reference["transport_removed_byte_count"],
+        )
+        recovery_original = self.rollback_recovery.read_text(encoding="utf-8")
+        try:
+            recovery = json.loads(recovery_original)
+            recovery["authorization_raw_record_sha256"] = receipt[
+                "raw_record_sha256"
+            ]
+            self.rollback_recovery.write_text(
+                json.dumps(recovery, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["rollback_proof"]["authorization_receipt"] = receipt
+            candidate["rollback_proof"]["recovery_result"] = (
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_recovery,
+                )
+            )
+            result = self._validate(candidate)
+            self.assertTrue(result["accepted"], result["errors"])
+        finally:
+            self.rollback_recovery.write_text(
+                recovery_original,
+                encoding="utf-8",
+            )
 
     def test_deployment_authorization_rejects_legacy_direct_user_text(self) -> None:
         packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
@@ -3119,7 +3302,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "line_number": 999,
             "record_id": "wrong-source-record",
             "raw_record_sha256": "0" * 64,
-            "content_sha256": "0" * 64,
+            "actual_content_sha256": "0" * 64,
+            "actual_content_length": 0,
+            "canonical_logical_sha256": "0" * 64,
+            "canonical_logical_length": 0,
+            "transport_normalization_mode": "REMOVE_ONE_TERMINAL_LF",
+            "transport_removed_suffix_hex": "0a",
+            "transport_removed_byte_count": 1,
         }
         for field, value in mutations.items():
             with self.subTest(field=field):
@@ -3132,18 +3321,34 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "deployment user authorization source",
                 )
 
-    def test_deployment_authorization_rejects_source_text_byte_drift(
+    def test_deployment_authorization_rejects_disallowed_transport_suffixes(
         self,
     ) -> None:
         packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
-        receipt = self._user_authorization(
-            self.rollback_packet,
-            packet,
-            source_text_suffix="x",
+        invalid_transports = (
+            ("", "\r"),
+            ("", "\r\n"),
+            ("", "\n\n"),
+            ("", " "),
+            (" ", ""),
+            ("\t", ""),
+            ("", "\u00a0"),
+            ("", "x"),
         )
-        candidate = copy.deepcopy(self.candidate)
-        candidate["rollback_proof"]["authorization_receipt"] = receipt
-        self.assertRejected(candidate, "deployment user authorization")
+        for prefix, suffix in invalid_transports:
+            with self.subTest(prefix=repr(prefix), suffix=repr(suffix)):
+                receipt = self._user_authorization(
+                    self.rollback_packet,
+                    packet,
+                    source_text_prefix=prefix,
+                    source_text_suffix=suffix,
+                )
+                candidate = copy.deepcopy(self.candidate)
+                candidate["rollback_proof"]["authorization_receipt"] = receipt
+                self.assertRejected(
+                    candidate,
+                    "deployment user authorization",
+                )
 
     def test_deployment_authorization_rejects_extra_source_content_item(
         self,
