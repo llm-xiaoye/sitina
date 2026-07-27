@@ -11,6 +11,10 @@ import unittest
 from pathlib import Path
 
 from scripts.step7_readiness_gate import (
+    BACKUP_ROLLBACK_EXECUTION_SEQUENCE,
+    BACKUP_ROLLBACK_FAILURE_POLICY,
+    BACKUP_ROLLBACK_FORBIDDEN_FIELDS,
+    BACKUP_ROLLBACK_PLAN_SCHEMA,
     ACTIVATION_RESULT_SCHEMA,
     BASE_SENTINEL_PATH,
     BASE_SENTINEL_PHYSICAL_SHA256,
@@ -18,6 +22,10 @@ from scripts.step7_readiness_gate import (
     CANDIDATE_SCHEMA,
     DEPENDENCY_RESULT_SCHEMA,
     DEPLOYMENT_PACKET_SCHEMA,
+    DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
+    DEPLOYMENT_AUTHORIZATION_MARKER,
+    DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS,
+    DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
     DIRECTED_STAGE_SELECTORS,
     ENTRY_CANDIDATE_SHA256,
     EXECUTION_MANIFEST_CANONICAL_SHA256,
@@ -41,10 +49,16 @@ from scripts.step7_readiness_gate import (
     STEP56_ACCEPT_RECORDS,
     STEP56_ACCEPT_SCHEMA,
     STEP56_SOURCE_SESSION_ID,
+    STEP56_SOURCE_SESSION_META_RAW_SHA256,
     STEP56_SOURCE_SESSION_PATH,
-    STEP56_SOURCE_SESSION_SHA256,
+    STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH,
+    STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT,
+    STEP56_SOURCE_SESSION_PREFIX_SHA256,
     TEST_RESULT_SCHEMA,
     _openai_wire_messages,
+    _json_value_sha256,
+    _verify_backup_and_rollback_plan,
+    _verify_step56_source_session,
     validate_step7_candidate,
 )
 
@@ -121,6 +135,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
         (self.source / ".python-version").write_text("3.12.13\n", encoding="utf-8")
         (self.source / "tracked.txt").write_text("Step7 tracked source\n", encoding="utf-8")
         shutil.copytree(self.source, self.deployment, dirs_exist_ok=True)
+        (self.source / "created.txt").write_text(
+            "Step7 newly created source\n",
+            encoding="utf-8",
+        )
         self._git("init", "-q")
         self._git("config", "user.email", "step7-tests@example.invalid")
         self._git("config", "user.name", "Step7 Tests")
@@ -200,27 +218,71 @@ class Step7ReadinessGateTests(unittest.TestCase):
             )
             for stage in REQUIRED_GATES
         }
-        self.rollback_backup = self.output / "tracked.txt.preimage"
-        shutil.copy2(self.deployment / "tracked.txt", self.rollback_backup)
+        self.rollback_approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
+        self.rollback_root = (
+            self.output.resolve()
+            / "sitina-step7-deploy-v3"
+            / self.rollback_approval_id
+        )
+        self.rollback_quarantine_root = (
+            self.rollback_root / "quarantine" / "created"
+        )
+        self.rollback_backup = (
+            self.rollback_root / "preimages" / "tracked.txt.preimage"
+        )
         self.rollback_restored_snapshot = self.output / "tracked.txt.restored-snapshot"
-        shutil.copy2(self.rollback_backup, self.rollback_restored_snapshot)
+        shutil.copy2(
+            self.deployment / "tracked.txt",
+            self.rollback_restored_snapshot,
+        )
         self.rollback_reapplied_snapshot = self.output / "tracked.txt.reapplied-snapshot"
         shutil.copy2(self.source / "tracked.txt", self.rollback_reapplied_snapshot)
+        self.rollback_created_reapplied_snapshot = (
+            self.output / "created.txt.reapplied-snapshot"
+        )
+        shutil.copy2(
+            self.source / "created.txt",
+            self.rollback_created_reapplied_snapshot,
+        )
         self.rollback_packet = self._json_file(
             "rollback-approval-packet.json",
             self._rollback_packet_document(),
+        )
+        self.rollback_review_candidate = self._json_file(
+            "rollback-deployment-request-candidate.json",
+            self._rollback_review_candidate_document(),
         )
         self.rollback_authorization = self._user_authorization(
             self.rollback_packet,
             json.loads(self.rollback_packet.read_text(encoding="utf-8")),
         )
-        self.rollback_manifest = self._json_file(
-            "rollback-manifest.json",
-            self._rollback_manifest_document(),
+        (self.output.resolve() / "sitina-step7-deploy-v3").mkdir()
+        self.rollback_root.mkdir(mode=0o700)
+        self.rollback_backup.parent.mkdir()
+        shutil.copy2(self.deployment / "tracked.txt", self.rollback_backup)
+        shutil.copy2(
+            self.source / "created.txt",
+            self.deployment / "created.txt",
         )
-        self.rollback_recovery = self._json_file(
-            "rollback-recovery.json",
-            self._rollback_recovery_document(),
+        rehearsal_source = (
+            self.rollback_root / "rehearsal" / "created" / "created.txt"
+        )
+        rehearsal_source.parent.mkdir(parents=True)
+        shutil.copy2(self.source / "created.txt", rehearsal_source)
+        self.rollback_quarantine_created = (
+            self.rollback_quarantine_root / "created.txt"
+        )
+        self.rollback_quarantine_created.parent.mkdir(parents=True)
+        rehearsal_source.replace(self.rollback_quarantine_created)
+        self.rollback_manifest = self.rollback_root / "backup-manifest.json"
+        self.rollback_manifest.write_text(
+            json.dumps(self._rollback_manifest_document(), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        self.rollback_recovery = self.rollback_root / "recovery-verification.json"
+        self.rollback_recovery.write_text(
+            json.dumps(self._rollback_recovery_document(), sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         self.step56_accepts = self._step56_accept_artifacts()
         self._finalize_review_inputs_and_audits()
@@ -330,26 +392,30 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self,
         packet_path: Path,
         packet: dict[str, object],
+        *,
+        payload_override: dict[str, object] | None = None,
     ) -> dict[str, object]:
         existing = self.anchor_session.read_bytes().splitlines(keepends=True)
         line_number = len(existing) + 1
         record_id = f"msg-fixture-{line_number}"
-        payload = {
+        payload = payload_override or {
             "approval_id": packet["approval_id"],
             "approval_packet_sha256": sha256(packet_path),
+            "exact_file_operation_count": len(packet["exact_file_operations"]),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "review_candidate_sha256": sha256(
+                self.rollback_review_candidate
+            ),
             "source_head": packet["source_binding"]["head"],
             "source_tree": packet["source_binding"]["tree"],
             "deployment_root": packet["deployment_binding"]["root"],
-            "exact_file_operations_sha256": hashlib.sha256(
-                json.dumps(
-                    packet["exact_file_operations"],
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest(),
         }
-        marker = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V1"
+        marker = DEPLOYMENT_AUTHORIZATION_MARKER
         text = marker + " " + json.dumps(
             payload,
             ensure_ascii=False,
@@ -598,17 +664,128 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "registration_gate": strict if stage == "all_registered_unique" else None,
         }
 
+    def _rollback_plan_document(
+        self,
+        operations: list[dict[str, object]],
+        *,
+        source_head: str,
+        source_tree: str,
+        deployment_root: str,
+    ) -> dict[str, object]:
+        forbidden = {
+            field: False for field in BACKUP_ROLLBACK_FORBIDDEN_FIELDS
+        }
+        objects: list[dict[str, object]] = []
+        for index, operation in enumerate(operations):
+            relative = str(operation["relative_path"])
+            kind = str(operation["operation"])
+            backup_path = (
+                str(self.rollback_root / "preimages" / f"{relative}.preimage")
+                if kind == "REPLACE"
+                else None
+            )
+            quarantine_path = (
+                str(self.rollback_quarantine_root / relative)
+                if kind == "CREATE"
+                else None
+            )
+            objects.append(
+                {
+                    "index": index,
+                    "relative_path": relative,
+                    "operation": kind,
+                    "target_path": operation["target_path"],
+                    "preimage_sha256": operation["preimage_sha256"],
+                    "target_sha256": operation["target_sha256"],
+                    "preimage_backup_path": backup_path,
+                    "rollback_quarantine_path": quarantine_path,
+                    "rollback_action": (
+                        "RESTORE_VERIFIED_PREIMAGE"
+                        if kind == "REPLACE"
+                        else "QUARANTINE_CREATED_TARGET"
+                    ),
+                    "recovery_verification": (
+                        {
+                            "restored_sha256": operation["preimage_sha256"],
+                            "reapplied_sha256": operation["target_sha256"],
+                        }
+                        if kind == "REPLACE"
+                        else {
+                            "target_absent_after_quarantine": True,
+                            "quarantined_sha256": operation["target_sha256"],
+                            "reapplied_sha256": operation["target_sha256"],
+                        }
+                    ),
+                }
+            )
+        return {
+            "schema": BACKUP_ROLLBACK_PLAN_SCHEMA,
+            "approval_id": self.rollback_approval_id,
+            "status": "PLANNED_NOT_EXECUTED",
+            "source_binding": {
+                "root": str(self.source.resolve()),
+                "head": source_head,
+                "tree": source_tree,
+            },
+            "deployment_binding": {"root": deployment_root},
+            "exact_file_operations_sha256": _json_value_sha256(operations),
+            "backup_root": {
+                "path": str(self.rollback_root),
+                "allowed_parent": str(
+                    self.output.resolve() / "sitina-step7-deploy-v3"
+                ),
+                "derived_from_approval_id": True,
+                "must_not_exist_before_authorized_execution": True,
+                "create_mode": "0o700",
+                "create_semantics": "EXCLUSIVE_NOFOLLOW",
+                "reuse_allowed": False,
+            },
+            "backup_manifest_path": str(
+                self.rollback_root / "backup-manifest.json"
+            ),
+            "rollback_quarantine_root": str(self.rollback_quarantine_root),
+            "recovery_verification_path": str(
+                self.rollback_root / "recovery-verification.json"
+            ),
+            "objects": objects,
+            "execution_sequence": list(BACKUP_ROLLBACK_EXECUTION_SEQUENCE),
+            "failure_policy": copy.deepcopy(BACKUP_ROLLBACK_FAILURE_POLICY),
+            "forbidden_boundaries": forbidden,
+        }
+
     def _rollback_manifest_document(self) -> dict[str, object]:
         target = self.source.resolve() / "tracked.txt"
         target_stat = target.stat()
+        created = self.source.resolve() / "created.txt"
+        created_stat = created.stat()
         backup_stat = self.rollback_backup.stat()
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        plan_sha256 = packet["backup_and_rollback_plan_sha256"]
         return {
             "schema": ROLLBACK_MANIFEST_SCHEMA,
             "source_head": self._git("rev-parse", "HEAD^{commit}"),
             "source_tree": self._git("rev-parse", "HEAD^{tree}"),
             "deployment_root": str(self.deployment.resolve()),
-            "approval_id": "SITINA_STEP7_DEPLOY_TEST_FIXTURE",
+            "approval_id": self.rollback_approval_id,
             "approval_packet_sha256": sha256(self.rollback_packet),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": plan_sha256,
+            "review_candidate_sha256": sha256(
+                self.rollback_review_candidate
+            ),
+            "backup_root": str(self.rollback_root),
+            "backup_manifest_path": str(
+                self.rollback_root / "backup-manifest.json"
+            ),
+            "backup_root_created_exclusively": True,
+            "backup_root_reused": False,
+            "backup_root_mode": "0o700",
+            "backup_root_parent_components_safe": True,
+            "verified_before_deployment": True,
+            "deployment_mutated": False,
+            "mismatch_count": 0,
             "entries": [
                 {
                     "relative_path": "tracked.txt",
@@ -623,27 +800,69 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "preimage_size": backup_stat.st_size,
                     "preimage_mode": oct(stat.S_IMODE(backup_stat.st_mode)),
                     "backup": self._reference(self.rollback_backup),
-                }
+                    "rollback_quarantine_path": None,
+                },
+                {
+                    "relative_path": "created.txt",
+                    "operation": "CREATE",
+                    "source_path": str(created),
+                    "target_path": str(
+                        self.deployment.resolve() / "created.txt"
+                    ),
+                    "target_sha256": sha256(created),
+                    "target_size": created_stat.st_size,
+                    "target_mode": oct(stat.S_IMODE(created_stat.st_mode)),
+                    "preimage_exists": False,
+                    "preimage_sha256": None,
+                    "preimage_size": None,
+                    "preimage_mode": None,
+                    "backup": None,
+                    "rollback_quarantine_path": str(
+                        self.rollback_quarantine_created
+                    ),
+                },
             ],
         }
 
     def _rollback_packet_document(self) -> dict[str, object]:
         target = self.source.resolve() / "tracked.txt"
         target_stat = target.stat()
-        backup_stat = self.rollback_backup.stat()
+        preimage = self.deployment.resolve() / "tracked.txt"
+        preimage_stat = preimage.stat()
+        created = self.source.resolve() / "created.txt"
+        created_stat = created.stat()
         source_head = self._git("rev-parse", "HEAD^{commit}")
         source_tree = self._git("rev-parse", "HEAD^{tree}")
         deployment_root = str(self.deployment.resolve())
-        approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
+        approval_id = self.rollback_approval_id
+        backup_root_preflight = {
+            "checked_at_utc": "2026-07-27T00:00:00Z",
+            "path": str(self.rollback_root),
+            "allowed_parent": str(
+                self.output.resolve() / "sitina-step7-deploy-v3"
+            ),
+            "existed": False,
+            "reuse_allowed": False,
+            "ancestor_safety_verified": True,
+            "symlink_component_count": 0,
+        }
         capture_entries = [
             {
                 "relative_path": "tracked.txt",
                 "target_path": str(self.deployment.resolve() / "tracked.txt"),
                 "exists": True,
-                "sha256": sha256(self.rollback_backup),
-                "size": backup_stat.st_size,
-                "mode": oct(stat.S_IMODE(backup_stat.st_mode)),
-            }
+                "sha256": sha256(preimage),
+                "size": preimage_stat.st_size,
+                "mode": oct(stat.S_IMODE(preimage_stat.st_mode)),
+            },
+            {
+                "relative_path": "created.txt",
+                "target_path": str(self.deployment.resolve() / "created.txt"),
+                "exists": False,
+                "sha256": None,
+                "size": None,
+                "mode": None,
+            },
         ]
         capture_anchor = self._capture_anchor(
             "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1",
@@ -653,8 +872,48 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "source_tree": source_tree,
                 "deployment_root": deployment_root,
                 "entries": capture_entries,
+                "backup_root_preflight": backup_root_preflight,
             },
         )
+        operations = [
+            {
+                "relative_path": "tracked.txt",
+                "operation": "REPLACE",
+                "source_path": str(target),
+                "target_path": str(self.deployment.resolve() / "tracked.txt"),
+                "target_sha256": sha256(target),
+                "target_size": target_stat.st_size,
+                "target_mode": oct(stat.S_IMODE(target_stat.st_mode)),
+                "preimage_exists": True,
+                "preimage_sha256": sha256(preimage),
+                "preimage_size": preimage_stat.st_size,
+                "preimage_mode": oct(stat.S_IMODE(preimage_stat.st_mode)),
+            },
+            {
+                "relative_path": "created.txt",
+                "operation": "CREATE",
+                "source_path": str(created),
+                "target_path": str(
+                    self.deployment.resolve() / "created.txt"
+                ),
+                "target_sha256": sha256(created),
+                "target_size": created_stat.st_size,
+                "target_mode": oct(stat.S_IMODE(created_stat.st_mode)),
+                "preimage_exists": False,
+                "preimage_sha256": None,
+                "preimage_size": None,
+                "preimage_mode": None,
+            },
+        ]
+        plan = self._rollback_plan_document(
+            operations,
+            source_head=source_head,
+            source_tree=source_tree,
+            deployment_root=deployment_root,
+        )
+        forbidden = {
+            field: False for field in BACKUP_ROLLBACK_FORBIDDEN_FIELDS
+        }
         return {
             "schema": DEPLOYMENT_PACKET_SCHEMA,
             "approval_id": approval_id,
@@ -665,39 +924,90 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             "deployment_binding": {"root": deployment_root},
             "preimage_capture": {
-                "schema": "SITINA_STEP7_DEPLOYMENT_PREIMAGE_CAPTURE_V1",
+                "schema": "SITINA_STEP7_DEPLOYMENT_PREIMAGE_CAPTURE_V2",
                 "captured_at_utc": "2026-07-27T00:00:00Z",
                 "deployment_root": deployment_root,
                 "deployment_mutated": False,
                 "entries": capture_entries,
+                "backup_root_preflight": backup_root_preflight,
                 "capture_anchor": capture_anchor,
             },
-            "exact_file_operations": [
-                {
-                    "relative_path": "tracked.txt",
-                    "operation": "REPLACE",
-                    "source_path": str(target),
-                    "target_path": str(self.deployment.resolve() / "tracked.txt"),
-                    "target_sha256": sha256(target),
-                    "target_size": target_stat.st_size,
-                    "target_mode": oct(stat.S_IMODE(target_stat.st_mode)),
-                    "preimage_exists": True,
-                    "preimage_sha256": sha256(self.rollback_backup),
-                    "preimage_size": backup_stat.st_size,
-                    "preimage_mode": oct(stat.S_IMODE(backup_stat.st_mode)),
-                }
-            ],
+            "exact_file_operations": operations,
+            "backup_and_rollback_plan": plan,
+            "backup_and_rollback_plan_sha256": _json_value_sha256(plan),
+            "authorization_contract": {
+                "schema": DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
+                "marker": DEPLOYMENT_AUTHORIZATION_MARKER,
+                "source_thread_id": (
+                    "019f810d-78fe-75d2-8efd-d43fccbd82d7"
+                ),
+                "required_payload_fields": list(
+                    DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS
+                ),
+                "requires_user_record": True,
+                "delegated_wrapper_source_thread_required": True,
+                "self_authorizes_execution": False,
+            },
+            "forbidden_boundaries": forbidden,
             "requires_exact_user_authorization": True,
             "self_authorizes_execution": False,
             "deployment_executed_at_creation": False,
         }
 
+    def _rollback_review_candidate_document(self) -> dict[str, object]:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        return {
+            "schema": DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
+            "candidate_id": (
+                f"{self.rollback_approval_id}_REVIEW_CANDIDATE"
+            ),
+            "created_at_utc": "2026-07-27T00:00:00Z",
+            "status": "AWAITING_EXACT_USER_AUTHORIZATION",
+            "approval_id": self.rollback_approval_id,
+            "source_binding": {
+                "root": str(self.source.resolve()),
+                "head": packet["source_binding"]["head"],
+                "tree": packet["source_binding"]["tree"],
+            },
+            "deployment_binding": {
+                "root": packet["deployment_binding"]["root"]
+            },
+            "approval_packet": self._reference(self.rollback_packet),
+            "exact_file_operation_count": len(
+                packet["exact_file_operations"]
+            ),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "authorized": False,
+            "deployment_executed": False,
+            "forbidden_boundaries": copy.deepcopy(
+                packet["forbidden_boundaries"]
+            ),
+        }
+
     def _rollback_recovery_document(self) -> dict[str, object]:
         manifest = json.loads(self.rollback_manifest.read_text(encoding="utf-8"))
         entry = manifest["entries"][0]
+        created_entry = manifest["entries"][1]
+        quarantine_stat = self.rollback_quarantine_created.stat()
+        rehearsal_source = (
+            self.rollback_root / "rehearsal" / "created" / "created.txt"
+        )
         return {
             "schema": ROLLBACK_RESULT_SCHEMA,
             "manifest": self._reference(self.rollback_manifest),
+            "approval_packet": self._reference(self.rollback_packet),
+            "review_candidate": self._reference(
+                self.rollback_review_candidate
+            ),
+            "rollback_plan_sha256": manifest["rollback_plan_sha256"],
+            "authorization_raw_record_sha256": self.rollback_authorization[
+                "raw_record_sha256"
+            ],
             "source_head": manifest["source_head"],
             "source_tree": manifest["source_tree"],
             "deployment_root": str(self.deployment.resolve()),
@@ -705,6 +1015,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "deployment_mutated": False,
             "verified": True,
             "mismatch_count": 0,
+            "delete_operation_count": 0,
+            "backups_retained": True,
+            "quarantines_retained": True,
+            "manual_recovery_required": False,
             "entries": [
                 {
                     "relative_path": "tracked.txt",
@@ -727,15 +1041,55 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "reapplied_artifact": self._reference(
                         self.rollback_reapplied_snapshot
                     ),
-                }
+                    "quarantined_artifact": None,
+                    "quarantine_move": None,
+                },
+                {
+                    "relative_path": "created.txt",
+                    "operation": "CREATE",
+                    "restored": {
+                        "exists": False,
+                        "sha256": None,
+                        "size": None,
+                        "mode": None,
+                    },
+                    "reapplied": {
+                        "exists": True,
+                        "sha256": created_entry["target_sha256"],
+                        "size": created_entry["target_size"],
+                        "mode": created_entry["target_mode"],
+                    },
+                    "restored_artifact": None,
+                    "reapplied_artifact": self._reference(
+                        self.rollback_created_reapplied_snapshot
+                    ),
+                    "quarantined_artifact": self._reference(
+                        self.rollback_quarantine_created
+                    ),
+                    "quarantine_move": {
+                        "method": "ATOMIC_RENAME_SAME_FILESYSTEM",
+                        "source_path": str(rehearsal_source),
+                        "destination_path": str(
+                            self.rollback_quarantine_created
+                        ),
+                        "source_device": quarantine_stat.st_dev,
+                        "source_inode": quarantine_stat.st_ino,
+                        "destination_device": quarantine_stat.st_dev,
+                        "destination_inode": quarantine_stat.st_ino,
+                        "inode_preserved": True,
+                        "source_absent_after_move": True,
+                        "delete_operation_count": 0,
+                    },
+                },
             ],
         }
 
     def _step56_accept_artifacts(self) -> list[Path]:
         source_session = Path(STEP56_SOURCE_SESSION_PATH)
         self.assertTrue(source_session.is_file())
-        self.assertEqual(sha256(source_session), STEP56_SOURCE_SESSION_SHA256)
-        raw_lines = source_session.read_bytes().splitlines(keepends=True)
+        prefix_errors: list[str] = []
+        raw_lines = _verify_step56_source_session(source_session, prefix_errors)
+        self.assertEqual(prefix_errors, [])
         paths: list[Path] = []
         for record_id, expected in STEP56_ACCEPT_RECORDS.items():
             raw_record = raw_lines[expected["line_number"] - 1]
@@ -754,8 +1108,15 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "artifact_id": expected["artifact_id"],
                 "source_session": {
                     "path": STEP56_SOURCE_SESSION_PATH,
-                    "physical_sha256": STEP56_SOURCE_SESSION_SHA256,
                     "session_id": STEP56_SOURCE_SESSION_ID,
+                    "session_meta_raw_sha256": (
+                        STEP56_SOURCE_SESSION_META_RAW_SHA256
+                    ),
+                    "accepted_prefix": {
+                        "line_count": STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT,
+                        "byte_length": STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH,
+                        "sha256": STEP56_SOURCE_SESSION_PREFIX_SHA256,
+                    },
                 },
                 "source_record": {
                     "line_number": expected["line_number"],
@@ -908,6 +1269,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 self.rollback_packet, "json", "deployment approval packet"
             ),
             self._review_required_file(
+                self.rollback_review_candidate,
+                "json",
+                "deployment request review candidate",
+            ),
+            self._review_required_file(
                 self.rollback_manifest, "json", "rollback manifest"
             ),
             self._review_required_file(
@@ -915,6 +1281,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ),
             self._review_required_file(
                 self.source / "tracked.txt", "text", "Step7 changed source"
+            ),
+            self._review_required_file(
+                self.source / "created.txt", "text", "Step7 created source"
             ),
             self._review_required_file(
                 Path(
@@ -1364,6 +1733,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             *(self._reference(path) for path in self.sentinel_samples),
             self._reference(self.rollback_packet),
+            self._reference(self.rollback_review_candidate),
             self._reference(self.rollback_manifest),
             self._reference(self.rollback_recovery),
             self._reference(self.general_evidence),
@@ -1384,7 +1754,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "head": self._git("rev-parse", "HEAD^{commit}"),
                 "tree": self._git("rev-parse", "HEAD^{tree}"),
                 "worktree_clean": True,
-                "changed_files": ["tracked.txt"],
+                "changed_files": ["tracked.txt", "created.txt"],
             },
             "gates": gates,
             "cleanup": {
@@ -1438,6 +1808,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             "rollback_proof": {
                 "approval_packet": self._reference(self.rollback_packet),
+                "deployment_request_candidate": self._reference(
+                    self.rollback_review_candidate
+                ),
                 "authorization_receipt": copy.deepcopy(
                     self.rollback_authorization
                 ),
@@ -2307,6 +2680,185 @@ class Step7ReadinessGateTests(unittest.TestCase):
         finally:
             self.rollback_recovery.write_text(original, encoding="utf-8")
 
+    def test_backup_plan_rejects_arbitrary_root_or_preimage_backup_path(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        for mutation in ("root", "preimage"):
+            plan = copy.deepcopy(packet["backup_and_rollback_plan"])
+            if mutation == "root":
+                plan["backup_root"]["path"] = str(self.output / "arbitrary")
+            else:
+                plan["objects"][0]["preimage_backup_path"] = str(
+                    self.output / "unbound.preimage"
+                )
+            errors: list[str] = []
+            _verify_backup_and_rollback_plan(
+                plan,
+                approval_id=packet["approval_id"],
+                packet_operations=packet["exact_file_operations"],
+                source_root=self.source.resolve(),
+                deployment_root=self.deployment.resolve(),
+                source_state={
+                    "head": packet["source_binding"]["head"],
+                    "tree": packet["source_binding"]["tree"],
+                },
+                errors=errors,
+            )
+            self.assertTrue(
+                any("backup and rollback plan" in error for error in errors),
+                (mutation, errors),
+            )
+
+    def test_backup_plan_create_rollback_must_quarantine_not_delete(self) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        target = self.source.resolve() / "new-step7-file.py"
+        operation = {
+            "relative_path": "new-step7-file.py",
+            "operation": "CREATE",
+            "source_path": str(target),
+            "target_path": str(self.deployment.resolve() / "new-step7-file.py"),
+            "target_sha256": "a" * 64,
+            "target_size": 1,
+            "target_mode": "0o644",
+            "preimage_exists": False,
+            "preimage_sha256": None,
+            "preimage_size": None,
+            "preimage_mode": None,
+        }
+        plan = self._rollback_plan_document(
+            [operation],
+            source_head=packet["source_binding"]["head"],
+            source_tree=packet["source_binding"]["tree"],
+            deployment_root=packet["deployment_binding"]["root"],
+        )
+        plan["objects"][0]["rollback_action"] = "DELETE_CREATED_TARGET"
+        errors: list[str] = []
+        _verify_backup_and_rollback_plan(
+            plan,
+            approval_id=packet["approval_id"],
+            packet_operations=[operation],
+            source_root=self.source.resolve(),
+            deployment_root=self.deployment.resolve(),
+            source_state={
+                "head": packet["source_binding"]["head"],
+                "tree": packet["source_binding"]["tree"],
+            },
+            errors=errors,
+        )
+        self.assertIn(
+            "backup and rollback plan object 0 operation binding mismatch",
+            errors,
+        )
+
+    def test_replace_backup_parent_symlink_is_rejected(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        preimages = self.rollback_backup.parent
+        original = self.rollback_root / "preimages-original"
+        outside = self.output / "outside-preimages"
+        outside.mkdir()
+        shutil.copy2(self.rollback_backup, outside / self.rollback_backup.name)
+        preimages.rename(original)
+        preimages.symlink_to(outside, target_is_directory=True)
+        try:
+            self.assertRejected(
+                copy.deepcopy(self.candidate),
+                "rollback preimage backup tracked.txt component is a symlink",
+            )
+        finally:
+            preimages.unlink()
+            original.rename(preimages)
+
+    def test_create_quarantine_parent_symlink_is_rejected(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        quarantine = self.rollback_quarantine_root
+        original = self.rollback_root / "quarantine-created-original"
+        outside = self.output / "outside-quarantine"
+        outside.mkdir()
+        shutil.copy2(
+            self.rollback_quarantine_created,
+            outside / self.rollback_quarantine_created.name,
+        )
+        quarantine.rename(original)
+        quarantine.symlink_to(outside, target_is_directory=True)
+        try:
+            self.assertRejected(
+                copy.deepcopy(self.candidate),
+                "rollback quarantine snapshot created.txt component is a symlink",
+            )
+        finally:
+            quarantine.unlink()
+            original.rename(quarantine)
+
+    def test_preimage_capture_anchor_requires_unused_backup_root(self) -> None:
+        packet_original = self.rollback_packet.read_text(encoding="utf-8")
+        try:
+            packet = json.loads(packet_original)
+            capture = packet["preimage_capture"]
+            capture["backup_root_preflight"]["existed"] = True
+            capture["capture_anchor"] = self._capture_anchor(
+                "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1",
+                {
+                    "approval_id": packet["approval_id"],
+                    "source_head": packet["source_binding"]["head"],
+                    "source_tree": packet["source_binding"]["tree"],
+                    "deployment_root": packet["deployment_binding"]["root"],
+                    "entries": capture["entries"],
+                    "backup_root_preflight": capture[
+                        "backup_root_preflight"
+                    ],
+                },
+            )
+            self.rollback_packet.write_text(
+                json.dumps(packet, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["rollback_proof"]["approval_packet"] = (
+                self._refresh_bound_reference(candidate, self.rollback_packet)
+            )
+            self.assertRejected(
+                candidate,
+                "rollback approval packet preimage capture mismatch",
+            )
+        finally:
+            self.rollback_packet.write_text(packet_original, encoding="utf-8")
+
+    def test_exact_authorization_binds_plan_and_review_candidate_hashes(
+        self,
+    ) -> None:
+        packet = json.loads(self.rollback_packet.read_text(encoding="utf-8"))
+        exact_payload = {
+            "approval_id": packet["approval_id"],
+            "approval_packet_sha256": sha256(self.rollback_packet),
+            "exact_file_operation_count": len(packet["exact_file_operations"]),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "review_candidate_sha256": sha256(
+                self.rollback_review_candidate
+            ),
+            "source_head": packet["source_binding"]["head"],
+            "source_tree": packet["source_binding"]["tree"],
+            "deployment_root": packet["deployment_binding"]["root"],
+        }
+        for omitted in ("rollback_plan_sha256", "review_candidate_sha256"):
+            incomplete = dict(exact_payload)
+            incomplete.pop(omitted)
+            receipt = self._user_authorization(
+                self.rollback_packet,
+                packet,
+                payload_override=incomplete,
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["rollback_proof"]["authorization_receipt"] = receipt
+            self.assertRejected(candidate, "deployment user authorization")
+
     def test_step56_accepts_cannot_be_missing_duplicated_or_tampered(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
@@ -2344,6 +2896,44 @@ class Step7ReadinessGateTests(unittest.TestCase):
             )
         finally:
             accept_path.write_text(original, encoding="utf-8")
+
+    def test_step56_active_session_allows_tail_append_after_accepted_prefix(
+        self,
+    ) -> None:
+        source = Path(STEP56_SOURCE_SESSION_PATH)
+        prefix = source.read_bytes()[:STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH]
+        fixture = self.output / "step56-session-with-legal-tail.jsonl"
+        fixture.write_bytes(
+            prefix
+            + b'{"type":"event_msg","payload":{"type":"legal_tail_append"}}\n'
+        )
+        errors: list[str] = []
+        raw_lines = _verify_step56_source_session(fixture, errors)
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            len(raw_lines),
+            STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT,
+        )
+
+    def test_step56_active_session_rejects_target_record_change(self) -> None:
+        source = Path(STEP56_SOURCE_SESSION_PATH)
+        prefix = bytearray(
+            source.read_bytes()[:STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH]
+        )
+        # The expected digest is not stored in the record, so mutate a byte in
+        # the exact target record ID while keeping the surrounding JSON valid.
+        needle = b"amsg_019fa247-a1e1-7581-ae28-ff462b6887f6"
+        offset = prefix.rfind(needle)
+        self.assertGreater(offset, 0)
+        prefix[offset + len(needle) - 1] = ord("7")
+        fixture = self.output / "step56-session-with-tampered-accept.jsonl"
+        fixture.write_bytes(prefix)
+        errors: list[str] = []
+        self.assertEqual(_verify_step56_source_session(fixture, errors), [])
+        self.assertIn(
+            "formal Step5/6 source session prefix has changed",
+            errors,
+        )
 
 
 if __name__ == "__main__":

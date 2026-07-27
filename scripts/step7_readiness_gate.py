@@ -47,15 +47,20 @@ STEP7_AUTHORITY_PATH = (
 STEP7_AUTHORITY_SHA256 = (
     "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c"
 )
-STEP56_ACCEPT_SCHEMA = "SITINA_STEP56_INDEPENDENT_ACCEPTANCE_V1"
+STEP56_ACCEPT_SCHEMA = "SITINA_STEP56_INDEPENDENT_ACCEPTANCE_V2"
 STEP56_SOURCE_SESSION_PATH = (
     "/Users/moss/.codex/sessions/2026/07/20/"
     "rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
 )
-STEP56_SOURCE_SESSION_SHA256 = (
-    "997fd7192972cc1a8df9637f169605de3a730eae13ad17cc5a3ae4fe4197e85a"
-)
 STEP56_SOURCE_SESSION_ID = "019f810d-78fe-75d2-8efd-d43fccbd82d7"
+STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT = 11564
+STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH = 21938163
+STEP56_SOURCE_SESSION_PREFIX_SHA256 = (
+    "790b71ffa8a3b2a43ce54b3c77304d7eea3c5f6ed02a3e7d83f8500a5e7b20c2"
+)
+STEP56_SOURCE_SESSION_META_RAW_SHA256 = (
+    "108a46acefdec456c54872ac4cf02a63133a954ceb1f82fbf4d642a13846360e"
+)
 STEP7_SOURCE_THREAD_ID = "019f810d-78fe-75d2-8efd-d43fccbd82d7"
 STEP56_ACCEPT_RECORDS = {
     "amsg_019fa247-a1e1-7581-ae28-ff20ebfbe76f": {
@@ -95,12 +100,23 @@ CODEX_CAPTURE_ANCHOR_SCHEMA = "SITINA_CODEX_APPEND_ONLY_CAPTURE_ANCHOR_V1"
 CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V1"
 AUDIT_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_AUDIT_CAPTURE_ANCHOR_V1"
 PREIMAGE_CAPTURE_ANCHOR_MARKER = "SITINA_STEP7_PREIMAGE_CAPTURE_ANCHOR_V1"
-DEPLOYMENT_AUTHORIZATION_MARKER = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V1"
+DEPLOYMENT_AUTHORIZATION_MARKER = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V2"
 CODEX_SESSION_ROOT = Path("/Users/moss/.codex/sessions")
 SENTINEL_SAMPLE_SCHEMA = "SITINA_STEP7_PRODUCTION_SENTINEL_SAMPLE_V1"
-ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V1"
-ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V1"
-DEPLOYMENT_PACKET_SCHEMA = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V2"
+ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V3"
+ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V3"
+DEPLOYMENT_PACKET_SCHEMA = "SITINA_STEP7_DEPLOYMENT_APPROVAL_PACKET_V3"
+BACKUP_ROLLBACK_PLAN_SCHEMA = "SITINA_STEP7_BACKUP_AND_ROLLBACK_PLAN_V3"
+DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_REQUEST_AUTHORIZATION_BINDING_V1"
+)
+DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA = (
+    "SITINA_STEP7_EXACT_AUTHORIZATION_CONTRACT_V1"
+)
+REVOKED_DEPLOYMENT_APPROVAL_IDS = {
+    "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z",
+    "SITINA_STEP7_DEPLOY_CC6E72A0_6F_20260727T094143Z",
+}
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
 OFFICIAL_GOAL_ID = "019f5c6b-3083-7860-b45b-c8b487c4e3ab"
@@ -251,9 +267,117 @@ DEPLOYMENT_PACKET_FIELDS = {
     "deployment_binding",
     "preimage_capture",
     "exact_file_operations",
+    "backup_and_rollback_plan",
+    "backup_and_rollback_plan_sha256",
+    "authorization_contract",
+    "forbidden_boundaries",
     "requires_exact_user_authorization",
     "self_authorizes_execution",
     "deployment_executed_at_creation",
+}
+BACKUP_ROLLBACK_PLAN_FIELDS = {
+    "schema",
+    "approval_id",
+    "status",
+    "source_binding",
+    "deployment_binding",
+    "exact_file_operations_sha256",
+    "backup_root",
+    "backup_manifest_path",
+    "rollback_quarantine_root",
+    "recovery_verification_path",
+    "objects",
+    "execution_sequence",
+    "failure_policy",
+    "forbidden_boundaries",
+}
+BACKUP_ROLLBACK_OBJECT_FIELDS = {
+    "index",
+    "relative_path",
+    "operation",
+    "target_path",
+    "preimage_sha256",
+    "target_sha256",
+    "preimage_backup_path",
+    "rollback_quarantine_path",
+    "rollback_action",
+    "recovery_verification",
+}
+DEPLOYMENT_REQUEST_CANDIDATE_FIELDS = {
+    "schema",
+    "candidate_id",
+    "created_at_utc",
+    "status",
+    "approval_id",
+    "source_binding",
+    "deployment_binding",
+    "approval_packet",
+    "exact_file_operation_count",
+    "exact_file_operations_sha256",
+    "rollback_plan_sha256",
+    "authorized",
+    "deployment_executed",
+    "forbidden_boundaries",
+}
+DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS = {
+    "schema",
+    "marker",
+    "source_thread_id",
+    "required_payload_fields",
+    "requires_user_record",
+    "delegated_wrapper_source_thread_required",
+    "self_authorizes_execution",
+}
+DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS = (
+    "approval_id",
+    "approval_packet_sha256",
+    "exact_file_operation_count",
+    "exact_file_operations_sha256",
+    "rollback_plan_sha256",
+    "review_candidate_sha256",
+    "source_head",
+    "source_tree",
+    "deployment_root",
+)
+BACKUP_ROLLBACK_FORBIDDEN_FIELDS = (
+    "permanent_delete_allowed",
+    "unlink_or_rmtree_allowed",
+    "overwrite_existing_backup_allowed",
+    "overwrite_existing_quarantine_allowed",
+    "symlink_or_nonregular_object_allowed",
+    "unlisted_path_mutation_allowed",
+    "production_data_mutation_allowed",
+    "baseline_install_or_promotion_allowed",
+    "production_canary_allowed",
+    "step8_allowed",
+    "step9_allowed",
+    "execution_switch_change_allowed",
+    "external_mutation_allowed",
+    "packet_plan_or_candidate_mutation_after_authorization_allowed",
+    "backup_cleanup_after_failure_allowed",
+)
+BACKUP_ROLLBACK_EXECUTION_SEQUENCE = (
+    "VERIFY_IMMUTABLE_ARTIFACTS_AND_USER_AUTHORIZATION",
+    "VERIFY_HEAD_TREE_CLEAN_SWITCHES_AND_SENTINELS",
+    "RECAPTURE_PREIMAGES_AND_COMPARE_PACKET",
+    "CREATE_UNIQUE_BACKUP_ROOT_EXCLUSIVE",
+    "COPY_AND_VERIFY_REPLACE_PREIMAGES",
+    "WRITE_AND_VERIFY_BACKUP_MANIFEST_EXCLUSIVE",
+    "RUN_DISPOSABLE_RESTORE_REAPPLY_REHEARSAL",
+    "APPLY_OPERATIONS_IN_PACKET_ORDER",
+    "VERIFY_POSTIMAGES",
+    "RUN_AUTHORIZED_DEPLOYED_STEP7_GATES",
+    "WRITE_EXECUTION_OR_RECOVERY_RESULT",
+)
+BACKUP_ROLLBACK_FAILURE_POLICY = {
+    "preapply_failure": "STOP_WITHOUT_DEPLOYMENT_MUTATION",
+    "postapply_failure": "ROLLBACK_APPLIED_OPERATIONS_IN_REVERSE_ORDER",
+    "replace_restore": "RESTORE_VERIFIED_PREIMAGE_ATOMIC_REPLACE",
+    "create_restore": "MOVE_CREATED_TARGET_TO_QUARANTINE_ATOMIC_RENAME",
+    "permanent_delete": "FORBIDDEN",
+    "unknown_target": "STOP_FOR_MANUAL_RECOVERY",
+    "verify_recovery_result": "REQUIRED",
+    "retain_backups_and_quarantine": "REQUIRED",
 }
 ROLLBACK_OPERATION_FIELDS = {
     "relative_path",
@@ -275,11 +399,27 @@ ROLLBACK_MANIFEST_FIELDS = {
     "deployment_root",
     "approval_id",
     "approval_packet_sha256",
+    "exact_file_operations_sha256",
+    "rollback_plan_sha256",
+    "review_candidate_sha256",
+    "backup_root",
+    "backup_manifest_path",
+    "backup_root_created_exclusively",
+    "backup_root_reused",
+    "backup_root_mode",
+    "backup_root_parent_components_safe",
+    "verified_before_deployment",
+    "deployment_mutated",
+    "mismatch_count",
     "entries",
 }
 ROLLBACK_RECOVERY_FIELDS = {
     "schema",
     "manifest",
+    "approval_packet",
+    "review_candidate",
+    "rollback_plan_sha256",
+    "authorization_raw_record_sha256",
     "source_head",
     "source_tree",
     "deployment_root",
@@ -287,6 +427,10 @@ ROLLBACK_RECOVERY_FIELDS = {
     "deployment_mutated",
     "verified",
     "mismatch_count",
+    "delete_operation_count",
+    "backups_retained",
+    "quarantines_retained",
+    "manual_recovery_required",
     "entries",
 }
 CLEANUP_OBJECT_IDS = (
@@ -953,6 +1097,52 @@ def _safe_regular_file(path_value: Any, errors: list[str], label: str) -> Path |
     return path
 
 
+def _verify_nofollow_descendant(
+    path: Path,
+    *,
+    trusted_root: Path,
+    leaf_kind: str,
+    errors: list[str],
+    label: str,
+) -> bool:
+    """Reject lexical escape and symlinks/non-directories in every component."""
+
+    if (
+        not path.is_absolute()
+        or not trusted_root.is_absolute()
+        or not path.is_relative_to(trusted_root)
+    ):
+        errors.append(f"{label} escapes its trusted root")
+        return False
+    relative = path.relative_to(trusted_root)
+    components = [trusted_root]
+    current = trusted_root
+    for part in relative.parts:
+        current /= part
+        components.append(current)
+    valid = True
+    for index, component in enumerate(components):
+        try:
+            metadata = component.lstat()
+        except OSError:
+            errors.append(f"{label} component is missing: {component}")
+            valid = False
+            continue
+        is_leaf = index == len(components) - 1
+        expected_regular = is_leaf and leaf_kind == "file"
+        expected_directory = not expected_regular
+        if stat.S_ISLNK(metadata.st_mode):
+            errors.append(f"{label} component is a symlink: {component}")
+            valid = False
+        elif expected_regular and not stat.S_ISREG(metadata.st_mode):
+            errors.append(f"{label} leaf is not a regular file: {component}")
+            valid = False
+        elif expected_directory and not stat.S_ISDIR(metadata.st_mode):
+            errors.append(f"{label} component is not a directory: {component}")
+            valid = False
+    return valid
+
+
 def _verify_file_reference(
     value: Any,
     errors: list[str],
@@ -1132,6 +1322,54 @@ def _verify_source_deployment(
     }
 
 
+def _verify_step56_source_session(
+    source_session: Path,
+    errors: list[str],
+) -> list[bytes]:
+    """Verify the immutable prefix through the last formal ACCEPT record.
+
+    The source task remains active, so bytes appended after the accepted prefix
+    are intentionally outside this contract.
+    """
+
+    if not source_session.is_file() or source_session.is_symlink():
+        errors.append("formal Step5/6 source session is missing or unsafe")
+        return []
+    try:
+        with source_session.open("rb") as handle:
+            prefix = handle.read(STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH)
+        raw_lines = prefix.splitlines(keepends=True)
+        meta = json.loads(raw_lines[0])
+    except (OSError, IndexError, UnicodeError, json.JSONDecodeError):
+        errors.append("formal Step5/6 source session prefix cannot be read")
+        return []
+    meta_payload = meta.get("payload") if isinstance(meta, Mapping) else None
+    if (
+        len(prefix) != STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH
+        or hashlib.sha256(prefix).hexdigest()
+        != STEP56_SOURCE_SESSION_PREFIX_SHA256
+        or len(raw_lines) != STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT
+        or not raw_lines[-1].endswith(b"\n")
+    ):
+        errors.append("formal Step5/6 source session prefix has changed")
+        return []
+    if (
+        hashlib.sha256(raw_lines[0]).hexdigest()
+        != STEP56_SOURCE_SESSION_META_RAW_SHA256
+        or meta.get("type") != "session_meta"
+        or not isinstance(meta_payload, Mapping)
+        or meta_payload.get("id") != STEP56_SOURCE_SESSION_ID
+        or meta_payload.get("session_id") != STEP56_SOURCE_SESSION_ID
+        or meta_payload.get("originator") != "codex_work_desktop"
+        or meta_payload.get("source") != "vscode"
+        or meta_payload.get("thread_source") != "user"
+        or meta_payload.get("model_provider") != "openai"
+    ):
+        errors.append("formal Step5/6 source session metadata mismatch")
+        return []
+    return raw_lines
+
+
 def _verify_entry_candidate(
     candidate: Mapping[str, Any],
     errors: list[str],
@@ -1173,14 +1411,9 @@ def _verify_entry_candidate(
         return entry
 
     source_session = Path(STEP56_SOURCE_SESSION_PATH)
-    if (
-        not source_session.is_file()
-        or source_session.is_symlink()
-        or _sha256(source_session) != STEP56_SOURCE_SESSION_SHA256
-    ):
-        errors.append("formal Step5/6 source session is missing or has changed")
+    raw_lines = _verify_step56_source_session(source_session, errors)
+    if not raw_lines:
         return entry
-    raw_lines = source_session.read_bytes().splitlines(keepends=True)
     expected_ids = set(STEP56_ACCEPT_RECORDS)
     observed_ids: list[str] = []
     for index, raw_reference in enumerate(raw_accepts):
@@ -1204,10 +1437,23 @@ def _verify_entry_candidate(
             errors.append(f"Step5/6 independent ACCEPT {index} field set mismatch")
         session = document.get("source_session")
         if not isinstance(session, Mapping) or (
-            set(session) != {"path", "physical_sha256", "session_id"}
+            set(session)
+            != {
+                "path",
+                "session_id",
+                "session_meta_raw_sha256",
+                "accepted_prefix",
+            }
             or session.get("path") != STEP56_SOURCE_SESSION_PATH
-            or session.get("physical_sha256") != STEP56_SOURCE_SESSION_SHA256
             or session.get("session_id") != STEP56_SOURCE_SESSION_ID
+            or session.get("session_meta_raw_sha256")
+            != STEP56_SOURCE_SESSION_META_RAW_SHA256
+            or session.get("accepted_prefix")
+            != {
+                "line_count": STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT,
+                "byte_length": STEP56_SOURCE_SESSION_PREFIX_BYTE_LENGTH,
+                "sha256": STEP56_SOURCE_SESSION_PREFIX_SHA256,
+            }
         ):
             errors.append(f"Step5/6 independent ACCEPT {index} source-session mismatch")
         record_claim = document.get("source_record")
@@ -2928,6 +3174,160 @@ def _verify_sentinel(
     }
 
 
+def _verify_backup_and_rollback_plan(
+    plan: Any,
+    *,
+    approval_id: Any,
+    packet_operations: Sequence[Any],
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    errors: list[str],
+) -> dict[str, Any]:
+    """Verify the packet-embedded, hash-addressed recovery boundary."""
+
+    label = "backup and rollback plan"
+    if not isinstance(plan, Mapping) or set(plan) != BACKUP_ROLLBACK_PLAN_FIELDS:
+        errors.append(f"{label} schema mismatch")
+        return {}
+    operations_sha256 = _json_value_sha256(packet_operations)
+    forbidden = plan.get("forbidden_boundaries")
+    if (
+        plan.get("schema") != BACKUP_ROLLBACK_PLAN_SCHEMA
+        or plan.get("approval_id") != approval_id
+        or plan.get("status") != "PLANNED_NOT_EXECUTED"
+        or plan.get("source_binding")
+        != {
+            "root": str(source_root),
+            "head": source_state.get("head"),
+            "tree": source_state.get("tree"),
+        }
+        or plan.get("deployment_binding") != {"root": str(deployment_root)}
+        or plan.get("exact_file_operations_sha256") != operations_sha256
+        or plan.get("execution_sequence")
+        != list(BACKUP_ROLLBACK_EXECUTION_SEQUENCE)
+        or plan.get("failure_policy") != BACKUP_ROLLBACK_FAILURE_POLICY
+        or not isinstance(forbidden, Mapping)
+        or set(forbidden) != set(BACKUP_ROLLBACK_FORBIDDEN_FIELDS)
+        or any(forbidden.get(field) is not False for field in forbidden)
+    ):
+        errors.append(f"{label} binding mismatch")
+    if (
+        not isinstance(approval_id, str)
+        or re.fullmatch(r"[A-Z0-9_]+", approval_id) is None
+    ):
+        errors.append(f"{label} approval ID is unsafe")
+        return {}
+    allowed_parent = source_root.parent / "output" / "sitina-step7-deploy-v3"
+    expected_root = allowed_parent / approval_id
+    root_value = plan.get("backup_root")
+    if not isinstance(root_value, Mapping) or root_value != {
+        "path": str(expected_root),
+        "allowed_parent": str(allowed_parent),
+        "derived_from_approval_id": True,
+        "must_not_exist_before_authorized_execution": True,
+        "create_mode": "0o700",
+        "create_semantics": "EXCLUSIVE_NOFOLLOW",
+        "reuse_allowed": False,
+    }:
+        errors.append(f"{label} unique backup root mismatch")
+    expected_manifest = expected_root / "backup-manifest.json"
+    expected_quarantine = expected_root / "quarantine" / "created"
+    expected_recovery = expected_root / "recovery-verification.json"
+    if plan.get("backup_manifest_path") != str(expected_manifest):
+        errors.append(f"{label} manifest path mismatch")
+    if plan.get("rollback_quarantine_root") != str(expected_quarantine):
+        errors.append(f"{label} quarantine root mismatch")
+    if plan.get("recovery_verification_path") != str(expected_recovery):
+        errors.append(f"{label} recovery-verification path mismatch")
+    raw_objects = plan.get("objects")
+    if not isinstance(raw_objects, list) or len(raw_objects) != len(packet_operations):
+        errors.append(f"{label} object count mismatch")
+        raw_objects = []
+    objects: dict[str, Mapping[str, Any]] = {}
+    seen_artifact_paths: set[str] = set()
+    for index, (operation, plan_object) in enumerate(
+        zip(packet_operations, raw_objects)
+    ):
+        if not isinstance(operation, Mapping) or not isinstance(plan_object, Mapping):
+            errors.append(f"{label} object {index} is malformed")
+            continue
+        relative = operation.get("relative_path")
+        if not isinstance(relative, str):
+            errors.append(f"{label} object {index} path mismatch")
+            continue
+        relative_path = Path(relative)
+        if (
+            relative_path.is_absolute()
+            or ".." in relative_path.parts
+            or relative_path.as_posix() != relative
+        ):
+            errors.append(f"{label} object {index} relative path is unsafe")
+            continue
+        kind = operation.get("operation")
+        backup_path = (
+            str(expected_root / "preimages" / f"{relative}.preimage")
+            if kind == "REPLACE"
+            else None
+        )
+        quarantine_path = (
+            str(expected_quarantine / relative) if kind == "CREATE" else None
+        )
+        recovery_verification = (
+            {
+                "restored_sha256": operation.get("preimage_sha256"),
+                "reapplied_sha256": operation.get("target_sha256"),
+            }
+            if kind == "REPLACE"
+            else {
+                "target_absent_after_quarantine": True,
+                "quarantined_sha256": operation.get("target_sha256"),
+                "reapplied_sha256": operation.get("target_sha256"),
+            }
+        )
+        expected_object = {
+            "index": index,
+            "relative_path": relative,
+            "operation": kind,
+            "target_path": operation.get("target_path"),
+            "preimage_sha256": operation.get("preimage_sha256"),
+            "target_sha256": operation.get("target_sha256"),
+            "preimage_backup_path": backup_path,
+            "rollback_quarantine_path": quarantine_path,
+            "rollback_action": (
+                "RESTORE_VERIFIED_PREIMAGE"
+                if kind == "REPLACE"
+                else "QUARANTINE_CREATED_TARGET"
+            ),
+            "recovery_verification": recovery_verification,
+        }
+        if (
+            kind not in ("REPLACE", "CREATE")
+            or set(plan_object) != BACKUP_ROLLBACK_OBJECT_FIELDS
+            or dict(plan_object) != expected_object
+        ):
+            errors.append(f"{label} object {index} operation binding mismatch")
+        artifact_path = backup_path or quarantine_path
+        if artifact_path is not None:
+            if artifact_path in seen_artifact_paths:
+                errors.append(f"{label} object {index} artifact path is duplicated")
+            seen_artifact_paths.add(artifact_path)
+        objects[relative] = plan_object
+    if len(objects) != len(raw_objects):
+        errors.append(f"{label} object paths are duplicated")
+    return {
+        "sha256": _json_value_sha256(plan),
+        "backup_root": str(expected_root),
+        "manifest_path": str(expected_manifest),
+        "quarantine_root": str(expected_quarantine),
+        "recovery_path": str(expected_recovery),
+        "objects": objects,
+        "forbidden_boundaries": dict(forbidden)
+        if isinstance(forbidden, Mapping)
+        else {},
+    }
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -2939,6 +3339,7 @@ def _verify_rollback_and_bound_evidence(
     rollback = candidate.get("rollback_proof")
     if not isinstance(rollback, Mapping) or set(rollback) != {
         "approval_packet",
+        "deployment_request_candidate",
         "authorization_receipt",
         "manifest",
         "recovery_result",
@@ -2948,10 +3349,15 @@ def _verify_rollback_and_bound_evidence(
     packet_path, packet = _verify_file_reference(
         rollback.get("approval_packet"), errors, "rollback approval packet"
     )
+    request_candidate_path, request_candidate = _verify_file_reference(
+        rollback.get("deployment_request_candidate"),
+        errors,
+        "deployment request review candidate",
+    )
     manifest_path, manifest = _verify_file_reference(
         rollback.get("manifest"), errors, "rollback manifest"
     )
-    _, recovery = _verify_file_reference(
+    recovery_path, recovery = _verify_file_reference(
         rollback.get("recovery_result"), errors, "rollback recovery result"
     )
     changed_files = candidate.get("source", {}).get("changed_files")
@@ -2959,11 +3365,25 @@ def _verify_rollback_and_bound_evidence(
     packet_operations = (
         packet.get("exact_file_operations") if isinstance(packet, Mapping) else None
     )
+    packet_plan = (
+        packet.get("backup_and_rollback_plan")
+        if isinstance(packet, Mapping)
+        else None
+    )
+    authorization_contract = (
+        packet.get("authorization_contract")
+        if isinstance(packet, Mapping)
+        else None
+    )
+    packet_forbidden = (
+        packet.get("forbidden_boundaries")
+        if isinstance(packet, Mapping)
+        else None
+    )
     if not isinstance(packet, Mapping) or (
         set(packet) != DEPLOYMENT_PACKET_FIELDS
         or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
-        or packet.get("approval_id")
-        == "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z"
+        or packet.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
         or not isinstance(packet.get("approval_id"), str)
         or not packet.get("approval_id")
         or not _valid_iso8601(packet.get("created_at_utc"))
@@ -2975,24 +3395,109 @@ def _verify_rollback_and_bound_evidence(
         or packet.get("deployment_binding")
         != {"root": str(deployment_root)}
         or not isinstance(packet_operations, list)
+        or not isinstance(packet_plan, Mapping)
+        or packet.get("backup_and_rollback_plan_sha256")
+        != _json_value_sha256(packet_plan)
+        or not isinstance(authorization_contract, Mapping)
+        or set(authorization_contract)
+        != DEPLOYMENT_AUTHORIZATION_CONTRACT_FIELDS
+        or authorization_contract
+        != {
+            "schema": DEPLOYMENT_AUTHORIZATION_CONTRACT_SCHEMA,
+            "marker": DEPLOYMENT_AUTHORIZATION_MARKER,
+            "source_thread_id": STEP7_SOURCE_THREAD_ID,
+            "required_payload_fields": list(
+                DEPLOYMENT_AUTHORIZATION_PAYLOAD_FIELDS
+            ),
+            "requires_user_record": True,
+            "delegated_wrapper_source_thread_required": True,
+            "self_authorizes_execution": False,
+        }
+        or not isinstance(packet_forbidden, Mapping)
+        or set(packet_forbidden) != set(BACKUP_ROLLBACK_FORBIDDEN_FIELDS)
+        or any(packet_forbidden.get(field) is not False for field in packet_forbidden)
         or packet.get("requires_exact_user_authorization") is not True
         or packet.get("self_authorizes_execution") is not False
         or packet.get("deployment_executed_at_creation") is not False
     ):
         errors.append("rollback approval packet schema or binding mismatch")
         packet_operations = []
-    if packet_path is not None and isinstance(packet, Mapping):
+    plan_verification = _verify_backup_and_rollback_plan(
+        packet_plan,
+        approval_id=packet.get("approval_id")
+        if isinstance(packet, Mapping)
+        else None,
+        packet_operations=packet_operations,
+        source_root=source_root,
+        deployment_root=deployment_root,
+        source_state=source_state,
+        errors=errors,
+    )
+    if (
+        isinstance(packet_forbidden, Mapping)
+        and plan_verification.get("forbidden_boundaries") != dict(packet_forbidden)
+    ):
+        errors.append("approval packet and rollback plan forbidden boundaries differ")
+    operations_sha256 = _json_value_sha256(packet_operations)
+    plan_sha256 = plan_verification.get("sha256")
+    expected_request_candidate = {
+        "schema": DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA,
+        "candidate_id": (
+            f"{packet.get('approval_id')}_REVIEW_CANDIDATE"
+            if isinstance(packet, Mapping)
+            else None
+        ),
+        "created_at_utc": request_candidate.get("created_at_utc")
+        if isinstance(request_candidate, Mapping)
+        else None,
+        "status": "AWAITING_EXACT_USER_AUTHORIZATION",
+        "approval_id": packet.get("approval_id")
+        if isinstance(packet, Mapping)
+        else None,
+        "source_binding": {
+            "root": str(source_root),
+            "head": source_state.get("head"),
+            "tree": source_state.get("tree"),
+        },
+        "deployment_binding": {"root": str(deployment_root)},
+        "approval_packet": (
+            {"path": str(packet_path), "sha256": _sha256(packet_path)}
+            if packet_path is not None
+            else None
+        ),
+        "exact_file_operation_count": len(packet_operations),
+        "exact_file_operations_sha256": operations_sha256,
+        "rollback_plan_sha256": plan_sha256,
+        "authorized": False,
+        "deployment_executed": False,
+        "forbidden_boundaries": dict(packet_forbidden)
+        if isinstance(packet_forbidden, Mapping)
+        else {},
+    }
+    if (
+        not isinstance(request_candidate, Mapping)
+        or set(request_candidate) != DEPLOYMENT_REQUEST_CANDIDATE_FIELDS
+        or not _valid_iso8601(request_candidate.get("created_at_utc"))
+        or dict(request_candidate) != expected_request_candidate
+    ):
+        errors.append("deployment request review candidate schema or binding mismatch")
+    if (
+        packet_path is not None
+        and request_candidate_path is not None
+        and isinstance(packet, Mapping)
+    ):
         _verify_user_authorization(
             rollback.get("authorization_receipt"),
             expected_payload={
                 "approval_id": packet.get("approval_id"),
                 "approval_packet_sha256": _sha256(packet_path),
+                "exact_file_operation_count": len(packet_operations),
+                "exact_file_operations_sha256": operations_sha256,
+                "rollback_plan_sha256": plan_sha256,
+                "review_candidate_sha256": _sha256(request_candidate_path),
                 "source_head": source_state.get("head"),
                 "source_tree": source_state.get("tree"),
                 "deployment_root": str(deployment_root),
-                "exact_file_operations_sha256": _json_value_sha256(
-                    packet_operations
-                ),
             },
             anchor_root=anchor_root,
             errors=errors,
@@ -3016,6 +3521,11 @@ def _verify_rollback_and_bound_evidence(
         if isinstance(preimage_capture, Mapping)
         else None
     )
+    backup_root_preflight = (
+        preimage_capture.get("backup_root_preflight")
+        if isinstance(preimage_capture, Mapping)
+        else None
+    )
     if not isinstance(preimage_capture, Mapping) or (
         set(preimage_capture)
         != {
@@ -3024,14 +3534,35 @@ def _verify_rollback_and_bound_evidence(
             "deployment_root",
             "deployment_mutated",
             "entries",
+            "backup_root_preflight",
             "capture_anchor",
         }
         or preimage_capture.get("schema")
-        != "SITINA_STEP7_DEPLOYMENT_PREIMAGE_CAPTURE_V1"
+        != "SITINA_STEP7_DEPLOYMENT_PREIMAGE_CAPTURE_V2"
         or not _valid_iso8601(preimage_capture.get("captured_at_utc"))
         or preimage_capture.get("deployment_root") != str(deployment_root)
         or preimage_capture.get("deployment_mutated") is not False
         or not isinstance(capture_entries, list)
+        or not isinstance(backup_root_preflight, Mapping)
+        or set(backup_root_preflight)
+        != {
+            "checked_at_utc",
+            "path",
+            "allowed_parent",
+            "existed",
+            "reuse_allowed",
+            "ancestor_safety_verified",
+            "symlink_component_count",
+        }
+        or not _valid_iso8601(backup_root_preflight.get("checked_at_utc"))
+        or backup_root_preflight.get("path")
+        != plan_verification.get("backup_root")
+        or backup_root_preflight.get("allowed_parent")
+        != str(source_root.parent / "output" / "sitina-step7-deploy-v3")
+        or backup_root_preflight.get("existed") is not False
+        or backup_root_preflight.get("reuse_allowed") is not False
+        or backup_root_preflight.get("ancestor_safety_verified") is not True
+        or backup_root_preflight.get("symlink_component_count") != 0
     ):
         errors.append("rollback approval packet preimage capture mismatch")
         capture_entries = []
@@ -3066,6 +3597,7 @@ def _verify_rollback_and_bound_evidence(
                 "source_tree": source_state.get("tree"),
                 "deployment_root": str(deployment_root),
                 "entries": capture_entries,
+                "backup_root_preflight": backup_root_preflight,
             },
             anchor_root=anchor_root,
             errors=errors,
@@ -3086,16 +3618,55 @@ def _verify_rollback_and_bound_evidence(
         or manifest.get("deployment_root") != str(deployment_root)
         or not isinstance(manifest.get("approval_id"), str)
         or not manifest.get("approval_id")
-        or manifest.get("approval_id") == "SITINA_STEP7_DEPLOY_82650BC_3F_20260727T073056Z"
+        or manifest.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
         or packet is None
         or manifest.get("approval_id") != packet.get("approval_id")
         or not _valid_sha256(manifest.get("approval_packet_sha256"))
         or packet_path is None
         or manifest.get("approval_packet_sha256") != _sha256(packet_path)
+        or manifest.get("exact_file_operations_sha256") != operations_sha256
+        or manifest.get("rollback_plan_sha256") != plan_sha256
+        or request_candidate_path is None
+        or manifest.get("review_candidate_sha256")
+        != _sha256(request_candidate_path)
+        or manifest.get("backup_root") != plan_verification.get("backup_root")
+        or manifest.get("backup_manifest_path") != str(manifest_path)
+        or manifest.get("backup_manifest_path")
+        != plan_verification.get("manifest_path")
+        or manifest.get("backup_root_created_exclusively") is not True
+        or manifest.get("backup_root_reused") is not False
+        or manifest.get("backup_root_mode") != "0o700"
+        or manifest.get("backup_root_parent_components_safe") is not True
+        or manifest.get("verified_before_deployment") is not True
+        or manifest.get("deployment_mutated") is not False
+        or manifest.get("mismatch_count") != 0
         or not isinstance(manifest_entries, list)
     ):
         errors.append("rollback manifest schema or binding mismatch")
         manifest_entries = []
+    trusted_backup_parent = source_root.parent / "output" / "sitina-step7-deploy-v3"
+    if manifest_path is not None:
+        _verify_nofollow_descendant(
+            manifest_path,
+            trusted_root=trusted_backup_parent,
+            leaf_kind="file",
+            errors=errors,
+            label="rollback backup manifest",
+        )
+    backup_root_path = Path(str(plan_verification.get("backup_root", "")))
+    if backup_root_path.is_absolute():
+        _verify_nofollow_descendant(
+            backup_root_path,
+            trusted_root=trusted_backup_parent,
+            leaf_kind="directory",
+            errors=errors,
+            label="rollback backup root",
+        )
+        try:
+            if oct(stat.S_IMODE(backup_root_path.lstat().st_mode)) != "0o700":
+                errors.append("rollback backup root mode mismatch")
+        except OSError:
+            pass
     relative_paths = [
         entry.get("relative_path")
         for entry in manifest_entries
@@ -3113,7 +3684,10 @@ def _verify_rollback_and_bound_evidence(
             errors.append(f"rollback manifest entry {index} is malformed")
             continue
         relative = entry.get("relative_path")
-        if set(entry) != ROLLBACK_OPERATION_FIELDS | {"backup"}:
+        if set(entry) != ROLLBACK_OPERATION_FIELDS | {
+            "backup",
+            "rollback_quarantine_path",
+        }:
             errors.append(f"rollback manifest entry {index} field set mismatch")
         if not isinstance(relative, str) or relative not in expected_paths:
             errors.append(f"rollback manifest entry {index} path mismatch")
@@ -3136,6 +3710,7 @@ def _verify_rollback_and_bound_evidence(
         ):
             errors.append(f"rollback manifest entry {relative} target binding mismatch")
         packet_operation = packet_by_path.get(relative)
+        plan_object = plan_verification.get("objects", {}).get(relative)
         capture_entry = capture_by_path.get(relative)
         if not isinstance(packet_operation, Mapping) or (
             set(packet_operation) != ROLLBACK_OPERATION_FIELDS
@@ -3155,6 +3730,15 @@ def _verify_rollback_and_bound_evidence(
         }
         if capture_entry != expected_capture:
             errors.append(f"rollback preimage capture {relative} manifest mismatch")
+        if not isinstance(plan_object, Mapping) or (
+            plan_object.get("operation") != operation
+            or plan_object.get("target_path") != entry.get("target_path")
+            or plan_object.get("preimage_sha256") != entry.get("preimage_sha256")
+            or plan_object.get("target_sha256") != entry.get("target_sha256")
+            or plan_object.get("rollback_quarantine_path")
+            != entry.get("rollback_quarantine_path")
+        ):
+            errors.append(f"rollback manifest entry {relative} plan mismatch")
         if source_file is not None:
             source_stat = source_file.stat()
             if (
@@ -3185,6 +3769,10 @@ def _verify_rollback_and_bound_evidence(
                 or not _integer(entry.get("preimage_size"))
                 or not isinstance(entry.get("preimage_mode"), str)
                 or backup_path is None
+                or not isinstance(plan_object, Mapping)
+                or str(backup_path)
+                != plan_object.get("preimage_backup_path")
+                or entry.get("rollback_quarantine_path") is not None
             ):
                 errors.append(f"rollback replace preimage {relative} is incomplete")
             elif (
@@ -3194,12 +3782,25 @@ def _verify_rollback_and_bound_evidence(
                 != entry.get("preimage_mode")
             ):
                 errors.append(f"rollback preimage backup {relative} metadata mismatch")
+            if backup_path is not None:
+                _verify_nofollow_descendant(
+                    backup_path,
+                    trusted_root=trusted_backup_parent,
+                    leaf_kind="file",
+                    errors=errors,
+                    label=f"rollback preimage backup {relative}",
+                )
         elif operation == "CREATE" and (
             entry.get("preimage_exists") is not False
             or entry.get("preimage_sha256") is not None
             or entry.get("preimage_size") is not None
             or entry.get("preimage_mode") is not None
             or backup_ref is not None
+            or not isinstance(plan_object, Mapping)
+            or entry.get("rollback_quarantine_path")
+            != plan_object.get("rollback_quarantine_path")
+            or plan_object.get("rollback_action")
+            != "QUARANTINE_CREATED_TARGET"
         ):
             errors.append(f"rollback create preimage {relative} must be absent")
 
@@ -3210,6 +3811,19 @@ def _verify_rollback_and_bound_evidence(
         or manifest_path is None
         or recovery.get("manifest")
         != {"path": str(manifest_path), "sha256": _sha256(manifest_path)}
+        or packet_path is None
+        or recovery.get("approval_packet")
+        != {"path": str(packet_path), "sha256": _sha256(packet_path)}
+        or request_candidate_path is None
+        or recovery.get("review_candidate")
+        != {
+            "path": str(request_candidate_path),
+            "sha256": _sha256(request_candidate_path),
+        }
+        or recovery.get("rollback_plan_sha256") != plan_sha256
+        or not isinstance(rollback.get("authorization_receipt"), Mapping)
+        or recovery.get("authorization_raw_record_sha256")
+        != rollback.get("authorization_receipt", {}).get("raw_record_sha256")
         or recovery.get("source_head") != source_state.get("head")
         or recovery.get("source_tree") != source_state.get("tree")
         or recovery.get("deployment_root") != str(deployment_root)
@@ -3217,10 +3831,24 @@ def _verify_rollback_and_bound_evidence(
         or recovery.get("deployment_mutated") is not False
         or recovery.get("verified") is not True
         or recovery.get("mismatch_count") != 0
+        or recovery.get("delete_operation_count") != 0
+        or recovery.get("backups_retained") is not True
+        or recovery.get("quarantines_retained") is not True
+        or recovery.get("manual_recovery_required") is not False
+        or recovery_path is None
+        or str(recovery_path) != plan_verification.get("recovery_path")
         or not isinstance(recovery_entries, list)
     ):
         errors.append("rollback recovery-result schema or binding mismatch")
         recovery_entries = []
+    if recovery_path is not None:
+        _verify_nofollow_descendant(
+            recovery_path,
+            trusted_root=trusted_backup_parent,
+            leaf_kind="file",
+            errors=errors,
+            label="rollback recovery result",
+        )
     recovery_paths = [
         entry.get("relative_path")
         for entry in recovery_entries
@@ -3244,6 +3872,8 @@ def _verify_rollback_and_bound_evidence(
             "reapplied",
             "restored_artifact",
             "reapplied_artifact",
+            "quarantined_artifact",
+            "quarantine_move",
         }:
             errors.append(f"rollback recovery entry {index} field set mismatch")
         source_entry = manifest_by_path.get(relative)
@@ -3269,6 +3899,8 @@ def _verify_rollback_and_bound_evidence(
         }
         restored_artifact = result.get("restored_artifact")
         reapplied_artifact = result.get("reapplied_artifact")
+        quarantined_artifact = result.get("quarantined_artifact")
+        quarantine_move = result.get("quarantine_move")
         if (
             result.get("operation") != operation
             or result.get("restored") != expected_restored
@@ -3289,8 +3921,65 @@ def _verify_rollback_and_bound_evidence(
                 != source_entry.get("preimage_mode")
             ):
                 errors.append(f"rollback restored snapshot {relative} mismatch")
+            if quarantined_artifact is not None:
+                errors.append(
+                    f"rollback replace entry {relative} has a quarantine snapshot"
+                )
+            if quarantine_move is not None:
+                errors.append(
+                    f"rollback replace entry {relative} has quarantine move evidence"
+                )
         elif restored_artifact is not None:
             errors.append(f"rollback create entry {relative} has a restored snapshot")
+        elif operation == "CREATE":
+            quarantine_path, _ = _verify_file_reference(
+                quarantined_artifact,
+                errors,
+                f"rollback quarantine snapshot {relative}",
+                require_json_object=False,
+            )
+            plan_object = plan_verification.get("objects", {}).get(relative)
+            if (
+                quarantine_path is None
+                or not isinstance(plan_object, Mapping)
+                or str(quarantine_path)
+                != plan_object.get("rollback_quarantine_path")
+                or _sha256(quarantine_path) != source_entry.get("target_sha256")
+                or quarantine_path.stat().st_size != source_entry.get("target_size")
+                or oct(stat.S_IMODE(quarantine_path.stat().st_mode))
+                != source_entry.get("target_mode")
+            ):
+                errors.append(f"rollback quarantine snapshot {relative} mismatch")
+            if quarantine_path is not None:
+                _verify_nofollow_descendant(
+                    quarantine_path,
+                    trusted_root=trusted_backup_parent,
+                    leaf_kind="file",
+                    errors=errors,
+                    label=f"rollback quarantine snapshot {relative}",
+                )
+                quarantine_stat = quarantine_path.stat()
+                expected_rehearsal_source = (
+                    Path(str(plan_verification.get("backup_root", "")))
+                    / "rehearsal"
+                    / "created"
+                    / relative
+                )
+                if quarantine_move != {
+                    "method": "ATOMIC_RENAME_SAME_FILESYSTEM",
+                    "source_path": str(expected_rehearsal_source),
+                    "destination_path": str(quarantine_path),
+                    "source_device": quarantine_stat.st_dev,
+                    "source_inode": quarantine_stat.st_ino,
+                    "destination_device": quarantine_stat.st_dev,
+                    "destination_inode": quarantine_stat.st_ino,
+                    "inode_preserved": True,
+                    "source_absent_after_move": True,
+                    "delete_operation_count": 0,
+                } or expected_rehearsal_source.exists():
+                    errors.append(
+                        f"rollback quarantine move evidence {relative} mismatch"
+                    )
         reapplied_path, _ = _verify_file_reference(
             reapplied_artifact,
             errors,
@@ -3372,6 +4061,7 @@ def _verify_rollback_and_bound_evidence(
         required_references.extend(
             (
                 rollback.get("approval_packet"),
+                rollback.get("deployment_request_candidate"),
                 rollback.get("manifest"),
                 rollback.get("recovery_result"),
             )
@@ -3498,6 +4188,7 @@ def validate_step7_candidate(
         full_review_references.extend(
             (
                 rollback_value.get("approval_packet"),
+                rollback_value.get("deployment_request_candidate"),
                 rollback_value.get("manifest"),
                 rollback_value.get("recovery_result"),
             )
