@@ -1076,18 +1076,21 @@ def _read_user_authorization_record(
     meta_payload = meta.get("payload") if isinstance(meta, Mapping) else None
     payload = record.get("payload") if isinstance(record, Mapping) else None
     content = payload.get("content") if isinstance(payload, Mapping) else None
-    texts = (
-        [
-            item.get("text")
-            for item in content
-            if isinstance(item, Mapping)
-            and item.get("type") == "input_text"
-            and isinstance(item.get("text"), str)
-        ]
+    content_item = (
+        content[0]
         if isinstance(content, list)
-        else []
+        and len(content) == 1
+        and isinstance(content[0], Mapping)
+        else None
     )
-    text = texts[0] if len(texts) == 1 else None
+    text = (
+        content_item.get("text")
+        if isinstance(content_item, Mapping)
+        and set(content_item) == {"type", "text"}
+        and content_item.get("type") == "input_text"
+        and isinstance(content_item.get("text"), str)
+        else None
+    )
     if (
         not isinstance(meta_payload, Mapping)
         or meta.get("type") != "session_meta"
@@ -1194,16 +1197,12 @@ def _verify_user_authorization(
         and source_meta.get("source") == "vscode"
         and source_meta.get("thread_source") == "user"
     )
-    wrapper_source = wrapper_meta.get("source")
     wrapper_identity_valid = (
-        wrapper_meta.get("originator") in {"Codex Desktop", "codex_work_desktop"}
+        wrapper_meta.get("originator") == "Codex Desktop"
+        and wrapper_meta.get("source") == "vscode"
         and wrapper_meta.get("thread_source") == "subagent"
-        and (
-            wrapper_source == "vscode"
-            or isinstance(wrapper_source, Mapping)
-            and "subagent" in wrapper_source
-        )
         and wrapper["path"] != source["path"]
+        and wrapper_meta.get("session_id") != source_meta.get("session_id")
         and wrapper_meta.get("id") != source_meta.get("id")
     )
     production_session_root = (

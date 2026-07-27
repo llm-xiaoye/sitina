@@ -3145,6 +3145,38 @@ class Step7ReadinessGateTests(unittest.TestCase):
         candidate["rollback_proof"]["authorization_receipt"] = receipt
         self.assertRejected(candidate, "deployment user authorization")
 
+    def test_deployment_authorization_rejects_extra_source_content_item(
+        self,
+    ) -> None:
+        receipt = copy.deepcopy(self.rollback_authorization)
+        source_reference = receipt["source_authorization"]
+        source_lines = self.source_authorization_session.read_bytes().splitlines(
+            keepends=True
+        )
+        source_index = source_reference["line_number"] - 1
+        source_record = json.loads(source_lines[source_index])
+        source_record["payload"]["content"].append(
+            {"type": "input_text", "text": "unbound-extra-content"}
+        )
+        source_raw = (
+            json.dumps(
+                source_record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        source_lines[source_index] = source_raw
+        self.source_authorization_session.write_bytes(b"".join(source_lines))
+        source_reference["raw_record_sha256"] = hashlib.sha256(source_raw).hexdigest()
+        candidate = copy.deepcopy(self.candidate)
+        candidate["rollback_proof"]["authorization_receipt"] = receipt
+        self.assertRejected(
+            candidate,
+            "deployment user authorization source content mismatch",
+        )
+
     def test_deployment_authorization_rejects_wrong_source_binding(
         self,
     ) -> None:
