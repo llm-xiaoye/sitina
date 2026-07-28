@@ -148,6 +148,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z",
     "SITINA_STEP7_DEPLOY_E1701C6_6F_20260727T182500Z",
     "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z",
+    "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -221,6 +222,106 @@ FAILED_PREAPPLY_REVOCATION_REFERENCES = {
         ),
         "sha256": (
             "3412a711e179a2285ec8ed6ae44d7321588dfa81d8c8a9998885cec09964469b"
+        ),
+    },
+}
+INTERRUPTED_PREBACKUP_REVOCATION_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V4"
+)
+INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID = (
+    "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z"
+)
+INTERRUPTED_PREBACKUP_REVOCATION_RUN_ID = (
+    "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z_EXECUTION"
+)
+INTERRUPTED_PREBACKUP_REVOCATION_SOURCE = {
+    "head": "63671f9e5b2f828522b6783db30bc6a23dfc9a14",
+    "tree": "3f9005b257ec4523ab68c5b225fe3fd5853168b2",
+}
+INTERRUPTED_PREBACKUP_REVOCATION_BACKUP_ROOT = (
+    "/Users/moss/Desktop/sitina/output/"
+    "sitina-step7-deploy-v4-"
+    "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z"
+)
+INTERRUPTED_PREBACKUP_REVOCATION_SESSION = (
+    "/Users/moss/.codex/sessions/2026/07/27/"
+    "rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+)
+INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
+    "authorization_request": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-exact-authorization-request-63671f9.txt"
+        ),
+        "sha256": (
+            "f03bce0de8ebe9e97ac2704cc9443da9fc389f098b2286e2c58d07db9fdc460d"
+        ),
+    },
+    "authorization_receipt": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorization-receipt-63671f9.json"
+        ),
+        "sha256": (
+            "0d84c0eaddf7c59e51bfc89c1cd07509172d72424694fcaac20c0d109f9aff17"
+        ),
+        "canonical_sha256": (
+            "0f459cbbf179b1a77f210eefadc4aa4bec03442b7c6676079bc8e576381dd74e"
+        ),
+    },
+    "packet": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-approval-packet-"
+            "63671f9-20260728T050000Z.json"
+        ),
+        "sha256": (
+            "47075865de9f727e01a5eee43469f3e0d5ced0282c31791bb442f7224fe1b65b"
+        ),
+    },
+    "review_candidate": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-review-candidate-63671f9.json"
+        ),
+        "sha256": (
+            "00f975caa748093d02d89140969ac8b830cdb109985d59ef9ecaeeb8c864c1ab"
+        ),
+    },
+    "evidence_bundle": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-request-review-evidence-63671f9.json"
+        ),
+        "sha256": (
+            "a952db4928e946e584a2c438285fcc19f5de48acb36c0aefc43dc44d59cef3e7"
+        ),
+    },
+    "execution_specification": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorized-execution-spec-63671f9.json"
+        ),
+        "sha256": (
+            "deec8cacbb28d59b4618998cb7031bd7eca934f97738d53a36da84a633a0f106"
+        ),
+    },
+    "executor": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "step7-63671f9-authorized-execution.py"
+        ),
+        "sha256": (
+            "0ed27440bee83d312de927b924e8d98d3ac7d30d009e9d1313bd32fed6ba425c"
+        ),
+    },
+    "executor_bytecode": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/__pycache__/"
+            "step7-63671f9-authorized-execution.cpython-312.pyc"
+        ),
+        "sha256": (
+            "0b54266119d1a328953bbea777e02e576159dc3b9110f0c6c4fda80ac0e14e66"
         ),
     },
 }
@@ -610,7 +711,10 @@ STEP7_V4_STATIC_SIDE_EFFECT_STEPS = (
     "CREATE_BACKUP_LAYOUT",
     "CAPTURE_PREIMAGES",
     "WRITE_EXECUTION_MANIFEST",
+    "VERIFY_EXECUTION_MANIFEST_RELOAD",
+    "RUN_REPLACE_REHEARSAL",
     "RUN_CREATE_REHEARSAL",
+    "AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT",
     "APPLY_REPLACE",
     "APPLY_CREATE",
     "AFTER_POSTIMAGE_VERIFY",
@@ -620,12 +724,17 @@ STEP7_V4_STATIC_SIDE_EFFECT_STEPS = (
     "AFTER_ROLLBACK_INTENT",
     "ROLLBACK_CREATE",
     "ROLLBACK_REPLACE",
+    "WRITE_RECOVERY_VERIFICATION",
+    "AFTER_RECOVERY_VERIFICATION_BEFORE_REHEARSAL_RESULT",
     "WRITE_RECOVERY_RESULT",
 )
 STEP7_V4_EXECUTION_MANIFEST_SCHEMA = "SITINA_STEP7_EXECUTION_MANIFEST_V1"
 STEP7_V4_REHEARSAL_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_REHEARSAL_RESULT_V4"
 STEP7_V4_EXECUTION_RESULT_SCHEMA = "SITINA_STEP7_EXECUTION_RESULT_V1"
 STEP7_V4_RECOVERY_RESULT_SCHEMA = "SITINA_STEP7_RECOVERY_RESULT_V1"
+STEP7_V4_RECOVERY_VERIFICATION_SCHEMA = (
+    "SITINA_STEP7_RECOVERY_VERIFICATION_V1"
+)
 STEP7_V4_CHECKPOINT_REFERENCE_ORDER = (
     "INTENT_ASC_COMMIT_ASC_RECOVERED_DESC_V1"
 )
@@ -837,6 +946,8 @@ def step7_v4_failure_injection_steps(
         )
         if operation.get("operation") == "CREATE":
             dynamic.append(f"RUN_CREATE_REHEARSAL:{index}")
+        elif operation.get("operation") == "REPLACE":
+            dynamic.append(f"RUN_REPLACE_REHEARSAL:{index}")
         dynamic.append(
             f"AFTER_RECOVERY_MUTATION_BEFORE_CHECKPOINT:{index}"
         )
@@ -1957,6 +2068,18 @@ def _step7_v4_mkdir_exclusive(parent: Path, name: str) -> Path:
         metadata = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
         if not stat.S_ISDIR(metadata.st_mode):
             raise ValueError("exclusive mkdir produced a non-directory")
+        child_descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=descriptor,
+        )
+        try:
+            os.fsync(child_descriptor)
+        finally:
+            os.close(child_descriptor)
+        os.fsync(descriptor)
     finally:
         os.close(descriptor)
     return parent / name
@@ -2040,6 +2163,9 @@ def _step7_v4_rename_noreplace_at(
         source_absent = False
     except FileNotFoundError:
         source_absent = True
+    os.fsync(source_parent_fd)
+    if destination_parent_fd != source_parent_fd:
+        os.fsync(destination_parent_fd)
     return {
         "method": "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM",
         "source_path": str(source),
@@ -2144,6 +2270,7 @@ def _step7_v4_copy_exclusive(
                     raise OSError("exclusive copy made no progress")
                 remaining = remaining[written:]
         os.fsync(descriptor)
+        os.fsync(parent_descriptor)
     finally:
         os.close(source_descriptor)
         os.close(descriptor)
@@ -2159,10 +2286,18 @@ def _step7_v4_copy_exclusive(
         raise ValueError(f"exclusive copy verification failed: {destination}")
 
 
-def _step7_v4_publish_json(path: Path, value: Mapping[str, Any]) -> None:
-    payload = (
+def _step7_v4_json_payload(value: Mapping[str, Any]) -> bytes:
+    return (
         json.dumps(dict(value), sort_keys=True, separators=(",", ":")) + "\n"
     ).encode("utf-8")
+
+
+def _step7_v4_json_physical_sha256(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_step7_v4_json_payload(value)).hexdigest()
+
+
+def _step7_v4_publish_json(path: Path, value: Mapping[str, Any]) -> None:
+    payload = _step7_v4_json_payload(value)
     parent_descriptor = _step7_v4_open_dir_nofollow(path.parent)
     temporary_name = (
         f".{path.name}.pending-{os.getpid()}-{secrets.token_hex(8)}"
@@ -2192,8 +2327,29 @@ def _step7_v4_publish_json(path: Path, value: Mapping[str, Any]) -> None:
             temporary,
             path,
         )
+        os.fsync(parent_descriptor)
     finally:
         os.close(parent_descriptor)
+
+
+def _step7_v4_publish_or_verify_json(
+    path: Path,
+    value: Mapping[str, Any],
+) -> dict[str, str]:
+    document = dict(value)
+    try:
+        _step7_v4_publish_json(path, document)
+    except FileExistsError:
+        pass
+    loaded = _step7_v4_load_json(path)
+    reference = _step7_v4_reference(path)
+    if (
+        loaded != document
+        or reference["sha256"]
+        != _step7_v4_json_physical_sha256(document)
+    ):
+        raise ValueError(f"persisted JSON physical binding mismatch: {path}")
+    return reference
 
 
 def _step7_v4_atomic_replace(
@@ -2253,6 +2409,7 @@ def _step7_v4_atomic_replace(
             src_dir_fd=parent_descriptor,
             dst_dir_fd=parent_descriptor,
         )
+        os.fsync(parent_descriptor)
     finally:
         os.close(parent_descriptor)
 
@@ -2261,7 +2418,7 @@ def _step7_v4_checkpoint(
     backup_root: Path,
     name: str,
     value: Mapping[str, Any],
-) -> None:
+) -> dict[str, str]:
     for terminal_name in ("execution-result.json", "recovery-result.json"):
         terminal_path = backup_root / terminal_name
         if (
@@ -2282,6 +2439,15 @@ def _step7_v4_checkpoint(
     else:
         if current != document:
             raise ValueError(f"checkpoint conflicts with immutable state: {name}")
+    current = _step7_v4_load_json(path)
+    reference = _step7_v4_reference(path)
+    if (
+        current != document
+        or reference["sha256"]
+        != _step7_v4_json_physical_sha256(document)
+    ):
+        raise ValueError(f"checkpoint physical readback mismatch: {name}")
+    return reference
 
 
 def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
@@ -2330,6 +2496,21 @@ def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "backup_root": str(Path(str(specification["backup_root"]))),
     }
+
+
+def _step7_v4_require_production_run_id(
+    binding: Mapping[str, Any],
+    packet: Mapping[str, Any],
+) -> None:
+    approval_id = packet.get("approval_id")
+    if (
+        not isinstance(approval_id, str)
+        or not approval_id
+        or binding.get("run_id") != f"{approval_id}_EXECUTION"
+    ):
+        raise ValueError(
+            "production run_id must equal approval_id plus _EXECUTION"
+        )
 
 
 def _step7_v4_core_operations(
@@ -2665,6 +2846,7 @@ def _step7_v4_require_authority(
     _, candidate = _step7_v4_verify_json_reference(
         candidate_ref, label="execution review candidate"
     )
+    _step7_v4_require_production_run_id(binding, packet)
     if (
         not isinstance(packet, Mapping)
         or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
@@ -2736,6 +2918,8 @@ def _step7_v4_require_authority(
         != str(Path(binding["backup_root"]) / "execution-result.json")
         or plan_verification.get("recovery_result_path")
         != str(Path(binding["backup_root"]) / "recovery-result.json")
+        or plan_verification.get("recovery_path")
+        != str(Path(binding["backup_root"]) / "recovery-verification.json")
     ):
         raise ValueError("production V4 rollback plan verification failed")
     switches = specification.get("execution_switches")
@@ -3245,6 +3429,8 @@ def _step7_v4_load_manifest(
     specification: Mapping[str, Any],
     *,
     run_id: str,
+    expected_manifest: Mapping[str, Any] | None = None,
+    expected_reference: Mapping[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     binding = _step7_v4_binding(specification)
     if binding["run_id"] != run_id:
@@ -3257,7 +3443,16 @@ def _step7_v4_load_manifest(
         "rehearsal_result": str(backup_root / "rehearsal-result.json"),
         "execution_result": str(backup_root / "execution-result.json"),
         "recovery_result": str(backup_root / "recovery-result.json"),
+        "recovery_verification": str(
+            backup_root / "recovery-verification.json"
+        ),
     }
+    operations = manifest.get("operations")
+    before_inventory = manifest.get("deployment_inventory_before")
+    expected_after_inventory = manifest.get(
+        "deployment_inventory_expected_after"
+    )
+    parent_identities = manifest.get("target_parent_identities")
     if (
         set(manifest)
         != {
@@ -3278,18 +3473,47 @@ def _step7_v4_load_manifest(
         or
         manifest.get("schema") != STEP7_V4_EXECUTION_MANIFEST_SCHEMA
         or manifest.get("binding") != binding
+        or manifest.get("run_id") != binding["run_id"]
+        or manifest.get("status") != "VERIFIED_BEFORE_APPLY"
         or manifest.get("operations") != specification.get("operations")
         or manifest.get("sentinels") != specification.get("sentinels")
         or manifest.get("forbidden_boundaries")
         != specification.get("forbidden_boundaries")
         or manifest.get("gate_contract") != specification.get("gate_contract")
         or manifest.get("paths") != expected_paths
+        or not isinstance(before_inventory, Mapping)
+        or not isinstance(expected_after_inventory, Mapping)
+        or not isinstance(operations, list)
+        or expected_after_inventory
+        != _step7_v4_post_inventory(before_inventory, operations)
+        or not isinstance(parent_identities, Mapping)
+        or set(parent_identities)
+        != {
+            operation.get("relative_path")
+            for operation in operations
+            if isinstance(operation, Mapping)
+        }
+        or any(
+            not isinstance(identity, Mapping)
+            or set(identity) != {"device", "inode"}
+            or not _integer(identity.get("device"))
+            or not _integer(identity.get("inode"))
+            for identity in parent_identities.values()
+        )
         or manifest.get("checkpoint_contract")
         != _step7_v4_checkpoint_contract(
             backup_root, manifest.get("operations", [])
         )
     ):
         raise ValueError("immutable execution manifest binding mismatch")
+    if expected_manifest is not None and manifest != dict(expected_manifest):
+        raise ValueError("reloaded execution manifest field mismatch")
+    reference = _step7_v4_reference(manifest_path)
+    if (
+        expected_reference is not None
+        and reference != dict(expected_reference)
+    ):
+        raise ValueError("reloaded execution manifest physical SHA-256 mismatch")
     return backup_root, manifest
 
 
@@ -3390,10 +3614,13 @@ def _step7_v4_checkpoint_contract(
         {
             "index": index,
             "relative_path": operation["relative_path"],
-            "name": f"rehearsal-{index:04d}-create.json",
+            "operation": operation["operation"],
+            "name": (
+                f"rehearsal-{index:04d}-"
+                f"{operation['operation'].lower()}.json"
+            ),
         }
         for index, operation in enumerate(operations)
-        if operation["operation"] == "CREATE"
     ]
     intents = [
         f"intent-{index:04d}.json"
@@ -3644,18 +3871,20 @@ def _step7_v4_validate_auxiliary_checkpoints(
         for entry in rehearsal_entries
     }
     for index, operation in enumerate(operations):
-        if operation["operation"] != "CREATE":
-            continue
         entry = entries_by_index[index]
         path = (
             backup_root
             / "checkpoints"
-            / f"rehearsal-{index:04d}-create.json"
+            / (
+                f"rehearsal-{index:04d}-"
+                f"{operation['operation'].lower()}.json"
+            )
         )
         if _step7_v4_load_json(path) != {
             "run_id": binding["run_id"],
             "relative_path": operation["relative_path"],
-            "move": entry["move"],
+            "operation": operation["operation"],
+            "entry_sha256": _json_value_sha256(entry),
         }:
             raise ValueError(
                 f"rehearsal checkpoint {index} binding mismatch"
@@ -3712,6 +3941,7 @@ def _step7_v4_expected_execution_result(
     binding: Mapping[str, Any],
     manifest_path: Path,
     rehearsal_path: Path,
+    recovery_verification_path: Path,
     operations: Sequence[Mapping[str, Any]],
     expected_post_inventory: Mapping[str, Any],
     sentinels: Sequence[Mapping[str, Any]],
@@ -3727,6 +3957,9 @@ def _step7_v4_expected_execution_result(
         "status": "EXECUTED",
         "manifest": _step7_v4_reference(manifest_path),
         "rehearsal_result": _step7_v4_reference(rehearsal_path),
+        "recovery_verification": _step7_v4_reference(
+            recovery_verification_path
+        ),
         "applied_indices": list(range(len(operations))),
         "reverse_recovery_indices": [],
         "deployment_inventory_after_sha256": _json_value_sha256(
@@ -3749,6 +3982,7 @@ def _step7_v4_expected_recovery_result(
     binding: Mapping[str, Any],
     manifest_path: Path,
     rehearsal_path: Path,
+    recovery_verification_path: Path,
     rollback_intent_path: Path,
     operations: Sequence[Mapping[str, Any]],
     applied_indices: Sequence[int],
@@ -3779,6 +4013,9 @@ def _step7_v4_expected_recovery_result(
         "status": "RECOVERED_AFTER_FAILURE",
         "manifest": _step7_v4_reference(manifest_path),
         "rehearsal_result": _step7_v4_reference(rehearsal_path),
+        "recovery_verification": _step7_v4_reference(
+            recovery_verification_path
+        ),
         "rollback_intent": _step7_v4_reference(rollback_intent_path),
         "applied_indices": sorted(applied_set),
         "reverse_recovery_indices": reverse_indices,
@@ -3807,6 +4044,180 @@ def _step7_v4_expected_recovery_result(
     }
 
 
+def _step7_v4_expected_recovery_verification(
+    *,
+    binding: Mapping[str, Any],
+    manifest_path: Path,
+    operations: Sequence[Mapping[str, Any]],
+    rehearsal_entries: Sequence[Mapping[str, Any]],
+    before_inventory: Mapping[str, Any],
+    sentinels: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if (
+        len(rehearsal_entries) != len(operations)
+        or [
+            entry.get("index")
+            for entry in rehearsal_entries
+            if isinstance(entry, Mapping)
+        ]
+        != list(range(len(operations)))
+    ):
+        raise ValueError("recovery verification rehearsal closure is incomplete")
+    entries: list[dict[str, Any]] = []
+    for index, operation in enumerate(operations):
+        rehearsal = rehearsal_entries[index]
+        preimage = _step7_v4_expected_tuple(operation, postimage=False)
+        postimage = _step7_v4_expected_tuple(operation, postimage=True)
+        if operation["operation"] == "REPLACE":
+            backup_path = Path(operation["preimage_backup_path"])
+            if _step7_v4_file_tuple(backup_path) != preimage:
+                raise ValueError(
+                    f"recovery verification REPLACE backup {index} drift"
+                )
+            entries.append(
+                {
+                    "index": index,
+                    "relative_path": operation["relative_path"],
+                    "operation": "REPLACE",
+                    "live_target_tuple_before_apply": preimage,
+                    "preimage_backup": _step7_v4_reference(backup_path),
+                    "preimage_backup_tuple": preimage,
+                    "restored_artifact": dict(
+                        rehearsal["restored_artifact"]
+                    ),
+                    "restored_tuple": dict(
+                        rehearsal["restored_tuple"]
+                    ),
+                    "reapplied_artifact": dict(
+                        rehearsal["reapplied_artifact"]
+                    ),
+                    "reapplied_tuple": dict(
+                        rehearsal["reapplied_tuple"]
+                    ),
+                }
+            )
+            continue
+        entries.append(
+            {
+                "index": index,
+                "relative_path": operation["relative_path"],
+                "operation": "CREATE",
+                "live_target_tuple_after_quarantine": preimage,
+                "target_absent_after_quarantine": True,
+                "live_rollback_quarantine_tuple_before_apply": preimage,
+                "live_rollback_quarantine_absent_before_apply": True,
+                "quarantined_artifact": dict(rehearsal["artifact"]),
+                "quarantined_tuple": dict(
+                    rehearsal["artifact_tuple"]
+                ),
+                "reapplied_artifact": dict(
+                    rehearsal["reapplied_artifact"]
+                ),
+                "reapplied_tuple": dict(
+                    rehearsal["reapplied_tuple"]
+                ),
+                "expected_postimage": postimage,
+            }
+        )
+    return {
+        "schema": STEP7_V4_RECOVERY_VERIFICATION_SCHEMA,
+        "binding": dict(binding),
+        "run_id": binding["run_id"],
+        "status": "DISPOSABLE_RESTORE_REAPPLY_VERIFIED_BEFORE_APPLY",
+        "manifest": _step7_v4_reference(manifest_path),
+        "operation_count": len(operations),
+        "operations_sha256": binding["operations_sha256"],
+        "rehearsal_entries": list(rehearsal_entries),
+        "rehearsal_entries_sha256": _json_value_sha256(
+            rehearsal_entries
+        ),
+        "entries": entries,
+        "entries_sha256": _json_value_sha256(entries),
+        "deployment_inventory_before_sha256": _json_value_sha256(
+            before_inventory
+        ),
+        "sentinels": list(sentinels),
+        "live_deployment_mutation_count": 0,
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+
+
+def _step7_v4_verify_rehearsal_artifact_closure(
+    backup_root: Path,
+    operations: Sequence[Mapping[str, Any]],
+) -> None:
+    fixed_directories = {
+        "created",
+        "replaced",
+        "replaced/restored",
+        "replaced/reapplied",
+        "quarantine",
+        "quarantine/created",
+    }
+    expected: dict[Path, set[str]] = {
+        backup_root / "preimages": set(),
+        backup_root / "rehearsal": set(fixed_directories),
+    }
+
+    def add_file(root: Path, relative: Path) -> None:
+        expected[root].add(relative.as_posix())
+        parent = relative.parent
+        while parent != Path("."):
+            expected[root].add(parent.as_posix())
+            parent = parent.parent
+
+    for operation in operations:
+        relative = Path(operation["relative_path"])
+        if operation["operation"] == "REPLACE":
+            add_file(
+                backup_root / "preimages",
+                Path(f"{operation['relative_path']}.preimage"),
+            )
+            add_file(
+                backup_root / "rehearsal",
+                Path("replaced/restored")
+                / f"{operation['relative_path']}.preimage",
+            )
+            add_file(
+                backup_root / "rehearsal",
+                Path("replaced/reapplied")
+                / f"{operation['relative_path']}.postimage",
+            )
+        else:
+            add_file(
+                backup_root / "rehearsal",
+                Path("quarantine/created") / relative,
+            )
+            add_file(
+                backup_root / "rehearsal",
+                Path("created") / relative,
+            )
+    for root, expected_paths in expected.items():
+        inventory = _step7_v4_inventory(root)
+        if set(inventory) != expected_paths:
+            raise ValueError(
+                f"rehearsal artifact closure mismatch: {root}"
+            )
+        for relative, value in inventory.items():
+            should_be_directory = any(
+                candidate != relative
+                and candidate.startswith(f"{relative}/")
+                for candidate in expected_paths
+            ) or (
+                root == backup_root / "rehearsal"
+                and relative in fixed_directories
+            )
+            expected_type = (
+                "DIRECTORY" if should_be_directory else "REGULAR_FILE"
+            )
+            if value["type"] != expected_type:
+                raise ValueError(
+                    f"rehearsal artifact type mismatch: {root / relative}"
+                )
+
+
 def _step7_v4_load_rehearsal(
     backup_root: Path,
     manifest: Mapping[str, Any],
@@ -3820,7 +4231,18 @@ def _step7_v4_load_rehearsal(
     rehearsal_entries = rehearsal_document.get("entries")
     operations = manifest["operations"]
     if (
-        rehearsal_document.get("schema")
+        set(rehearsal_document)
+        != {
+            "schema",
+            "binding",
+            "manifest",
+            "recovery_verification",
+            "entries",
+            "delete_operation_count",
+            "unlink_operation_count",
+            "rmtree_operation_count",
+        }
+        or rehearsal_document.get("schema")
         != STEP7_V4_REHEARSAL_RESULT_SCHEMA
         or rehearsal_document.get("binding") != binding
         or rehearsal_document.get("manifest")
@@ -3831,11 +4253,7 @@ def _step7_v4_load_rehearsal(
             for entry in rehearsal_entries
             if isinstance(entry, Mapping)
         ]
-        != [
-            index
-            for index, operation in enumerate(operations)
-            if operation["operation"] == "CREATE"
-        ]
+        != list(range(len(operations)))
         or any(
             rehearsal_document.get(field) != 0
             for field in (
@@ -3849,36 +4267,165 @@ def _step7_v4_load_rehearsal(
     for entry in rehearsal_entries:
         index = entry["index"]
         operation = operations[index]
-        artifact_path = Path(operation["rehearsal_quarantine_path"])
+        if entry.get("operation") != operation["operation"]:
+            raise ValueError(
+                f"rehearsal entry {index} physical binding mismatch"
+            )
+        if operation["operation"] == "CREATE":
+            artifact_path = Path(operation["rehearsal_quarantine_path"])
+            reapplied_path = (
+                backup_root
+                / "rehearsal"
+                / "created"
+                / operation["relative_path"]
+            )
+            postimage = _step7_v4_expected_tuple(
+                operation, postimage=True
+            )
+            move = entry.get("move")
+            move_fields = {
+                "method",
+                "source_path",
+                "destination_path",
+                "source_device",
+                "source_inode",
+                "destination_device",
+                "destination_inode",
+                "inode_preserved",
+                "source_absent_after_move",
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            }
+            artifact_metadata = artifact_path.lstat()
+            if (
+                set(entry)
+                != {
+                    "index",
+                    "relative_path",
+                    "operation",
+                    "artifact",
+                    "artifact_tuple",
+                    "reapplied_artifact",
+                    "reapplied_tuple",
+                    "move",
+                }
+                or entry["relative_path"] != operation["relative_path"]
+                or entry["artifact"] != _step7_v4_reference(artifact_path)
+                or entry["artifact_tuple"]
+                != postimage
+                or _step7_v4_file_tuple(artifact_path)
+                != entry["artifact_tuple"]
+                or entry["reapplied_artifact"]
+                != _step7_v4_reference(reapplied_path)
+                or entry["reapplied_tuple"] != postimage
+                or _step7_v4_file_tuple(reapplied_path) != postimage
+                or not isinstance(move, Mapping)
+                or set(move) != move_fields
+                or move.get("method")
+                != "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
+                or move.get("source_path") != str(reapplied_path)
+                or move.get("destination_path") != str(artifact_path)
+                or not _integer(move.get("source_device"))
+                or not _integer(move.get("source_inode"))
+                or not _integer(move.get("destination_device"))
+                or not _integer(move.get("destination_inode"))
+                or move.get("source_device")
+                != move.get("destination_device")
+                or move.get("source_inode")
+                != move.get("destination_inode")
+                or move.get("destination_device")
+                != artifact_metadata.st_dev
+                or move.get("destination_inode")
+                != artifact_metadata.st_ino
+                or move.get("inode_preserved") is not True
+                or move.get("source_absent_after_move") is not True
+                or any(
+                    move.get(field) != 0
+                    for field in (
+                        "delete_operation_count",
+                        "unlink_operation_count",
+                        "rmtree_operation_count",
+                    )
+                )
+            ):
+                raise ValueError(
+                    f"rehearsal entry {index} physical binding mismatch"
+                )
+            continue
+        restored_path = (
+            backup_root
+            / "rehearsal"
+            / "replaced"
+            / "restored"
+            / f"{operation['relative_path']}.preimage"
+        )
+        reapplied_path = (
+            backup_root
+            / "rehearsal"
+            / "replaced"
+            / "reapplied"
+            / f"{operation['relative_path']}.postimage"
+        )
+        preimage = _step7_v4_expected_tuple(operation, postimage=False)
+        postimage = _step7_v4_expected_tuple(operation, postimage=True)
         if (
             set(entry)
             != {
                 "index",
                 "relative_path",
-                "artifact",
-                "artifact_tuple",
-                "move",
+                "operation",
+                "restored_artifact",
+                "restored_tuple",
+                "reapplied_artifact",
+                "reapplied_tuple",
+                "restore_method",
+                "reapply_method",
             }
             or entry["relative_path"] != operation["relative_path"]
-            or entry["artifact"] != _step7_v4_reference(artifact_path)
-            or entry["artifact_tuple"]
-            != _step7_v4_expected_tuple(operation, postimage=True)
-            or _step7_v4_file_tuple(artifact_path)
-            != entry["artifact_tuple"]
-            or entry["move"].get("method")
-            != "ATOMIC_RENAME_NOREPLACE_NOFOLLOW_SAME_FILESYSTEM"
-            or any(
-                entry["move"].get(field) != 0
-                for field in (
-                    "delete_operation_count",
-                    "unlink_operation_count",
-                    "rmtree_operation_count",
-                )
-            )
+            or entry["restored_artifact"]
+            != _step7_v4_reference(restored_path)
+            or entry["restored_tuple"] != preimage
+            or _step7_v4_file_tuple(restored_path) != preimage
+            or entry["reapplied_artifact"]
+            != _step7_v4_reference(reapplied_path)
+            or entry["reapplied_tuple"] != postimage
+            or _step7_v4_file_tuple(reapplied_path) != postimage
+            or entry["restore_method"]
+            != "ATOMIC_REPLACE_FROM_VERIFIED_PREIMAGE_COPY"
+            or entry["reapply_method"]
+            != "ATOMIC_REPLACE_FROM_BOUND_SOURCE_POSTIMAGE"
         ):
             raise ValueError(
                 f"rehearsal entry {index} physical binding mismatch"
             )
+    verification_path, verification_document = (
+        _step7_v4_verify_json_reference(
+            rehearsal_document.get("recovery_verification"),
+            label="recovery verification",
+        )
+    )
+    expected_verification_path = Path(
+        manifest["paths"]["recovery_verification"]
+    )
+    expected_verification = _step7_v4_expected_recovery_verification(
+        binding=binding,
+        manifest_path=manifest_path,
+        operations=operations,
+        rehearsal_entries=rehearsal_entries,
+        before_inventory=manifest["deployment_inventory_before"],
+        sentinels=manifest["sentinels"],
+    )
+    if (
+        verification_path != expected_verification_path
+        or verification_document != expected_verification
+        or rehearsal_document["recovery_verification"]
+        != _step7_v4_reference(expected_verification_path)
+    ):
+        raise ValueError("recovery verification physical binding mismatch")
+    _step7_v4_verify_rehearsal_artifact_closure(
+        backup_root, operations
+    )
     return rehearsal_path, rehearsal_document
 
 
@@ -3902,6 +4449,253 @@ def _step7_v4_verify_bound_inputs(
             )
 
 
+def _step7_v4_preapply_artifact_audit(
+    backup_root: Path,
+    operations: Sequence[Mapping[str, Any]],
+) -> tuple[list[int], list[dict[str, Any]]]:
+    roots = (
+        backup_root / "preimages",
+        backup_root / "rehearsal",
+    )
+    allowed_files: dict[Path, dict[str, Any]] = {}
+    rehearsal_files_by_index: dict[int, tuple[Path, ...]] = {}
+    for index, operation in enumerate(operations):
+        relative = operation["relative_path"]
+        if operation["operation"] == "REPLACE":
+            allowed_files[
+                backup_root / "preimages" / f"{relative}.preimage"
+            ] = _step7_v4_expected_tuple(operation, postimage=False)
+            files = (
+                backup_root
+                / "rehearsal"
+                / "replaced"
+                / "restored"
+                / f"{relative}.preimage",
+                backup_root
+                / "rehearsal"
+                / "replaced"
+                / "reapplied"
+                / f"{relative}.postimage",
+            )
+            allowed_files[files[0]] = _step7_v4_expected_tuple(
+                operation, postimage=False
+            )
+            allowed_files[files[1]] = _step7_v4_expected_tuple(
+                operation, postimage=True
+            )
+        else:
+            files = (
+                Path(operation["rehearsal_quarantine_path"]),
+                backup_root
+                / "rehearsal"
+                / "created"
+                / relative,
+            )
+            for path in files:
+                allowed_files[path] = _step7_v4_expected_tuple(
+                    operation, postimage=True
+                )
+        rehearsal_files_by_index[index] = files
+    observed_files: set[Path] = set()
+    closure: list[dict[str, Any]] = []
+    for root in roots:
+        inventory = _step7_v4_inventory(root)
+        for relative, value in inventory.items():
+            path = root / relative
+            if value["type"] == "DIRECTORY":
+                continue
+            expected = allowed_files.get(path)
+            if expected is None or value != expected:
+                raise ValueError(
+                    f"partial rehearsal artifact is unbound: {path}"
+                )
+            observed_files.add(path)
+            closure.append(
+                {
+                    "path": str(path),
+                    "tuple": value,
+                    "reference": _step7_v4_reference(path),
+                }
+            )
+    for operation in operations:
+        if operation["operation"] != "REPLACE":
+            continue
+        backup = Path(operation["preimage_backup_path"])
+        if backup not in observed_files:
+            raise ValueError("partial rehearsal preimage closure is incomplete")
+    completed: list[int] = []
+    for index, files in rehearsal_files_by_index.items():
+        presence = [path in observed_files for path in files]
+        if any(presence) and not all(presence):
+            raise ValueError(
+                f"partial rehearsal operation {index} is not artifact-closed"
+            )
+        if all(presence):
+            completed.append(index)
+    if completed != list(range(len(completed))):
+        raise ValueError("partial rehearsal operation order is not a prefix")
+    return completed, sorted(closure, key=lambda item: item["path"])
+
+
+def _step7_v4_build_preapply_terminal(
+    specification: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> dict[str, Any]:
+    backup_root, manifest = _step7_v4_load_manifest(
+        specification, run_id=run_id
+    )
+    binding = manifest["binding"]
+    operations = manifest["operations"]
+    manifest_path = backup_root / "backup-manifest.json"
+    if (
+        _step7_v4_inventory(Path(binding["deployment_root"]))
+        != manifest["deployment_inventory_before"]
+    ):
+        raise ValueError("preapply deployment inventory drift")
+    _step7_v4_verify_sentinels(manifest["sentinels"])
+    _step7_v4_verify_bound_inputs(specification, operations)
+    completed, artifact_closure = _step7_v4_preapply_artifact_audit(
+        backup_root, operations
+    )
+    contract = manifest["checkpoint_contract"]
+    checkpoint_references = _step7_v4_checkpoint_reference_closure(
+        backup_root, binding, operations
+    )
+    checkpoint_closure = _step7_v4_checkpoint_directory_closure(
+        backup_root, contract
+    )
+    if checkpoint_references["checkpoint_references"]:
+        raise ValueError("preapply terminal contains lifecycle checkpoints")
+    names = _step7_v4_checkpoint_closure_names(checkpoint_closure)
+    expected_names = [
+        (
+            f"rehearsal-{index:04d}-"
+            f"{operations[index]['operation'].lower()}.json"
+        )
+        for index in completed
+    ]
+    if names != sorted(expected_names):
+        raise ValueError("partial rehearsal checkpoint closure mismatch")
+    for index in completed:
+        operation = operations[index]
+        checkpoint = _step7_v4_load_json(
+            backup_root
+            / "checkpoints"
+            / (
+                f"rehearsal-{index:04d}-"
+                f"{operation['operation'].lower()}.json"
+            )
+        )
+        if (
+            set(checkpoint)
+            != {
+                "run_id",
+                "relative_path",
+                "operation",
+                "entry_sha256",
+            }
+            or checkpoint.get("run_id") != run_id
+            or checkpoint.get("relative_path")
+            != operation["relative_path"]
+            or checkpoint.get("operation") != operation["operation"]
+            or not _valid_sha256(checkpoint.get("entry_sha256"))
+        ):
+            raise ValueError(
+                f"partial rehearsal checkpoint {index} binding mismatch"
+            )
+    for name in (
+        "execution-result.json",
+        "recovery-result.json",
+    ):
+        if _step7_v4_optional_json(backup_root / name) is not None:
+            raise ValueError("preapply terminal result already exists")
+    rehearsal_loaded = _step7_v4_load_rehearsal(
+        backup_root, manifest, binding, manifest_path
+    )
+    verification_path = backup_root / "recovery-verification.json"
+    verification = _step7_v4_optional_json(verification_path)
+    if rehearsal_loaded is not None:
+        classification = "COMPLETE_REHEARSAL_PREAPPLY"
+        rehearsal_path, rehearsal_document = rehearsal_loaded
+        if completed != list(range(len(operations))):
+            raise ValueError("complete rehearsal artifact closure is incomplete")
+        _step7_v4_validate_auxiliary_checkpoints(
+            backup_root,
+            binding,
+            operations,
+            rehearsal_document["entries"],
+        )
+        rehearsal_reference: dict[str, str] | None = (
+            _step7_v4_reference(rehearsal_path)
+        )
+        verification_reference: dict[str, str] | None = dict(
+            rehearsal_document["recovery_verification"]
+        )
+    else:
+        classification = "PARTIAL_REHEARSAL_RESIDUE"
+        rehearsal_reference = None
+        verification_reference = None
+        if verification is not None:
+            rehearsal_entries = verification.get("rehearsal_entries")
+            if not isinstance(rehearsal_entries, list):
+                raise ValueError(
+                    "partial recovery verification entries are missing"
+                )
+            expected_verification = (
+                _step7_v4_expected_recovery_verification(
+                    binding=binding,
+                    manifest_path=manifest_path,
+                    operations=operations,
+                    rehearsal_entries=rehearsal_entries,
+                    before_inventory=manifest[
+                        "deployment_inventory_before"
+                    ],
+                    sentinels=manifest["sentinels"],
+                )
+            )
+            if (
+                verification != expected_verification
+                or completed != list(range(len(operations)))
+            ):
+                raise ValueError(
+                    "partial recovery verification binding mismatch"
+                )
+            _step7_v4_validate_auxiliary_checkpoints(
+                backup_root,
+                binding,
+                operations,
+                rehearsal_entries,
+            )
+            verification_reference = _step7_v4_reference(
+                verification_path
+            )
+    return {
+        "schema": STEP7_V4_RECOVERY_RESULT_SCHEMA,
+        "binding": binding,
+        "run_id": run_id,
+        "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+        "classification": classification,
+        "manifest": _step7_v4_reference(manifest_path),
+        "rehearsal_result": rehearsal_reference,
+        "recovery_verification": verification_reference,
+        "completed_rehearsal_indices": completed,
+        "artifact_closure": artifact_closure,
+        "artifact_closure_sha256": _json_value_sha256(
+            artifact_closure
+        ),
+        **checkpoint_references,
+        **checkpoint_closure,
+        "deployment_inventory_after_sha256": _json_value_sha256(
+            manifest["deployment_inventory_before"]
+        ),
+        "sentinels": manifest["sentinels"],
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+
+
 def recover_step7_v4_execution(
     specification: Mapping[str, Any],
     *,
@@ -3911,6 +4705,8 @@ def recover_step7_v4_execution(
 ) -> dict[str, Any]:
     """Recover only after a complete read-only audit of immutable disk state."""
 
+    if _test_capability is None and fail_at is not None:
+        raise ValueError("production recovery forbids failure injection")
     try:
         _step7_v4_require_authority(
             specification, test_capability=_test_capability
@@ -3921,6 +4717,12 @@ def recover_step7_v4_execution(
         binding = manifest["binding"]
         operations = manifest["operations"]
         manifest_path = backup_root / "backup-manifest.json"
+        if not any(
+            (backup_root / "checkpoints").glob("intent-*.json")
+        ):
+            return _step7_v4_build_preapply_terminal(
+                specification, run_id=run_id
+            )
         rehearsal_loaded = _step7_v4_load_rehearsal(
             backup_root, manifest, binding, manifest_path
         )
@@ -4206,6 +5008,9 @@ def recover_step7_v4_execution(
                     binding=binding,
                     manifest_path=manifest_path,
                     rehearsal_path=rehearsal_path,
+                    recovery_verification_path=(
+                        backup_root / "recovery-verification.json"
+                    ),
                     operations=operations,
                     expected_post_inventory=expected_post_inventory,
                     sentinels=manifest["sentinels"],
@@ -4226,6 +5031,9 @@ def recover_step7_v4_execution(
                 "status": "ALREADY_EXECUTED_NO_RECOVERY",
                 "execution_result": _step7_v4_reference(
                     execution_result_path
+                ),
+                "recovery_verification": _step7_v4_reference(
+                    backup_root / "recovery-verification.json"
                 ),
                 **checkpoint_references,
                 **checkpoint_closure,
@@ -4513,6 +5321,9 @@ def recover_step7_v4_execution(
                     binding=binding,
                     manifest_path=manifest_path,
                     rehearsal_path=rehearsal_path,
+                    recovery_verification_path=(
+                        backup_root / "recovery-verification.json"
+                    ),
                     rollback_intent_path=rollback_intent_path,
                     operations=operations,
                     applied_indices=sorted(applied_indices),
@@ -4669,6 +5480,9 @@ def recover_step7_v4_execution(
             binding=binding,
             manifest_path=manifest_path,
             rehearsal_path=rehearsal_path,
+            recovery_verification_path=(
+                backup_root / "recovery-verification.json"
+            ),
             rollback_intent_path=rollback_intent_path,
             operations=operations,
             applied_indices=sorted(applied_indices),
@@ -4679,7 +5493,7 @@ def recover_step7_v4_execution(
             checkpoint_closure=checkpoint_closure,
         )
         _step7_v4_inject(fail_at, "WRITE_RECOVERY_RESULT")
-        _step7_v4_publish_json(recovery_result_path, result)
+        _step7_v4_publish_or_verify_json(recovery_result_path, result)
         return result
     except Exception as exc:
         return {
@@ -4703,6 +5517,8 @@ def execute_step7_v4(
 ) -> dict[str, Any]:
     """Validate, rehearse, apply, and recover a V4 plan in one bounded run."""
 
+    if _test_capability is None and fail_at is not None:
+        raise ValueError("production executor forbids failure injection")
     if _test_capability is not None and gate_callback is None:
         raise ValueError("deployed Step 7 gate callback is required")
     if _test_capability is None and gate_callback is not None:
@@ -4755,6 +5571,13 @@ def execute_step7_v4(
         preimages = _step7_v4_mkdir_exclusive(backup_root, "preimages")
         rehearsal = _step7_v4_mkdir_exclusive(backup_root, "rehearsal")
         _step7_v4_mkdir_exclusive(rehearsal, "created")
+        replaced = _step7_v4_mkdir_exclusive(rehearsal, "replaced")
+        replaced_restored = _step7_v4_mkdir_exclusive(
+            replaced, "restored"
+        )
+        replaced_reapplied = _step7_v4_mkdir_exclusive(
+            replaced, "reapplied"
+        )
         rehearsal_quarantine = _step7_v4_mkdir_exclusive(
             rehearsal, "quarantine"
         )
@@ -4778,41 +5601,148 @@ def execute_step7_v4(
                 ) != _step7_v4_expected_tuple(operation, postimage=False):
                     raise ValueError("captured preimage tuple mismatch")
         _step7_v4_inject(fail_at, "WRITE_EXECUTION_MANIFEST")
-        _step7_v4_publish_json(
-            manifest_path,
-            {
-                "schema": STEP7_V4_EXECUTION_MANIFEST_SCHEMA,
-                "binding": binding,
-                "run_id": binding["run_id"],
-                "status": "VERIFIED_BEFORE_APPLY",
-                "operations": operations,
-                "sentinels": specification["sentinels"],
-                "forbidden_boundaries": specification[
-                    "forbidden_boundaries"
-                ],
-                "gate_contract": specification["gate_contract"],
-                "paths": {
-                    "manifest": str(manifest_path),
-                    "rehearsal_result": str(rehearsal_result_path),
-                    "execution_result": str(
-                        backup_root / "execution-result.json"
-                    ),
-                    "recovery_result": str(
-                        backup_root / "recovery-result.json"
-                    ),
-                },
-                "deployment_inventory_before": before_inventory,
-                "deployment_inventory_expected_after": expected_post_inventory,
-                "target_parent_identities": target_parent_identities,
-                "checkpoint_contract": _step7_v4_checkpoint_contract(
-                    backup_root, operations
+        manifest_document = {
+            "schema": STEP7_V4_EXECUTION_MANIFEST_SCHEMA,
+            "binding": binding,
+            "run_id": binding["run_id"],
+            "status": "VERIFIED_BEFORE_APPLY",
+            "operations": operations,
+            "sentinels": specification["sentinels"],
+            "forbidden_boundaries": specification[
+                "forbidden_boundaries"
+            ],
+            "gate_contract": specification["gate_contract"],
+            "paths": {
+                "manifest": str(manifest_path),
+                "rehearsal_result": str(rehearsal_result_path),
+                "execution_result": str(
+                    backup_root / "execution-result.json"
+                ),
+                "recovery_result": str(
+                    backup_root / "recovery-result.json"
+                ),
+                "recovery_verification": str(
+                    backup_root / "recovery-verification.json"
                 ),
             },
+            "deployment_inventory_before": before_inventory,
+            "deployment_inventory_expected_after": expected_post_inventory,
+            "target_parent_identities": target_parent_identities,
+            "checkpoint_contract": _step7_v4_checkpoint_contract(
+                backup_root, operations
+            ),
+        }
+        _step7_v4_publish_json(manifest_path, manifest_document)
+        manifest_reference = _step7_v4_reference(manifest_path)
+        _step7_v4_inject(fail_at, "VERIFY_EXECUTION_MANIFEST_RELOAD")
+        _, reloaded_manifest = _step7_v4_load_manifest(
+            specification,
+            run_id=binding["run_id"],
+            expected_manifest=manifest_document,
+            expected_reference=manifest_reference,
         )
+        if reloaded_manifest != manifest_document:
+            raise ValueError("execution manifest reload was not exact")
+        _step7_v4_inject(fail_at, "RUN_REPLACE_REHEARSAL")
         _step7_v4_inject(fail_at, "RUN_CREATE_REHEARSAL")
         rehearsal_entries: list[dict[str, Any]] = []
         for index, operation in enumerate(operations):
-            if operation["operation"] != "CREATE":
+            if operation["operation"] == "REPLACE":
+                _step7_v4_inject(
+                    fail_at, f"RUN_REPLACE_REHEARSAL:{index}"
+                )
+                relative = Path(operation["relative_path"])
+                restored_artifact = (
+                    replaced_restored
+                    / f"{operation['relative_path']}.preimage"
+                )
+                reapplied_artifact = (
+                    replaced_reapplied
+                    / f"{operation['relative_path']}.postimage"
+                )
+                _step7_v4_ensure_relative_directories(
+                    replaced_restored, relative.parent
+                )
+                _step7_v4_ensure_relative_directories(
+                    replaced_reapplied, relative.parent
+                )
+                _step7_v4_copy_exclusive(
+                    Path(operation["source_path"]),
+                    reapplied_artifact,
+                )
+                if (
+                    _step7_v4_file_tuple(reapplied_artifact)
+                    != _step7_v4_expected_tuple(
+                        operation, postimage=True
+                    )
+                ):
+                    raise ValueError(
+                        f"REPLACE rehearsal {index} initial postimage drift"
+                    )
+                _step7_v4_atomic_replace(
+                    Path(operation["preimage_backup_path"]),
+                    reapplied_artifact,
+                )
+                if (
+                    _step7_v4_file_tuple(reapplied_artifact)
+                    != _step7_v4_expected_tuple(
+                        operation, postimage=False
+                    )
+                ):
+                    raise ValueError(
+                        f"REPLACE rehearsal {index} restore drift"
+                    )
+                _step7_v4_copy_exclusive(
+                    reapplied_artifact, restored_artifact
+                )
+                _step7_v4_atomic_replace(
+                    Path(operation["source_path"]),
+                    reapplied_artifact,
+                )
+                preimage = _step7_v4_expected_tuple(
+                    operation, postimage=False
+                )
+                postimage = _step7_v4_expected_tuple(
+                    operation, postimage=True
+                )
+                if (
+                    _step7_v4_file_tuple(restored_artifact) != preimage
+                    or _step7_v4_file_tuple(reapplied_artifact)
+                    != postimage
+                ):
+                    raise ValueError(
+                        f"REPLACE rehearsal {index} reapply drift"
+                    )
+                entry = {
+                    "index": index,
+                    "relative_path": operation["relative_path"],
+                    "operation": "REPLACE",
+                    "restored_artifact": _step7_v4_reference(
+                        restored_artifact
+                    ),
+                    "restored_tuple": preimage,
+                    "reapplied_artifact": _step7_v4_reference(
+                        reapplied_artifact
+                    ),
+                    "reapplied_tuple": postimage,
+                    "restore_method": (
+                        "ATOMIC_REPLACE_FROM_VERIFIED_PREIMAGE_COPY"
+                    ),
+                    "reapply_method": (
+                        "ATOMIC_REPLACE_FROM_BOUND_SOURCE_POSTIMAGE"
+                    ),
+                }
+                rehearsal_entries.append(entry)
+                _step7_v4_checkpoint(
+                    backup_root,
+                    f"rehearsal-{index:04d}-replace",
+                    {
+                        "run_id": binding["run_id"],
+                        "relative_path": operation["relative_path"],
+                        "operation": "REPLACE",
+                        "entry_sha256": _json_value_sha256(entry),
+                    },
+                )
                 continue
             _step7_v4_inject(fail_at, f"RUN_CREATE_REHEARSAL:{index}")
             rehearsal_source = (
@@ -4836,44 +5766,99 @@ def execute_step7_v4(
             rehearsal_move = _step7_v4_rename_noreplace(
                 rehearsal_source, rehearsal_destination
             )
-            _step7_v4_checkpoint(
-                backup_root,
-                f"rehearsal-{index:04d}-create",
-                {
-                    "run_id": binding["run_id"],
-                    "relative_path": operation["relative_path"],
-                    "move": rehearsal_move,
-                },
+            _step7_v4_copy_exclusive(
+                rehearsal_destination, rehearsal_source
             )
             if (
                 Path(operation["rollback_quarantine_path"]).exists()
                 or Path(operation["rollback_quarantine_path"]).is_symlink()
             ):
                 raise FileExistsError("live rollback leaf occupied after rehearsal")
-            rehearsal_entries.append(
+            entry = {
+                "index": index,
+                "relative_path": operation["relative_path"],
+                "operation": "CREATE",
+                "artifact": _step7_v4_reference(rehearsal_destination),
+                "artifact_tuple": _step7_v4_file_tuple(
+                    rehearsal_destination
+                ),
+                "reapplied_artifact": _step7_v4_reference(
+                    rehearsal_source
+                ),
+                "reapplied_tuple": _step7_v4_file_tuple(
+                    rehearsal_source
+                ),
+                "move": rehearsal_move,
+            }
+            rehearsal_entries.append(entry)
+            _step7_v4_checkpoint(
+                backup_root,
+                f"rehearsal-{index:04d}-create",
                 {
-                    "index": index,
+                    "run_id": binding["run_id"],
                     "relative_path": operation["relative_path"],
-                    "artifact": _step7_v4_reference(rehearsal_destination),
-                    "artifact_tuple": _step7_v4_file_tuple(
-                        rehearsal_destination
-                    ),
-                    "move": rehearsal_move,
-                }
+                    "operation": "CREATE",
+                    "entry_sha256": _json_value_sha256(entry),
+                },
             )
-        _step7_v4_publish_json(
-            rehearsal_result_path,
-            {
-                "schema": STEP7_V4_REHEARSAL_RESULT_SCHEMA,
-                "binding": binding,
-                "manifest": _step7_v4_reference(manifest_path),
-                "entries": rehearsal_entries,
-                "delete_operation_count": 0,
-                "unlink_operation_count": 0,
-                "rmtree_operation_count": 0,
-            },
+        recovery_verification_path = (
+            backup_root / "recovery-verification.json"
         )
+        recovery_verification_document = (
+            _step7_v4_expected_recovery_verification(
+                binding=binding,
+                manifest_path=manifest_path,
+                operations=operations,
+                rehearsal_entries=rehearsal_entries,
+                before_inventory=before_inventory,
+                sentinels=specification["sentinels"],
+            )
+        )
+        _step7_v4_inject(fail_at, "WRITE_RECOVERY_VERIFICATION")
+        recovery_verification_reference = (
+            _step7_v4_publish_or_verify_json(
+                recovery_verification_path,
+                recovery_verification_document,
+            )
+        )
+        _step7_v4_inject(
+            fail_at,
+            "AFTER_RECOVERY_VERIFICATION_BEFORE_REHEARSAL_RESULT",
+        )
+        rehearsal_document = {
+            "schema": STEP7_V4_REHEARSAL_RESULT_SCHEMA,
+            "binding": binding,
+            "manifest": manifest_reference,
+            "recovery_verification": (
+                recovery_verification_reference
+            ),
+            "entries": rehearsal_entries,
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+        }
+        _step7_v4_publish_or_verify_json(
+            rehearsal_result_path, rehearsal_document
+        )
+        rehearsal_loaded = _step7_v4_load_rehearsal(
+            backup_root,
+            manifest_document,
+            binding,
+            manifest_path,
+        )
+        if (
+            rehearsal_loaded is None
+            or rehearsal_loaded[1] != rehearsal_document
+            or _step7_v4_reference(manifest_path) != manifest_reference
+        ):
+            raise ValueError(
+                "rehearsal result or manifest physical reload mismatch"
+            )
         _step7_v4_verify_bound_inputs(specification, operations)
+        _step7_v4_inject(
+            fail_at,
+            "AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT",
+        )
         if deployment_root.stat().st_dev != backup_root.stat().st_dev:
             raise ValueError("deployment and rollback quarantine are cross-filesystem")
         applied_indices: list[int] = []
@@ -5001,6 +5986,7 @@ def execute_step7_v4(
             binding=binding,
             manifest_path=manifest_path,
             rehearsal_path=rehearsal_result_path,
+            recovery_verification_path=recovery_verification_path,
             operations=operations,
             expected_post_inventory=expected_post_inventory,
             sentinels=specification["sentinels"],
@@ -5009,7 +5995,7 @@ def execute_step7_v4(
             checkpoint_references=checkpoint_references,
             checkpoint_closure=checkpoint_closure,
         )
-        _step7_v4_publish_json(
+        _step7_v4_publish_or_verify_json(
             backup_root / "execution-result.json", result
         )
         return result
@@ -5034,15 +6020,11 @@ def execute_step7_v4(
             (backup_root / "checkpoints").glob("intent-*.json")
         )
         if not intent_exists:
-            return {
-                "schema": STEP7_V4_EXECUTION_RESULT_SCHEMA,
-                "run_id": binding["run_id"],
-                "status": "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
-                "failure_step": str(exc),
-                "delete_operation_count": 0,
-                "unlink_operation_count": 0,
-                "rmtree_operation_count": 0,
-            }
+            return recover_step7_v4_execution(
+                specification,
+                run_id=binding["run_id"],
+                _test_capability=_test_capability,
+            )
         try:
             _step7_v4_checkpoint(
                 backup_root,
@@ -7771,6 +8753,474 @@ def _failed_preapply_revocation_is_valid(
     )
 
 
+def _interrupted_prebackup_revocation_is_valid(
+    revocation: Mapping[str, Any],
+    *,
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    anchor_root: Path,
+) -> bool:
+    """Bind the consumed 63671f9 authorization to its read-only abort."""
+
+    if (
+        set(revocation)
+        != {
+            "schema",
+            "revoked_at_utc",
+            "source_thread_id",
+            "decision",
+            "physical_classification",
+            "revoked_approval_id",
+            "revoked_source",
+            "revoked_artifacts",
+            "authorization_chain",
+            "execution_attempt",
+            "stop_phase",
+            "post_abort_physical_state",
+            "deployment_effects",
+            "preparation_artifacts",
+            "formal_semantics_blockers",
+            "recovery",
+            "exclusion",
+            "reuse_policy",
+            "successor_requirement",
+            "step8_step9_not_entered",
+        }
+        or revocation.get("schema")
+        != INTERRUPTED_PREBACKUP_REVOCATION_SCHEMA
+        or not _valid_iso8601(revocation.get("revoked_at_utc"))
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision")
+        != "REVOKE_CONSUMED_AUTHORIZATION_AND_REBUILD"
+        or revocation.get("physical_classification")
+        != "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION_NO_BACKUP_ROOT"
+        or revocation.get("revoked_approval_id")
+        != INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID
+        or revocation.get("revoked_source")
+        != {
+            "root": str(source_root),
+            **INTERRUPTED_PREBACKUP_REVOCATION_SOURCE,
+        }
+        or revocation.get("step8_step9_not_entered") is not True
+    ):
+        return False
+
+    required_fixes = [
+        "DISPOSABLE_REPLACE_RESTORE_REAPPLY_REHEARSAL",
+        "PRODUCTION_FAILURE_INJECTION_FORBIDDEN",
+        "APPROVAL_DERIVED_PRODUCTION_RUN_ID",
+        "MANIFEST_PHYSICAL_READBACK_BEFORE_REHEARSAL",
+        "PREAPPLY_RECOVERY_VERIFICATION_ARTIFACT_CLOSURE",
+        "LIFECYCLE_CHECKPOINT_PHYSICAL_READBACK_BEFORE_MUTATION",
+        "REHEARSAL_AND_RECOVERY_VERIFICATION_READBACK_BEFORE_FIRST_INTENT",
+    ]
+    if revocation.get("successor_requirement") != {
+        "source_root": str(source_root),
+        "head": source_state.get("head"),
+        "tree": source_state.get("tree"),
+        "scope": "FORMAL_STEP7_EXECUTION_SEMANTICS_CLOSURE_V1",
+        "required_fixes": required_fixes,
+    }:
+        return False
+    try:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "merge-base",
+                    "--is-ancestor",
+                    INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["head"],
+                    str(source_state.get("head")),
+                ],
+                cwd=source_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
+            return False
+    except OSError:
+        return False
+
+    artifacts = revocation.get("revoked_artifacts")
+    if (
+        not isinstance(artifacts, Mapping)
+        or dict(artifacts) != INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS
+    ):
+        return False
+    errors: list[str] = []
+    loaded: dict[str, Mapping[str, Any]] = {}
+    json_names = {
+        "authorization_receipt",
+        "packet",
+        "review_candidate",
+        "evidence_bundle",
+        "execution_specification",
+    }
+    for name, reference in artifacts.items():
+        _, value = _verify_file_reference(
+            reference,
+            errors,
+            f"interrupted prebackup revocation {name}",
+            require_json_object=name in json_names,
+        )
+        if isinstance(value, Mapping):
+            loaded[name] = value
+    if errors:
+        return False
+    packet = loaded.get("packet")
+    candidate = loaded.get("review_candidate")
+    evidence = loaded.get("evidence_bundle")
+    receipt = loaded.get("authorization_receipt")
+    specification = loaded.get("execution_specification")
+    packet_ref = INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS["packet"]
+    candidate_ref = INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS[
+        "review_candidate"
+    ]
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or packet.get("approval_id")
+        != INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID
+        or packet.get("source_binding")
+        != INTERRUPTED_PREBACKUP_REVOCATION_SOURCE
+        or packet.get("deployment_binding") != {"root": str(deployment_root)}
+        or not isinstance(candidate, Mapping)
+        or candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or candidate.get("approval_packet") != packet_ref
+        or candidate.get("approval_id")
+        != INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID
+        or not isinstance(evidence, Mapping)
+        or evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or evidence.get("approval_packet") != packet_ref
+        or evidence.get("approval_id")
+        != INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID
+        or not isinstance(receipt, Mapping)
+        or not isinstance(specification, Mapping)
+        or specification.get("run_id")
+        != INTERRUPTED_PREBACKUP_REVOCATION_RUN_ID
+        or specification.get("packet") != packet_ref
+        or specification.get("candidate") != candidate_ref
+        or specification.get("source_head")
+        != INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["head"]
+        or specification.get("source_tree")
+        != INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["tree"]
+        or specification.get("backup_root")
+        != INTERRUPTED_PREBACKUP_REVOCATION_BACKUP_ROOT
+        or specification.get("operations_sha256")
+        != _json_value_sha256(packet.get("exact_file_operations"))
+        or specification.get("plan_sha256")
+        != packet.get("backup_and_rollback_plan_sha256")
+    ):
+        return False
+
+    authorization_errors: list[str] = []
+    _verify_user_authorization(
+        receipt,
+        expected_payload={
+            "approval_id": INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID,
+            "approval_packet_sha256": packet_ref["sha256"],
+            "exact_file_operation_count": len(packet["exact_file_operations"]),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "review_candidate_sha256": candidate_ref["sha256"],
+            "source_head": INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["head"],
+            "source_tree": INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["tree"],
+            "deployment_root": str(deployment_root),
+        },
+        anchor_root=anchor_root,
+        errors=authorization_errors,
+    )
+    if (
+        authorization_errors
+        or _json_value_sha256(receipt)
+        != INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS[
+            "authorization_receipt"
+        ]["canonical_sha256"]
+    ):
+        return False
+
+    expected_chain = {
+        "source_user_record": {
+            "session_path": (
+                "/Users/moss/.codex/sessions/2026/07/20/"
+                "rollout-2026-07-20T14-42-51-"
+                "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+            ),
+            "session_id": STEP7_SOURCE_THREAD_ID,
+            "session_meta_raw_sha256": (
+                "108a46acefdec456c54872ac4cf02a63133a954ceb1f82fbf4d642a13846360e"
+            ),
+            "line_number": 14191,
+            "record_id": "msg_019fa791-d688-7ae1-8b2c-f98bf7a0ee0b",
+            "raw_record_sha256": (
+                "c209761fc6341d942016da06c570ede7a762922f3dfc445b4e32daedaaf38a0a"
+            ),
+            "actual_content_sha256": (
+                "a91e11541291e5272845d084059d64190d213c36a94cfcb5c4a3b47d0b55e73d"
+            ),
+            "actual_content_length": 667,
+            "canonical_logical_sha256": (
+                "554fe6899d86ec16f4709d72f42d0c18c90c195ac3723dc4633bd8c2f5d939bd"
+            ),
+            "canonical_logical_length": 666,
+            "transport_normalization_mode": "REMOVE_ONE_TERMINAL_LF",
+            "transport_removed_suffix_hex": "0a",
+            "transport_removed_byte_count": 1,
+        },
+        "delegation_wrapper": {
+            "session_path": INTERRUPTED_PREBACKUP_REVOCATION_SESSION,
+            "line_number": 12661,
+            "record_id": "msg_019fa792-b4e4-7060-b656-b982f27fe866",
+            "raw_record_sha256": (
+                "2bea2ec4d6d3199748d17cf96c503c402c2cb515017aade35dd07691dbea94ae"
+            ),
+            "content_sha256": (
+                "097dba308c294ce5bc1a8fdfc94cbc49ef67e5229304f9d2b8904c3c50f97239"
+            ),
+            "content_length": 1232,
+            "source_thread_id": STEP7_SOURCE_THREAD_ID,
+        },
+    }
+    if revocation.get("authorization_chain") != expected_chain:
+        return False
+
+    expected_records = [
+        (12741, "DRY_RUN_VERIFIED", "4f5e33346e95fd6ed2c629e136357a493593292bef934edd5817dec0181a6dc9"),
+        (12758, "FORMAL_EXECUTE_COMMAND", "491374fd779e867b41e96cdbe055f53f92e7b5a2eeb3315de88edcb3c1445d76"),
+        (12759, "FORMAL_EXECUTE_ASYNC_START", "2dfc484ce1f1d2b8cdce94e687f0281cad7b53cfbc4e3a39b20d9fb826124854"),
+        (12764, "FORMAL_SEMANTICS_BLOCKER", "714efe5b50a3171f2679ca354fcca2132aaf1014bc21ed069442eb0ee13cade2"),
+        (12769, "OPERATOR_INTERRUPT", "458fc3b7a2c51b8d069eaa68832d0fa8d61d9028da894d147f50f6b869d53c64"),
+        (12770, "EXIT_130_KEYBOARD_INTERRUPT", "8242fc84b125e48f60d27b53f034e53544220f042860efc37d81c7830fd8c31d"),
+        (12775, "POST_ABORT_PHYSICAL_VERIFICATION", "09c685073d5c3436c769ebab0aeefc229606e22218329c7bcb12171c87c535f4"),
+    ]
+    record_documents = [
+        {"line_number": line, "kind": kind, "raw_record_sha256": digest}
+        for line, kind, digest in expected_records
+    ]
+    if revocation.get("execution_attempt") != {
+        "session_path": INTERRUPTED_PREBACKUP_REVOCATION_SESSION,
+        "run_id": INTERRUPTED_PREBACKUP_REVOCATION_RUN_ID,
+        "records": record_documents,
+        "terminal_verdict_present": False,
+        "exit_code": 130,
+        "failure_class": "OPERATOR_ABORT_AFTER_FORMAL_SEMANTICS_BLOCKER",
+        "gate_result_count": 0,
+    }:
+        return False
+    session_path = Path(INTERRUPTED_PREBACKUP_REVOCATION_SESSION)
+    try:
+        if (
+            session_path.is_symlink()
+            or not session_path.is_file()
+            or not session_path.is_relative_to(anchor_root)
+        ):
+            return False
+        raw_lines = session_path.read_bytes().splitlines(keepends=True)
+        for line, _, expected_sha256 in expected_records:
+            raw = raw_lines[line - 1]
+            json.loads(raw)
+            if hashlib.sha256(raw).hexdigest() != expected_sha256:
+                return False
+    except (
+        OSError,
+        IndexError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return False
+
+    if revocation.get("stop_phase") != {
+        "phase": "READ_ONLY_DEPLOYMENT_TREE_INVENTORY_BEFORE_BACKUP_ROOT",
+        "stack": [
+            "executor.main",
+            "execute_step7_v4",
+            "_step7_v4_inventory",
+            "_step7_v4_file_tuple",
+            "_step7_v4_open_dir_nofollow",
+            "os.open",
+        ],
+        "first_authorized_write": "CREATE_BACKUP_ROOT",
+        "backup_root_creation_reached": False,
+    }:
+        return False
+
+    operations = packet.get("exact_file_operations")
+    if not isinstance(operations, list) or len(operations) != 6:
+        return False
+    target_preimages: list[dict[str, Any]] = []
+    for operation in operations:
+        if not isinstance(operation, Mapping):
+            return False
+        expected_tuple = _step7_v4_expected_tuple(
+            operation, postimage=False
+        )
+        target = Path(str(operation.get("target_path")))
+        try:
+            if _step7_v4_file_tuple(target) != expected_tuple:
+                return False
+        except (OSError, ValueError):
+            return False
+        target_preimages.append(
+            {
+                "relative_path": operation.get("relative_path"),
+                "operation": operation.get("operation"),
+                "target_path": str(target),
+                **expected_tuple,
+            }
+        )
+    backup_root = Path(INTERRUPTED_PREBACKUP_REVOCATION_BACKUP_ROOT)
+    if backup_root.exists() or backup_root.is_symlink():
+        return False
+    policy_sha256 = (
+        "8bcdd4f05d16c05fa71ecca2c503da8428c3476b873659a7b38024b144b35470"
+    )
+    source_policy = source_root / POLICY_RELATIVE_PATH
+    deployment_policy = deployment_root / POLICY_RELATIVE_PATH
+    sentinels = [
+        {"path": path, "sha256": sha256}
+        for path, sha256 in (
+            (BASE_SENTINEL_PATH, BASE_SENTINEL_PHYSICAL_SHA256),
+            (MUTABLE_SENTINEL_PATH, MUTABLE_SENTINEL_PHYSICAL_SHA256),
+            (
+                EXECUTION_MANIFEST_PATH,
+                EXECUTION_MANIFEST_PHYSICAL_SHA256,
+            ),
+        )
+    ]
+    try:
+        source_policy_value = _load_json(source_policy)
+        deployment_policy_value = _load_json(deployment_policy)
+        if (
+            _sha256(source_policy) != policy_sha256
+            or _sha256(deployment_policy) != policy_sha256
+            or any(
+                source_policy_value.get(field) is not False
+                or deployment_policy_value.get(field) is not False
+                for field in SWITCHES
+            )
+            or any(
+                _sha256(Path(reference["path"]))
+                != reference["sha256"]
+                for reference in sentinels
+            )
+        ):
+            return False
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    if revocation.get("post_abort_physical_state") != {
+        "backup_root": {
+            "path": str(backup_root),
+            "exists": False,
+            "is_symlink": False,
+        },
+        "target_preimages": target_preimages,
+        "source_head": INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["head"],
+        "source_tree": INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["tree"],
+        "source_clean_at_abort": True,
+        "source_policy": {
+            "path": str(source_policy),
+            "sha256": policy_sha256,
+        },
+        "deployment_policy": {
+            "path": str(deployment_policy),
+            "sha256": policy_sha256,
+        },
+        "execution_switches": {field: False for field in SWITCHES},
+        "sentinels": sentinels,
+    }:
+        return False
+
+    if revocation.get("deployment_effects") != {
+        "formal_execution_effect_count": 0,
+        "deployment_target_change_count": 0,
+        "production_data_change_count": 0,
+        "baseline_change_count": 0,
+        "canary_run_count": 0,
+        "execution_switch_change_count": 0,
+        "external_change_count": 0,
+        "step8_step9_entered": False,
+    }:
+        return False
+    preparation = {
+        name: INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS[name]
+        for name in (
+            "authorization_receipt",
+            "execution_specification",
+            "executor",
+            "executor_bytecode",
+        )
+    }
+    if revocation.get("preparation_artifacts") != {
+        "artifact_count": 4,
+        "artifacts": preparation,
+    }:
+        return False
+    blockers = [
+        "REPLACE_DISPOSABLE_RESTORE_REAPPLY_REHEARSAL_MISSING",
+        "PRODUCTION_FAILURE_INJECTION_NOT_AUTHORITY_BOUND",
+        "PRODUCTION_RUN_ID_NOT_UNIQUELY_DERIVED",
+        "EXECUTION_MANIFEST_NOT_RELOADED_BEFORE_REHEARSAL_OR_APPLY",
+        "RECOVERY_VERIFICATION_ARTIFACT_NOT_EMITTED_OR_BOUND",
+    ]
+    if revocation.get("formal_semantics_blockers") != blockers:
+        return False
+    if revocation.get("recovery") != {
+        "invoked": False,
+        "required": False,
+        "permitted": False,
+        "reason": "NO_BACKUP_ROOT_NO_MANIFEST_NO_INTENT_NO_DEPLOYMENT_MUTATION",
+        "cleanup_required": False,
+    }:
+        return False
+    if revocation.get("exclusion") != {
+        "counted_as_pass": False,
+        "terminal_verdict_present": False,
+        "exit_code": 130,
+        "failure_class": "OPERATOR_ABORT_AFTER_FORMAL_SEMANTICS_BLOCKER",
+        "physical_classification": (
+            "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION_NO_BACKUP_ROOT"
+        ),
+        "gate_result_count": 0,
+        "deployment_file_change_count": 0,
+        "external_change_count": 0,
+        "recovery_invoked": False,
+    }:
+        return False
+    reuse = revocation.get("reuse_policy")
+    reuse_fields = {
+        "may_execute",
+        "may_retry",
+        "may_reuse_packet",
+        "may_reuse_candidate",
+        "may_reuse_evidence",
+        "may_reuse_gate_results",
+        "may_reuse_real_sitina_reviews",
+        "may_reuse_authorization_request",
+        "may_reuse_source_user_record",
+        "may_reuse_delegation_wrapper",
+        "may_reuse_authorization_receipt",
+        "may_reuse_execution_specification",
+        "may_reuse_executor",
+        "may_reuse_run_id",
+        "may_reuse_operations_sha256",
+        "may_reuse_plan_sha256",
+        "may_reuse_backup_root",
+    }
+    return bool(
+        isinstance(reuse, Mapping)
+        and set(reuse) == reuse_fields
+        and all(reuse.get(field) is False for field in reuse_fields)
+    )
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -8122,6 +9572,13 @@ def _verify_rollback_and_bound_evidence(
     if not isinstance(revocation, Mapping) or not (
         _known_legacy_revocation_is_valid(revocation)
         or _failed_preapply_revocation_is_valid(
+            revocation,
+            source_root=source_root,
+            deployment_root=deployment_root,
+            source_state=source_state,
+            anchor_root=anchor_root,
+        )
+        or _interrupted_prebackup_revocation_is_valid(
             revocation,
             source_root=source_root,
             deployment_root=deployment_root,

@@ -2745,6 +2745,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.assertFalse(live.exists())
             self.assertTrue((backup_root / "backup-manifest.json").is_file())
             self.assertTrue((backup_root / "execution-result.json").is_file())
+            self.assertTrue(
+                (backup_root / "recovery-verification.json").is_file()
+            )
             manifest_document = json.loads(
                 (backup_root / "backup-manifest.json").read_text(
                     encoding="utf-8"
@@ -2784,6 +2787,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.assertEqual(
                 result["rehearsal_result"]["sha256"],
                 sha256(backup_root / "rehearsal-result.json"),
+            )
+            self.assertEqual(
+                result["recovery_verification"]["sha256"],
+                sha256(backup_root / "recovery-verification.json"),
             )
             for field in (
                 "delete_operation_count",
@@ -2881,6 +2888,380 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self._step7_v4_tree_snapshot(deployment),
             before,
         )
+
+    def test_v4_all_replace_rehearsals_are_disposable_and_physically_bound(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        for index in range(2, 5):
+            self._append_step7_v4_operation(
+                spec, f"replace-{index}.txt", "REPLACE"
+            )
+        deployment = Path(str(spec["deployment_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        observed: dict[str, object] = {}
+        original_verify = step7_gate._step7_v4_verify_bound_inputs
+
+        def observe_preapply(
+            specification: object,
+            operations: object,
+        ) -> None:
+            observed["deployment"] = self._step7_v4_tree_snapshot(
+                deployment
+            )
+            original_verify(specification, operations)
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_verify_bound_inputs",
+            side_effect=observe_preapply,
+        ):
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=self._step7_v4_capability(spec),
+            )
+        self.assertEqual(result["status"], "EXECUTED", result)
+        self.assertEqual(observed["deployment"], before)
+        backup_root = Path(str(spec["backup_root"]))
+        rehearsal = json.loads(
+            (backup_root / "rehearsal-result.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        replace_entries = [
+            entry
+            for entry in rehearsal["entries"]
+            if entry["operation"] == "REPLACE"
+        ]
+        self.assertEqual(len(replace_entries), 4)
+        for entry in replace_entries:
+            for field, tuple_field in (
+                ("restored_artifact", "restored_tuple"),
+                ("reapplied_artifact", "reapplied_tuple"),
+            ):
+                reference = entry[field]
+                path = Path(reference["path"])
+                self.assertTrue(path.is_relative_to(backup_root))
+                self.assertEqual(reference["sha256"], sha256(path))
+                self.assertEqual(
+                    step7_gate._step7_v4_file_tuple(path),
+                    entry[tuple_field],
+                )
+            checkpoint = (
+                backup_root
+                / "checkpoints"
+                / f"rehearsal-{entry['index']:04d}-replace.json"
+            )
+            self.assertEqual(
+                json.loads(checkpoint.read_text(encoding="utf-8"))[
+                    "entry_sha256"
+                ],
+                _json_value_sha256(entry),
+            )
+
+    def test_v4_production_rejects_every_non_none_failure_injection(
+        self,
+    ) -> None:
+        for fail_at in ([], set(), "ANY"):
+            with self.subTest(api="execute", fail_at=repr(fail_at)):
+                with self.assertRaisesRegex(
+                    ValueError, "production executor forbids"
+                ):
+                    execute_step7_v4(
+                        {},
+                        dry_run=True,
+                        fail_at=fail_at,
+                    )
+            with self.subTest(api="recover", fail_at=repr(fail_at)):
+                with self.assertRaisesRegex(
+                    ValueError, "production recovery forbids"
+                ):
+                    recover_step7_v4_execution(
+                        {},
+                        run_id="unused",
+                        fail_at=fail_at,
+                    )
+
+    def test_v4_production_run_id_is_exactly_approval_execution_id(
+        self,
+    ) -> None:
+        packet = {"approval_id": "SITINA_STEP7_DEPLOY_EXACT"}
+        step7_gate._step7_v4_require_production_run_id(
+            {"run_id": "SITINA_STEP7_DEPLOY_EXACT_EXECUTION"},
+            packet,
+        )
+        for run_id in (
+            "SITINA_STEP7_DEPLOY_EXACT",
+            "SITINA_STEP7_DEPLOY_OTHER_EXECUTION",
+            "SITINA_STEP7_DEPLOY_EXACT_EXECUTION_EXTRA",
+        ):
+            with self.subTest(run_id=run_id), self.assertRaisesRegex(
+                ValueError, "run_id must equal approval_id"
+            ):
+                step7_gate._step7_v4_require_production_run_id(
+                    {"run_id": run_id}, packet
+                )
+
+    def test_v4_manifest_is_reloaded_exactly_before_rehearsal_or_apply(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        deployment = Path(str(spec["deployment_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        original_load = step7_gate._step7_v4_load_manifest
+
+        def tamper_then_load(
+            specification: object,
+            **kwargs: object,
+        ) -> object:
+            if kwargs.get("expected_manifest") is not None:
+                path = (
+                    Path(str(spec["backup_root"]))
+                    / "backup-manifest.json"
+                )
+                document = json.loads(path.read_text(encoding="utf-8"))
+                document["status"] = "TAMPERED"
+                path.write_text(
+                    json.dumps(document, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            return original_load(specification, **kwargs)
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_load_manifest",
+            side_effect=tamper_then_load,
+        ):
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=self._step7_v4_capability(spec),
+            )
+        self.assertEqual(
+            result["status"],
+            "MANUAL_RECOVERY_REQUIRED",
+            result,
+        )
+        self.assertIn(
+            "manifest binding mismatch", result["recovery_error"]
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment), before
+        )
+        self.assertFalse(
+            (
+                Path(str(spec["backup_root"]))
+                / "checkpoints"
+                / "intent-0000.json"
+            ).exists()
+        )
+
+    def test_v4_missing_recovery_verification_blocks_first_intent(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        deployment = Path(str(spec["deployment_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        original_load = step7_gate._step7_v4_load_rehearsal
+
+        def remove_then_load(*args: object, **kwargs: object) -> object:
+            verification = (
+                Path(str(spec["backup_root"]))
+                / "recovery-verification.json"
+            )
+            if verification.exists():
+                verification.unlink()
+            return original_load(*args, **kwargs)
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_load_rehearsal",
+            side_effect=remove_then_load,
+        ):
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=self._step7_v4_capability(spec),
+            )
+        self.assertEqual(
+            result["status"],
+            "MANUAL_RECOVERY_REQUIRED",
+            result,
+        )
+        self.assertIn(
+            "recovery-verification.json", result["recovery_error"]
+        )
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment), before
+        )
+        self.assertFalse(
+            (
+                Path(str(spec["backup_root"]))
+                / "checkpoints"
+                / "intent-0000.json"
+            ).exists()
+        )
+
+    def test_v4_intent_and_commit_are_reloaded_before_later_mutation(
+        self,
+    ) -> None:
+        for checkpoint_name, untouched_relative in (
+            ("intent-0000.json", "replace.txt"),
+            ("commit-0000.json", "create.txt"),
+        ):
+            with self.subTest(checkpoint=checkpoint_name):
+                spec = self._step7_v4_execution_spec()
+                deployment = Path(str(spec["deployment_root"]))
+                original_load = step7_gate._step7_v4_load_json
+
+                def drift_checkpoint(path: Path) -> dict[str, object]:
+                    document = original_load(path)
+                    if path.name == checkpoint_name:
+                        document = dict(document)
+                        document["run_id"] = "tampered"
+                    return document
+
+                with mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_load_json",
+                    side_effect=drift_checkpoint,
+                ):
+                    result = execute_step7_v4(
+                        spec,
+                        dry_run=False,
+                        gate_callback=lambda _: {"accepted": True},
+                        _test_capability=self._step7_v4_capability(spec),
+                    )
+                self.assertNotEqual(result["status"], "EXECUTED", result)
+                if checkpoint_name.startswith("intent"):
+                    self.assertEqual(
+                        (deployment / untouched_relative).read_text(
+                            encoding="utf-8"
+                        ),
+                        "old replace\n",
+                    )
+                else:
+                    self.assertFalse(
+                        (deployment / untouched_relative).exists()
+                    )
+                    self.assertFalse(
+                        (
+                            Path(str(spec["backup_root"]))
+                            / "checkpoints"
+                            / "intent-0001.json"
+                        ).exists()
+                    )
+
+    def test_v4_recovery_verification_entry_closure_fails_closed(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        capability = self._step7_v4_capability(spec)
+        executed = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(executed["status"], "EXECUTED", executed)
+        backup_root = Path(str(spec["backup_root"]))
+        manifest_path = backup_root / "backup-manifest.json"
+        _, manifest = step7_gate._step7_v4_load_manifest(
+            spec, run_id=str(spec["run_id"])
+        )
+        verification_path = backup_root / "recovery-verification.json"
+        rehearsal_path = backup_root / "rehearsal-result.json"
+        verification_original = verification_path.read_bytes()
+        rehearsal_original = rehearsal_path.read_bytes()
+
+        def missing(entries: list[object]) -> list[object]:
+            return entries[:-1]
+
+        def duplicated(entries: list[object]) -> list[object]:
+            return [*entries, copy.deepcopy(entries[-1])]
+
+        def reordered(entries: list[object]) -> list[object]:
+            return list(reversed(entries))
+
+        def extra(entries: list[object]) -> list[object]:
+            value = copy.deepcopy(entries[-1])
+            value["index"] = 999
+            value["relative_path"] = "extra"
+            return [*entries, value]
+
+        for name, mutate in (
+            ("missing", missing),
+            ("duplicated", duplicated),
+            ("reordered", reordered),
+            ("extra", extra),
+        ):
+            with self.subTest(name=name):
+                verification = json.loads(
+                    verification_original.decode("utf-8")
+                )
+                verification["entries"] = mutate(
+                    verification["entries"]
+                )
+                verification["entries_sha256"] = _json_value_sha256(
+                    verification["entries"]
+                )
+                verification_path.write_bytes(
+                    step7_gate._step7_v4_json_payload(verification)
+                )
+                rehearsal = json.loads(
+                    rehearsal_original.decode("utf-8")
+                )
+                rehearsal["recovery_verification"] = {
+                    "path": str(verification_path),
+                    "sha256": sha256(verification_path),
+                }
+                rehearsal_path.write_bytes(
+                    step7_gate._step7_v4_json_payload(rehearsal)
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "recovery verification"
+                ):
+                    step7_gate._step7_v4_load_rehearsal(
+                        backup_root,
+                        manifest,
+                        manifest["binding"],
+                        manifest_path,
+                    )
+                verification_path.write_bytes(verification_original)
+                rehearsal_path.write_bytes(rehearsal_original)
+
+    def test_v4_rehearsal_artifact_closure_rejects_extra_leaf(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        executed = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=self._step7_v4_capability(spec),
+        )
+        self.assertEqual(executed["status"], "EXECUTED", executed)
+        backup_root = Path(str(spec["backup_root"]))
+        manifest_path = backup_root / "backup-manifest.json"
+        _, manifest = step7_gate._step7_v4_load_manifest(
+            spec, run_id=str(spec["run_id"])
+        )
+        (backup_root / "rehearsal/unexpected.txt").write_text(
+            "unexpected\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "artifact closure mismatch"
+        ):
+            step7_gate._step7_v4_load_rehearsal(
+                backup_root,
+                manifest,
+                manifest["binding"],
+                manifest_path,
+            )
 
     def test_v4_recovery_after_success_is_read_only_and_idempotent(self) -> None:
         spec = self._step7_v4_execution_spec()
@@ -3450,6 +3831,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self.assertIn("RUN_CREATE_REHEARSAL:3", steps)
         self.assertNotIn("RUN_CREATE_REHEARSAL:0", steps)
         self.assertNotIn("RUN_CREATE_REHEARSAL:2", steps)
+        self.assertIn("RUN_REPLACE_REHEARSAL:0", steps)
+        self.assertIn("RUN_REPLACE_REHEARSAL:2", steps)
+        self.assertNotIn("RUN_REPLACE_REHEARSAL:1", steps)
+        self.assertNotIn("RUN_REPLACE_REHEARSAL:3", steps)
         for step in steps:
             with self.subTest(step=step), tempfile.TemporaryDirectory() as directory:
                 spec = self._step7_v4_execution_spec()
@@ -3968,6 +4353,134 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 occupied["status"], "MANUAL_RECOVERY_REQUIRED", occupied
             )
 
+    def test_v4_preapply_failure_terminals_are_classified_and_idempotent(
+        self,
+    ) -> None:
+        steps = (
+            "RUN_REPLACE_REHEARSAL",
+            "RUN_CREATE_REHEARSAL",
+            "RUN_REPLACE_REHEARSAL:0",
+            "RUN_CREATE_REHEARSAL:1",
+            "RUN_REPLACE_REHEARSAL:2",
+            "RUN_CREATE_REHEARSAL:3",
+            "WRITE_RECOVERY_VERIFICATION",
+            "AFTER_RECOVERY_VERIFICATION_BEFORE_REHEARSAL_RESULT",
+            "AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT",
+        )
+        for step in steps:
+            with self.subTest(step=step):
+                spec = self._step7_v4_execution_spec()
+                self._append_step7_v4_operation(
+                    spec, "replace-2.txt", "REPLACE"
+                )
+                self._append_step7_v4_operation(
+                    spec, "create-2.txt", "CREATE"
+                )
+                capability = self._step7_v4_capability(spec)
+                deployment = Path(str(spec["deployment_root"]))
+                before = self._step7_v4_tree_snapshot(deployment)
+                first = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=step,
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+                expected_classification = (
+                    "COMPLETE_REHEARSAL_PREAPPLY"
+                    if step
+                    == "AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT"
+                    else "PARTIAL_REHEARSAL_RESIDUE"
+                )
+                self.assertEqual(
+                    first["status"],
+                    "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+                    first,
+                )
+                self.assertEqual(
+                    first["classification"], expected_classification
+                )
+                self.assertNotIn("failure_step", first)
+                self.assertNotIn("recovery_error", first)
+                self.assertEqual(
+                    first["artifact_closure_sha256"],
+                    _json_value_sha256(first["artifact_closure"]),
+                )
+                self._assert_step7_v4_checkpoint_closure(first)
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(deployment), before
+                )
+                second = recover_step7_v4_execution(
+                    spec,
+                    run_id=str(spec["run_id"]),
+                    _test_capability=capability,
+                )
+                third = recover_step7_v4_execution(
+                    spec,
+                    run_id=str(spec["run_id"]),
+                    _test_capability=capability,
+                )
+                self.assertEqual(second, first)
+                self.assertEqual(third, first)
+
+    def test_v4_create_move_evidence_rejects_each_field_drift(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        executed = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=self._step7_v4_capability(spec),
+        )
+        self.assertEqual(executed["status"], "EXECUTED", executed)
+        backup_root = Path(str(spec["backup_root"]))
+        manifest_path = backup_root / "backup-manifest.json"
+        _, manifest = step7_gate._step7_v4_load_manifest(
+            spec, run_id=str(spec["run_id"])
+        )
+        rehearsal_path = backup_root / "rehearsal-result.json"
+        original = rehearsal_path.read_bytes()
+        create_entry = json.loads(original)["entries"][1]
+        move_fields = tuple(create_entry["move"])
+        for field in move_fields:
+            with self.subTest(field=field):
+                document = json.loads(original)
+                move = document["entries"][1]["move"]
+                if isinstance(move[field], bool):
+                    move[field] = not move[field]
+                elif isinstance(move[field], int):
+                    move[field] += 1
+                else:
+                    move[field] = f"{move[field]}-tampered"
+                rehearsal_path.write_bytes(
+                    step7_gate._step7_v4_json_payload(document)
+                )
+                with self.assertRaisesRegex(
+                    ValueError, "rehearsal entry 1 physical binding mismatch"
+                ):
+                    step7_gate._step7_v4_load_rehearsal(
+                        backup_root,
+                        manifest,
+                        manifest["binding"],
+                        manifest_path,
+                    )
+                rehearsal_path.write_bytes(original)
+        document = json.loads(original)
+        del document["entries"][1]["move"][move_fields[0]]
+        rehearsal_path.write_bytes(
+            step7_gate._step7_v4_json_payload(document)
+        )
+        with self.assertRaisesRegex(
+            ValueError, "rehearsal entry 1 physical binding mismatch"
+        ):
+            step7_gate._step7_v4_load_rehearsal(
+                backup_root,
+                manifest,
+                manifest["binding"],
+                manifest_path,
+            )
+
     def test_v4_missing_rehearsal_requires_exact_clean_preapply_state(
         self,
     ) -> None:
@@ -4118,10 +4631,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 self.assertEqual(
                     rejected["status"], "MANUAL_RECOVERY_REQUIRED"
                 )
-                self.assertIn(
-                    "missing rehearsal-result",
-                    rejected["recovery_error"],
+                self.assertIsInstance(
+                    rejected.get("recovery_error"), str
                 )
+                self.assertTrue(rejected["recovery_error"])
                 self.assertEqual(
                     self._step7_v4_tree_snapshot(
                         capability.scope_root
@@ -6137,6 +6650,355 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     anchor_root=Path("/Users/moss/.codex/sessions"),
                 )
             )
+
+    def test_interrupted_prebackup_revocation_v4_is_bound_and_fail_closed(
+        self,
+    ) -> None:
+        source_state = {
+            "head": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{commit}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+            "tree": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{tree}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+        }
+        packet = json.loads(
+            Path(
+                step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS[
+                    "packet"
+                ]["path"]
+            ).read_text(encoding="utf-8")
+        )
+        target_preimages = []
+        for operation in packet["exact_file_operations"]:
+            target_preimages.append(
+                {
+                    "relative_path": operation["relative_path"],
+                    "operation": operation["operation"],
+                    "target_path": operation["target_path"],
+                    **step7_gate._step7_v4_expected_tuple(
+                        operation, postimage=False
+                    ),
+                }
+            )
+        policy_sha256 = (
+            "8bcdd4f05d16c05fa71ecca2c503da8428c3476b873659a7b38024b144b35470"
+        )
+        sentinels = [
+            {"path": path, "sha256": digest}
+            for path, digest in (
+                (
+                    step7_gate.BASE_SENTINEL_PATH,
+                    step7_gate.BASE_SENTINEL_PHYSICAL_SHA256,
+                ),
+                (
+                    step7_gate.MUTABLE_SENTINEL_PATH,
+                    step7_gate.MUTABLE_SENTINEL_PHYSICAL_SHA256,
+                ),
+                (
+                    step7_gate.EXECUTION_MANIFEST_PATH,
+                    step7_gate.EXECUTION_MANIFEST_PHYSICAL_SHA256,
+                ),
+            )
+        ]
+        records = [
+            (12741, "DRY_RUN_VERIFIED", "4f5e33346e95fd6ed2c629e136357a493593292bef934edd5817dec0181a6dc9"),
+            (12758, "FORMAL_EXECUTE_COMMAND", "491374fd779e867b41e96cdbe055f53f92e7b5a2eeb3315de88edcb3c1445d76"),
+            (12759, "FORMAL_EXECUTE_ASYNC_START", "2dfc484ce1f1d2b8cdce94e687f0281cad7b53cfbc4e3a39b20d9fb826124854"),
+            (12764, "FORMAL_SEMANTICS_BLOCKER", "714efe5b50a3171f2679ca354fcca2132aaf1014bc21ed069442eb0ee13cade2"),
+            (12769, "OPERATOR_INTERRUPT", "458fc3b7a2c51b8d069eaa68832d0fa8d61d9028da894d147f50f6b869d53c64"),
+            (12770, "EXIT_130_KEYBOARD_INTERRUPT", "8242fc84b125e48f60d27b53f034e53544220f042860efc37d81c7830fd8c31d"),
+            (12775, "POST_ABORT_PHYSICAL_VERIFICATION", "09c685073d5c3436c769ebab0aeefc229606e22218329c7bcb12171c87c535f4"),
+        ]
+        preparation = {
+            name: copy.deepcopy(
+                step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS[
+                    name
+                ]
+            )
+            for name in (
+                "authorization_receipt",
+                "execution_specification",
+                "executor",
+                "executor_bytecode",
+            )
+        }
+        reuse_fields = {
+            "may_execute",
+            "may_retry",
+            "may_reuse_packet",
+            "may_reuse_candidate",
+            "may_reuse_evidence",
+            "may_reuse_gate_results",
+            "may_reuse_real_sitina_reviews",
+            "may_reuse_authorization_request",
+            "may_reuse_source_user_record",
+            "may_reuse_delegation_wrapper",
+            "may_reuse_authorization_receipt",
+            "may_reuse_execution_specification",
+            "may_reuse_executor",
+            "may_reuse_run_id",
+            "may_reuse_operations_sha256",
+            "may_reuse_plan_sha256",
+            "may_reuse_backup_root",
+        }
+        document = {
+            "schema": step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SCHEMA,
+            "revoked_at_utc": "2026-07-28T07:40:00Z",
+            "source_thread_id": step7_gate.STEP7_SOURCE_THREAD_ID,
+            "decision": "REVOKE_CONSUMED_AUTHORIZATION_AND_REBUILD",
+            "physical_classification": (
+                "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION_NO_BACKUP_ROOT"
+            ),
+            "revoked_approval_id": (
+                step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_APPROVAL_ID
+            ),
+            "revoked_source": {
+                "root": str(REPOSITORY_ROOT),
+                **step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SOURCE,
+            },
+            "revoked_artifacts": copy.deepcopy(
+                step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS
+            ),
+            "authorization_chain": {
+                "source_user_record": {
+                    "session_path": (
+                        "/Users/moss/.codex/sessions/2026/07/20/"
+                        "rollout-2026-07-20T14-42-51-"
+                        "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                    ),
+                    "session_id": step7_gate.STEP7_SOURCE_THREAD_ID,
+                    "session_meta_raw_sha256": (
+                        "108a46acefdec456c54872ac4cf02a63133a954ceb1f82fbf4d642a13846360e"
+                    ),
+                    "line_number": 14191,
+                    "record_id": "msg_019fa791-d688-7ae1-8b2c-f98bf7a0ee0b",
+                    "raw_record_sha256": (
+                        "c209761fc6341d942016da06c570ede7a762922f3dfc445b4e32daedaaf38a0a"
+                    ),
+                    "actual_content_sha256": (
+                        "a91e11541291e5272845d084059d64190d213c36a94cfcb5c4a3b47d0b55e73d"
+                    ),
+                    "actual_content_length": 667,
+                    "canonical_logical_sha256": (
+                        "554fe6899d86ec16f4709d72f42d0c18c90c195ac3723dc4633bd8c2f5d939bd"
+                    ),
+                    "canonical_logical_length": 666,
+                    "transport_normalization_mode": "REMOVE_ONE_TERMINAL_LF",
+                    "transport_removed_suffix_hex": "0a",
+                    "transport_removed_byte_count": 1,
+                },
+                "delegation_wrapper": {
+                    "session_path": (
+                        step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SESSION
+                    ),
+                    "line_number": 12661,
+                    "record_id": "msg_019fa792-b4e4-7060-b656-b982f27fe866",
+                    "raw_record_sha256": (
+                        "2bea2ec4d6d3199748d17cf96c503c402c2cb515017aade35dd07691dbea94ae"
+                    ),
+                    "content_sha256": (
+                        "097dba308c294ce5bc1a8fdfc94cbc49ef67e5229304f9d2b8904c3c50f97239"
+                    ),
+                    "content_length": 1232,
+                    "source_thread_id": step7_gate.STEP7_SOURCE_THREAD_ID,
+                },
+            },
+            "execution_attempt": {
+                "session_path": (
+                    step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SESSION
+                ),
+                "run_id": (
+                    step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_RUN_ID
+                ),
+                "records": [
+                    {
+                        "line_number": line,
+                        "kind": kind,
+                        "raw_record_sha256": raw_sha256,
+                    }
+                    for line, kind, raw_sha256 in records
+                ],
+                "terminal_verdict_present": False,
+                "exit_code": 130,
+                "failure_class": (
+                    "OPERATOR_ABORT_AFTER_FORMAL_SEMANTICS_BLOCKER"
+                ),
+                "gate_result_count": 0,
+            },
+            "stop_phase": {
+                "phase": (
+                    "READ_ONLY_DEPLOYMENT_TREE_INVENTORY_BEFORE_BACKUP_ROOT"
+                ),
+                "stack": [
+                    "executor.main",
+                    "execute_step7_v4",
+                    "_step7_v4_inventory",
+                    "_step7_v4_file_tuple",
+                    "_step7_v4_open_dir_nofollow",
+                    "os.open",
+                ],
+                "first_authorized_write": "CREATE_BACKUP_ROOT",
+                "backup_root_creation_reached": False,
+            },
+            "post_abort_physical_state": {
+                "backup_root": {
+                    "path": (
+                        step7_gate
+                        .INTERRUPTED_PREBACKUP_REVOCATION_BACKUP_ROOT
+                    ),
+                    "exists": False,
+                    "is_symlink": False,
+                },
+                "target_preimages": target_preimages,
+                "source_head": (
+                    step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SOURCE[
+                        "head"
+                    ]
+                ),
+                "source_tree": (
+                    step7_gate.INTERRUPTED_PREBACKUP_REVOCATION_SOURCE[
+                        "tree"
+                    ]
+                ),
+                "source_clean_at_abort": True,
+                "source_policy": {
+                    "path": str(
+                        REPOSITORY_ROOT
+                        / step7_gate.POLICY_RELATIVE_PATH
+                    ),
+                    "sha256": policy_sha256,
+                },
+                "deployment_policy": {
+                    "path": (
+                        "/Users/moss/SitinaHub/"
+                        f"{step7_gate.POLICY_RELATIVE_PATH}"
+                    ),
+                    "sha256": policy_sha256,
+                },
+                "execution_switches": {
+                    field: False for field in step7_gate.SWITCHES
+                },
+                "sentinels": sentinels,
+            },
+            "deployment_effects": {
+                "formal_execution_effect_count": 0,
+                "deployment_target_change_count": 0,
+                "production_data_change_count": 0,
+                "baseline_change_count": 0,
+                "canary_run_count": 0,
+                "execution_switch_change_count": 0,
+                "external_change_count": 0,
+                "step8_step9_entered": False,
+            },
+            "preparation_artifacts": {
+                "artifact_count": 4,
+                "artifacts": preparation,
+            },
+            "formal_semantics_blockers": [
+                "REPLACE_DISPOSABLE_RESTORE_REAPPLY_REHEARSAL_MISSING",
+                "PRODUCTION_FAILURE_INJECTION_NOT_AUTHORITY_BOUND",
+                "PRODUCTION_RUN_ID_NOT_UNIQUELY_DERIVED",
+                "EXECUTION_MANIFEST_NOT_RELOADED_BEFORE_REHEARSAL_OR_APPLY",
+                "RECOVERY_VERIFICATION_ARTIFACT_NOT_EMITTED_OR_BOUND",
+            ],
+            "recovery": {
+                "invoked": False,
+                "required": False,
+                "permitted": False,
+                "reason": (
+                    "NO_BACKUP_ROOT_NO_MANIFEST_NO_INTENT_"
+                    "NO_DEPLOYMENT_MUTATION"
+                ),
+                "cleanup_required": False,
+            },
+            "exclusion": {
+                "counted_as_pass": False,
+                "terminal_verdict_present": False,
+                "exit_code": 130,
+                "failure_class": (
+                    "OPERATOR_ABORT_AFTER_FORMAL_SEMANTICS_BLOCKER"
+                ),
+                "physical_classification": (
+                    "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION_NO_BACKUP_ROOT"
+                ),
+                "gate_result_count": 0,
+                "deployment_file_change_count": 0,
+                "external_change_count": 0,
+                "recovery_invoked": False,
+            },
+            "reuse_policy": {
+                field: False for field in reuse_fields
+            },
+            "successor_requirement": {
+                "source_root": str(REPOSITORY_ROOT),
+                "head": source_state["head"],
+                "tree": source_state["tree"],
+                "scope": "FORMAL_STEP7_EXECUTION_SEMANTICS_CLOSURE_V1",
+                "required_fixes": [
+                    "DISPOSABLE_REPLACE_RESTORE_REAPPLY_REHEARSAL",
+                    "PRODUCTION_FAILURE_INJECTION_FORBIDDEN",
+                    "APPROVAL_DERIVED_PRODUCTION_RUN_ID",
+                    "MANIFEST_PHYSICAL_READBACK_BEFORE_REHEARSAL",
+                    "PREAPPLY_RECOVERY_VERIFICATION_ARTIFACT_CLOSURE",
+                    "LIFECYCLE_CHECKPOINT_PHYSICAL_READBACK_BEFORE_MUTATION",
+                    (
+                        "REHEARSAL_AND_RECOVERY_VERIFICATION_"
+                        "READBACK_BEFORE_FIRST_INTENT"
+                    ),
+                ],
+            },
+            "step8_step9_not_entered": True,
+        }
+        validate = lambda value: (
+            step7_gate._interrupted_prebackup_revocation_is_valid(
+                value,
+                source_root=REPOSITORY_ROOT,
+                deployment_root=Path("/Users/moss/SitinaHub"),
+                source_state=source_state,
+                anchor_root=Path("/Users/moss/.codex/sessions"),
+            )
+        )
+        self.assertTrue(validate(document))
+        mutations = (
+            lambda value: value.__setitem__("unexpected", True),
+            lambda value: value.__setitem__("schema", "WRONG"),
+            lambda value: value["revoked_artifacts"]["packet"].__setitem__(
+                "sha256", "0" * 64
+            ),
+            lambda value: value["authorization_chain"][
+                "source_user_record"
+            ].__setitem__("raw_record_sha256", "0" * 64),
+            lambda value: value["execution_attempt"]["records"][0].__setitem__(
+                "line_number", 12740
+            ),
+            lambda value: value["stop_phase"].__setitem__(
+                "backup_root_creation_reached", True
+            ),
+            lambda value: value["post_abort_physical_state"][
+                "target_preimages"
+            ][0].__setitem__("exists", True),
+            lambda value: value["deployment_effects"].__setitem__(
+                "deployment_target_change_count", 1
+            ),
+            lambda value: value["formal_semantics_blockers"].pop(),
+            lambda value: value["recovery"].__setitem__("invoked", True),
+            lambda value: value["reuse_policy"].__setitem__(
+                "may_reuse_packet", True
+            ),
+            lambda value: value["successor_requirement"].__setitem__(
+                "tree", "0" * 40
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                changed = copy.deepcopy(document)
+                mutate(changed)
+                self.assertFalse(validate(changed))
 
     def test_supporting_evidence_malformed_shapes_fail_closed(self) -> None:
         bundle_original = self.rollback_request_evidence.read_text(
