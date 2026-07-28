@@ -149,6 +149,81 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_E1701C6_6F_20260727T182500Z",
     "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z",
 }
+FAILED_PREAPPLY_REVOCATION_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
+)
+FAILED_PREAPPLY_REVOCATION_APPROVAL_ID = (
+    "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z"
+)
+FAILED_PREAPPLY_REVOCATION_SOURCE = {
+    "head": "8c3582cf9bc6448b0187369247bf774cea5b59c6",
+    "tree": "c4a0ecbe28240a547dd1a598587c22b0f5e988d5",
+}
+FAILED_PREAPPLY_REVOCATION_SUCCESSOR = {
+    "head": "1145834cbaa26239be54ed19b75d630e569a25dd",
+    "tree": "20e4a6baa012c888b323feecc3be7364e48c29c3",
+    "scope": "CREATE_NESTED_PREIMAGE_PARENT_DIRECTORIES_NOFOLLOW",
+}
+FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT = (
+    "/Users/moss/Desktop/sitina/output/"
+    "sitina-step7-deploy-v4-"
+    "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z"
+)
+FAILED_PREAPPLY_REVOCATION_SESSION = (
+    "/Users/moss/.codex/sessions/2026/07/27/"
+    "rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+)
+FAILED_PREAPPLY_REVOCATION_REFERENCES = {
+    "revoked_authorization_request": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-exact-authorization-request-8c3582c.txt"
+        ),
+        "sha256": (
+            "51c03fc26fb2ed4a43765d85af385ad4d2200e898465a5202b5cbde4ba7e742c"
+        ),
+    },
+    "revoked_candidate": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-review-candidate-8c3582c.json"
+        ),
+        "sha256": (
+            "7206bce284ec16a23de43b4b3e34190b8aa454a7a2e60a17215125e51c2f8c33"
+        ),
+    },
+    "revoked_evidence": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-request-review-evidence-8c3582c.json"
+        ),
+        "sha256": (
+            "fa0234f1bcc02b0209eebf4017bef307eba6aab6dc8d861295a519990e556829"
+        ),
+    },
+    "revoked_execution_specification": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorized-execution-spec-8c3582c.json"
+        ),
+        "sha256": (
+            "ab4df5000ce26cc26a949072eb4cf61cd2db40ab74618148a39a3166486f36a2"
+        ),
+        "run_id": (
+            "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z_EXECUTION"
+        ),
+    },
+    "revoked_packet": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-approval-packet-"
+            "8c3582c-20260727T201000Z.json"
+        ),
+        "sha256": (
+            "3412a711e179a2285ec8ed6ae44d7321588dfa81d8c8a9998885cec09964469b"
+        ),
+    },
+}
 CLEANUP_CANDIDATE_SCHEMA = "SITINA_CLEANUP_CANDIDATE_STEP7_DRAFT_V1"
 CLEANUP_LEDGER_SCHEMA = "SITINA_CLEANUP_LEDGER_STEP7_DRAFT_V1"
 OFFICIAL_GOAL_ID = "019f5c6b-3083-7860-b45b-c8b487c4e3ab"
@@ -7226,6 +7301,476 @@ def _verify_backup_and_rollback_plan(
     }
 
 
+def _known_legacy_revocation_is_valid(revocation: Mapping[str, Any]) -> bool:
+    revoked_candidate = revocation.get("revoked_candidate")
+    revoked_packet = revocation.get("revoked_packet")
+    return bool(
+        revocation.get("schema")
+        == "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V1"
+        and revocation.get("source_thread_id") == STEP7_SOURCE_THREAD_ID
+        and revocation.get("decision") == "REJECT_DEPLOY_REQUEST"
+        and revocation.get("revoked_approval_id")
+        == "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z"
+        and isinstance(revoked_candidate, Mapping)
+        and revoked_candidate.get("sha256")
+        == "6d2f5c8884ac4e4556af19a56a6de72cbac59db421f1cac6888d7e5fcc8ccd5e"
+        and isinstance(revoked_packet, Mapping)
+        and revoked_packet.get("sha256")
+        == "b08466b7ef37f6e96c507548c70f56b83b628bb32c99ab8525067d884db5d556"
+        and all(
+            revocation.get(field) is False
+            for field in (
+                "may_execute",
+                "may_request_authorization",
+                "may_reuse_candidate_sha256",
+                "may_reuse_packet_sha256",
+                "deployment_performed",
+                "production_canary_run",
+                "production_data_modified",
+                "baseline_modified",
+                "step8_step9_entered",
+            )
+        )
+    )
+
+
+def _failed_preapply_revocation_is_valid(
+    revocation: Mapping[str, Any],
+    *,
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    anchor_root: Path,
+) -> bool:
+    local_errors: list[str] = []
+    expected_top_level = {
+        "schema",
+        "revoked_at_utc",
+        "source_thread_id",
+        "decision",
+        "physical_classification",
+        "revoked_approval_id",
+        "revoked_source",
+        "revoked_artifacts",
+        "failed_execution_record",
+        "backup_residue",
+        "deployment_effects",
+        "recovery",
+        "reuse_policy",
+        "successor_fix",
+        "step8_step9_not_entered",
+    }
+    if (
+        set(revocation) != expected_top_level
+        or revocation.get("schema") != FAILED_PREAPPLY_REVOCATION_SCHEMA
+        or not _valid_iso8601(revocation.get("revoked_at_utc"))
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision")
+        != "FAILED_PREAPPLY_REVOKE_AND_REBUILD"
+        or revocation.get("physical_classification")
+        != "DEPLOYMENT_PREAPPLY_WITH_BACKUP_LAYOUT_RESIDUE"
+        or revocation.get("revoked_approval_id")
+        != FAILED_PREAPPLY_REVOCATION_APPROVAL_ID
+        or revocation.get("revoked_source")
+        != {
+            "root": str(source_root),
+            **FAILED_PREAPPLY_REVOCATION_SOURCE,
+        }
+        or revocation.get("step8_step9_not_entered") is not True
+    ):
+        return False
+
+    successor = revocation.get("successor_fix")
+    if (
+        successor
+        != {
+            "source_root": str(source_root),
+            "head": source_state.get("head"),
+            "tree": source_state.get("tree"),
+            "scope": "CREATE_NESTED_PREIMAGE_PARENT_DIRECTORIES_NOFOLLOW",
+        }
+    ):
+        return False
+    try:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "merge-base",
+                    "--is-ancestor",
+                    FAILED_PREAPPLY_REVOCATION_SUCCESSOR["head"],
+                    str(source_state.get("head")),
+                ],
+                cwd=source_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
+            return False
+    except OSError:
+        return False
+
+    artifacts = revocation.get("revoked_artifacts")
+    expected_artifact_fields = {
+        "prior_revocation",
+        "authorization_request",
+        "authorization_receipt",
+        "packet",
+        "review_candidate",
+        "evidence_bundle",
+        "execution_specification",
+    }
+    if not isinstance(artifacts, Mapping) or set(artifacts) != expected_artifact_fields:
+        return False
+    prior_revocation = {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-packet-revocation-"
+            "8c3582c-20260728T041814Z.json"
+        ),
+        "sha256": (
+            "f3bb029aa1ff05e239931806d2084a8465ea7a3ab6bde438341f8d93d6d2b467"
+        ),
+    }
+    expected_artifacts: dict[str, Mapping[str, Any]] = {
+        "prior_revocation": prior_revocation,
+        "authorization_request": {
+            **FAILED_PREAPPLY_REVOCATION_REFERENCES[
+                "revoked_authorization_request"
+            ],
+            "canonical_logical_length": 666,
+            "canonical_logical_sha256": (
+                "ed93132cd51e4efd992cab8aabc422ce9ed795949ae79050bc3e6da3e1fc4da5"
+            ),
+        },
+        "authorization_receipt": {
+            "path": (
+                "/Users/moss/Desktop/sitina/output/"
+                "sitina-step7-authorization-receipt-8c3582c.json"
+            ),
+            "sha256": (
+                "b1e9eab9a9e8a2e9bd4ed623fdbdc969e9d3829affcce028eeb8ef0459a228cc"
+            ),
+            "canonical_sha256": (
+                "52e6dec96b2a7d7bfbb006244b2209dd32f7005c46bb3c5157f6089546b79a3f"
+            ),
+            "source_raw_record_sha256": (
+                "740880047a8e02de44802b11748a3055f0106d5d7c1fa9b2fe192712ee74af05"
+            ),
+            "wrapper_raw_record_sha256": (
+                "3afbfda470474b8e0def88925b461211bca774c5e66f14e3c28fab9d41eab240"
+            ),
+        },
+        "packet": FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_packet"],
+        "review_candidate": FAILED_PREAPPLY_REVOCATION_REFERENCES[
+            "revoked_candidate"
+        ],
+        "evidence_bundle": FAILED_PREAPPLY_REVOCATION_REFERENCES[
+            "revoked_evidence"
+        ],
+        "execution_specification": FAILED_PREAPPLY_REVOCATION_REFERENCES[
+            "revoked_execution_specification"
+        ],
+    }
+    if any(artifacts.get(key) != value for key, value in expected_artifacts.items()):
+        return False
+    loaded_artifacts: dict[str, Mapping[str, Any]] = {}
+    for key, reference in artifacts.items():
+        path, value = _verify_file_reference(
+            reference,
+            local_errors,
+            f"failed preapply revocation {key}",
+            require_json_object=key != "authorization_request",
+        )
+        if path is None:
+            continue
+        if isinstance(value, Mapping):
+            loaded_artifacts[key] = value
+    if local_errors:
+        return False
+
+    packet = loaded_artifacts.get("packet")
+    request_candidate = loaded_artifacts.get("review_candidate")
+    request_evidence = loaded_artifacts.get("evidence_bundle")
+    execution_specification = loaded_artifacts.get("execution_specification")
+    authorization_receipt = loaded_artifacts.get("authorization_receipt")
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or packet.get("approval_id") != FAILED_PREAPPLY_REVOCATION_APPROVAL_ID
+        or packet.get("source_binding") != FAILED_PREAPPLY_REVOCATION_SOURCE
+        or packet.get("deployment_binding") != {"root": str(deployment_root)}
+        or not isinstance(request_candidate, Mapping)
+        or request_candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or request_candidate.get("approval_id")
+        != FAILED_PREAPPLY_REVOCATION_APPROVAL_ID
+        or request_candidate.get("approval_packet")
+        != FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_packet"]
+        or not isinstance(request_evidence, Mapping)
+        or request_evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or request_evidence.get("approval_id")
+        != FAILED_PREAPPLY_REVOCATION_APPROVAL_ID
+        or request_evidence.get("approval_packet")
+        != FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_packet"]
+        or not isinstance(execution_specification, Mapping)
+        or execution_specification.get("run_id")
+        != FAILED_PREAPPLY_REVOCATION_REFERENCES[
+            "revoked_execution_specification"
+        ]["run_id"]
+        or execution_specification.get("packet")
+        != FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_packet"]
+        or execution_specification.get("candidate")
+        != FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_candidate"]
+        or execution_specification.get("source_head")
+        != FAILED_PREAPPLY_REVOCATION_SOURCE["head"]
+        or execution_specification.get("source_tree")
+        != FAILED_PREAPPLY_REVOCATION_SOURCE["tree"]
+        or execution_specification.get("backup_root")
+        != FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT
+        or execution_specification.get("operations_sha256")
+        != _json_value_sha256(packet.get("exact_file_operations"))
+        or execution_specification.get("plan_sha256")
+        != packet.get("backup_and_rollback_plan_sha256")
+        or not isinstance(authorization_receipt, Mapping)
+    ):
+        return False
+
+    packet_path = Path(
+        FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_packet"]["path"]
+    )
+    candidate_path = Path(
+        FAILED_PREAPPLY_REVOCATION_REFERENCES["revoked_candidate"]["path"]
+    )
+    authorization_errors: list[str] = []
+    _verify_user_authorization(
+        authorization_receipt,
+        expected_payload={
+            "approval_id": FAILED_PREAPPLY_REVOCATION_APPROVAL_ID,
+            "approval_packet_sha256": _sha256(packet_path),
+            "exact_file_operation_count": len(packet["exact_file_operations"]),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet["backup_and_rollback_plan_sha256"],
+            "review_candidate_sha256": _sha256(candidate_path),
+            "source_head": FAILED_PREAPPLY_REVOCATION_SOURCE["head"],
+            "source_tree": FAILED_PREAPPLY_REVOCATION_SOURCE["tree"],
+            "deployment_root": str(deployment_root),
+        },
+        anchor_root=anchor_root,
+        errors=authorization_errors,
+    )
+    if authorization_errors:
+        return False
+
+    request_path = Path(
+        FAILED_PREAPPLY_REVOCATION_REFERENCES[
+            "revoked_authorization_request"
+        ]["path"]
+    )
+    expected_authorization_text = (
+        DEPLOYMENT_AUTHORIZATION_MARKER
+        + " "
+        + json.dumps(
+            {
+            "approval_id": FAILED_PREAPPLY_REVOCATION_APPROVAL_ID,
+            "approval_packet_sha256": _sha256(packet_path),
+            "exact_file_operation_count": len(packet["exact_file_operations"]),
+            "exact_file_operations_sha256": _json_value_sha256(
+                packet["exact_file_operations"]
+            ),
+            "rollback_plan_sha256": packet["backup_and_rollback_plan_sha256"],
+            "review_candidate_sha256": _sha256(candidate_path),
+            "source_head": FAILED_PREAPPLY_REVOCATION_SOURCE["head"],
+            "source_tree": FAILED_PREAPPLY_REVOCATION_SOURCE["tree"],
+            "deployment_root": str(deployment_root),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    if expected_authorization_text not in request_path.read_text(encoding="utf-8"):
+        return False
+
+    operations = packet.get("exact_file_operations")
+    if not isinstance(operations, list) or len(operations) != 6:
+        return False
+    for operation in operations:
+        if not isinstance(operation, Mapping):
+            return False
+        target = Path(str(operation.get("target_path")))
+        try:
+            if operation.get("preimage_exists") is True:
+                target_stat = target.lstat()
+                if (
+                    stat.S_ISLNK(target_stat.st_mode)
+                    or not stat.S_ISREG(target_stat.st_mode)
+                    or operation.get("operation") != "REPLACE"
+                    or target_stat.st_size != operation.get("preimage_size")
+                    or oct(stat.S_IMODE(target_stat.st_mode))
+                    != operation.get("preimage_mode")
+                    or _sha256(target) != operation.get("preimage_sha256")
+                ):
+                    return False
+            elif (
+                operation.get("preimage_exists") is not False
+                or operation.get("operation") != "CREATE"
+                or target.exists()
+                or target.is_symlink()
+            ):
+                return False
+        except OSError:
+            return False
+
+    failed = revocation.get("failed_execution_record")
+    expected_failed = {
+        "session_path": FAILED_PREAPPLY_REVOCATION_SESSION,
+        "line_number": 11732,
+        "raw_record_sha256": (
+            "64e5a86c318443888cfff3cbca66aa1d3dd887a33cea9acd18b72b37a0b305fe"
+        ),
+        "status": "MANUAL_RECOVERY_REQUIRED",
+        "failure_step": "[Errno 2] No such file or directory: 'scripts'",
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+    if failed != expected_failed:
+        return False
+    try:
+        raw = Path(FAILED_PREAPPLY_REVOCATION_SESSION).read_bytes().splitlines(
+            keepends=True
+        )[11731]
+        record = json.loads(raw)
+        terminal = json.loads(
+            record["payload"]["output"].strip().splitlines()[-1]
+        )
+    except (OSError, IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if (
+        hashlib.sha256(raw).hexdigest() != expected_failed["raw_record_sha256"]
+        or terminal.get("status") != expected_failed["status"]
+        or terminal.get("failure_step") != expected_failed["failure_step"]
+        or terminal.get("delete_operation_count") != 0
+        or terminal.get("unlink_operation_count") != 0
+        or terminal.get("rmtree_operation_count") != 0
+    ):
+        return False
+
+    residue = revocation.get("backup_residue")
+    expected_residue_fields = {
+        "root",
+        "inventory",
+        "directory_count",
+        "file_count",
+        "symlink_count",
+        "checkpoint_file_count",
+        "manifest_exists",
+        "must_be_retained",
+        "reuse_allowed",
+        "cleanup_authorized",
+    }
+    if (
+        not isinstance(residue, Mapping)
+        or set(residue) != expected_residue_fields
+        or residue.get("root") != FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT
+        or residue.get("directory_count") != 9
+        or residue.get("file_count") != 0
+        or residue.get("symlink_count") != 0
+        or residue.get("checkpoint_file_count") != 0
+        or residue.get("manifest_exists") is not False
+        or residue.get("must_be_retained") is not True
+        or residue.get("reuse_allowed") is not False
+        or residue.get("cleanup_authorized") is not False
+    ):
+        return False
+    inventory = residue.get("inventory")
+    root = Path(FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT)
+    if not isinstance(inventory, list) or len(inventory) != 9:
+        return False
+    try:
+        physical_paths = [root, *sorted(root.rglob("*"))]
+    except OSError:
+        return False
+    if [item.get("path") for item in inventory if isinstance(item, Mapping)] != [
+        str(path) for path in physical_paths
+    ]:
+        return False
+    for item, path in zip(inventory, physical_paths):
+        if not isinstance(item, Mapping) or set(item) != {
+            "path",
+            "type",
+            "mode",
+            "size",
+            "device",
+            "inode",
+            "sha256",
+        }:
+            return False
+        try:
+            metadata = path.lstat()
+        except OSError:
+            return False
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or item
+            != {
+                "path": str(path),
+                "type": "DIRECTORY",
+                "mode": oct(stat.S_IMODE(metadata.st_mode)),
+                "size": metadata.st_size,
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "sha256": None,
+            }
+        ):
+            return False
+
+    if revocation.get("deployment_effects") != {
+        "deployment_target_change_count": 0,
+        "production_data_change_count": 0,
+        "baseline_change_count": 0,
+        "canary_run_count": 0,
+        "execution_switch_change_count": 0,
+        "step8_step9_entered": False,
+    }:
+        return False
+    if revocation.get("recovery") != {
+        "reason": "NO_MANIFEST_NO_INTENT_NO_COMMIT_NO_DEPLOYMENT_MUTATION",
+        "deployment_rollback_required": False,
+        "deployment_rollback_permitted": False,
+        "manual_backup_cleanup_requires_new_exact_authorization": True,
+    }:
+        return False
+    expected_reuse_fields = {
+        "may_execute",
+        "may_retry",
+        "may_reuse_packet",
+        "may_reuse_candidate",
+        "may_reuse_evidence",
+        "may_reuse_operations_sha256",
+        "may_reuse_plan_sha256",
+        "may_reuse_gate_results",
+        "may_reuse_real_sitina_reviews",
+        "may_reuse_authorization_request",
+        "may_reuse_authorization_receipt",
+        "may_reuse_source_user_record",
+        "may_reuse_delegation_wrapper",
+        "may_reuse_execution_specification",
+        "may_reuse_backup_root",
+    }
+    reuse_policy = revocation.get("reuse_policy")
+    return bool(
+        isinstance(reuse_policy, Mapping)
+        and set(reuse_policy) == expected_reuse_fields
+        and all(reuse_policy.get(field) is False for field in expected_reuse_fields)
+    )
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -7574,42 +8119,14 @@ def _verify_rollback_and_bound_evidence(
     ):
         errors.append("deployment request excluded-attempt evidence mismatch")
     revocation = supporting_documents.get("revocation")
-    revoked_candidate = (
-        revocation.get("revoked_candidate")
-        if isinstance(revocation, Mapping)
-        else None
-    )
-    revoked_packet = (
-        revocation.get("revoked_packet")
-        if isinstance(revocation, Mapping)
-        else None
-    )
-    if not isinstance(revocation, Mapping) or (
-        revocation.get("schema")
-        != "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V1"
-        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
-        or revocation.get("decision") != "REJECT_DEPLOY_REQUEST"
-        or revocation.get("revoked_approval_id")
-        != "SITINA_STEP7_DEPLOY_62ACDF0_6F_20260727T145000Z"
-        or not isinstance(revoked_candidate, Mapping)
-        or revoked_candidate.get("sha256")
-        != "6d2f5c8884ac4e4556af19a56a6de72cbac59db421f1cac6888d7e5fcc8ccd5e"
-        or not isinstance(revoked_packet, Mapping)
-        or revoked_packet.get("sha256")
-        != "b08466b7ef37f6e96c507548c70f56b83b628bb32c99ab8525067d884db5d556"
-        or any(
-            revocation.get(field) is not False
-            for field in (
-                "may_execute",
-                "may_request_authorization",
-                "may_reuse_candidate_sha256",
-                "may_reuse_packet_sha256",
-                "deployment_performed",
-                "production_canary_run",
-                "production_data_modified",
-                "baseline_modified",
-                "step8_step9_entered",
-            )
+    if not isinstance(revocation, Mapping) or not (
+        _known_legacy_revocation_is_valid(revocation)
+        or _failed_preapply_revocation_is_valid(
+            revocation,
+            source_root=source_root,
+            deployment_root=deployment_root,
+            source_state=source_state,
+            anchor_root=anchor_root,
         )
     ):
         errors.append("deployment request revocation evidence mismatch")

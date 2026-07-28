@@ -444,6 +444,174 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def _reference(path: Path) -> dict[str, str]:
         return {"path": str(path.resolve()), "sha256": sha256(path)}
 
+    def _failed_preapply_revocation_document(self) -> dict[str, object]:
+        old_root = Path(step7_gate.FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT)
+        inventory = []
+        for path in (old_root, *sorted(old_root.rglob("*"))):
+            metadata = path.lstat()
+            inventory.append(
+                {
+                    "path": str(path),
+                    "type": "DIRECTORY",
+                    "mode": oct(stat.S_IMODE(metadata.st_mode)),
+                    "size": metadata.st_size,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "sha256": None,
+                }
+            )
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+        ).strip()
+        tree = subprocess.check_output(
+            ["git", "rev-parse", "HEAD^{tree}"],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+        ).strip()
+        references = step7_gate.FAILED_PREAPPLY_REVOCATION_REFERENCES
+        return {
+            "schema": step7_gate.FAILED_PREAPPLY_REVOCATION_SCHEMA,
+            "revoked_at_utc": "2026-07-28T04:18:14.461Z",
+            "source_thread_id": STEP7_SOURCE_THREAD_ID,
+            "decision": "FAILED_PREAPPLY_REVOKE_AND_REBUILD",
+            "physical_classification": (
+                "DEPLOYMENT_PREAPPLY_WITH_BACKUP_LAYOUT_RESIDUE"
+            ),
+            "revoked_approval_id": (
+                step7_gate.FAILED_PREAPPLY_REVOCATION_APPROVAL_ID
+            ),
+            "revoked_source": {
+                "root": str(REPOSITORY_ROOT),
+                **step7_gate.FAILED_PREAPPLY_REVOCATION_SOURCE,
+            },
+            "revoked_artifacts": {
+                "prior_revocation": {
+                    "path": (
+                        "/Users/moss/Desktop/sitina/output/"
+                        "sitina-step7-deployment-packet-revocation-"
+                        "8c3582c-20260728T041814Z.json"
+                    ),
+                    "sha256": (
+                        "f3bb029aa1ff05e239931806d2084a846"
+                        "5ea7a3ab6bde438341f8d93d6d2b467"
+                    ),
+                },
+                "authorization_request": {
+                    **references["revoked_authorization_request"],
+                    "canonical_logical_length": 666,
+                    "canonical_logical_sha256": (
+                        "ed93132cd51e4efd992cab8aabc422ce9"
+                        "ed795949ae79050bc3e6da3e1fc4da5"
+                    ),
+                },
+                "authorization_receipt": {
+                    "path": (
+                        "/Users/moss/Desktop/sitina/output/"
+                        "sitina-step7-authorization-receipt-8c3582c.json"
+                    ),
+                    "sha256": (
+                        "b1e9eab9a9e8a2e9bd4ed623fdbdc969"
+                        "e9d3829affcce028eeb8ef0459a228cc"
+                    ),
+                    "canonical_sha256": (
+                        "52e6dec96b2a7d7bfbb006244b2209dd3"
+                        "2f7005c46bb3c5157f6089546b79a3f"
+                    ),
+                    "source_raw_record_sha256": (
+                        "740880047a8e02de44802b11748a3055f"
+                        "0106d5d7c1fa9b2fe192712ee74af05"
+                    ),
+                    "wrapper_raw_record_sha256": (
+                        "3afbfda470474b8e0def88925b461211b"
+                        "ca774c5e66f14e3c28fab9d41eab240"
+                    ),
+                },
+                "packet": copy.deepcopy(references["revoked_packet"]),
+                "review_candidate": copy.deepcopy(
+                    references["revoked_candidate"]
+                ),
+                "evidence_bundle": copy.deepcopy(
+                    references["revoked_evidence"]
+                ),
+                "execution_specification": copy.deepcopy(
+                    references["revoked_execution_specification"]
+                ),
+            },
+            "failed_execution_record": {
+                "session_path": (
+                    step7_gate.FAILED_PREAPPLY_REVOCATION_SESSION
+                ),
+                "line_number": 11732,
+                "raw_record_sha256": (
+                    "64e5a86c318443888cfff3cbca66aa1d3"
+                    "dd887a33cea9acd18b72b37a0b305fe"
+                ),
+                "status": "MANUAL_RECOVERY_REQUIRED",
+                "failure_step": (
+                    "[Errno 2] No such file or directory: 'scripts'"
+                ),
+                "delete_operation_count": 0,
+                "unlink_operation_count": 0,
+                "rmtree_operation_count": 0,
+            },
+            "backup_residue": {
+                "root": str(old_root),
+                "inventory": inventory,
+                "directory_count": 9,
+                "file_count": 0,
+                "symlink_count": 0,
+                "checkpoint_file_count": 0,
+                "manifest_exists": False,
+                "must_be_retained": True,
+                "reuse_allowed": False,
+                "cleanup_authorized": False,
+            },
+            "deployment_effects": {
+                "deployment_target_change_count": 0,
+                "production_data_change_count": 0,
+                "baseline_change_count": 0,
+                "canary_run_count": 0,
+                "execution_switch_change_count": 0,
+                "step8_step9_entered": False,
+            },
+            "recovery": {
+                "reason": (
+                    "NO_MANIFEST_NO_INTENT_NO_COMMIT_NO_DEPLOYMENT_MUTATION"
+                ),
+                "deployment_rollback_required": False,
+                "deployment_rollback_permitted": False,
+                "manual_backup_cleanup_requires_new_exact_authorization": True,
+            },
+            "reuse_policy": {
+                "may_execute": False,
+                "may_retry": False,
+                "may_reuse_packet": False,
+                "may_reuse_candidate": False,
+                "may_reuse_evidence": False,
+                "may_reuse_operations_sha256": False,
+                "may_reuse_plan_sha256": False,
+                "may_reuse_gate_results": False,
+                "may_reuse_real_sitina_reviews": False,
+                "may_reuse_authorization_request": False,
+                "may_reuse_authorization_receipt": False,
+                "may_reuse_source_user_record": False,
+                "may_reuse_delegation_wrapper": False,
+                "may_reuse_execution_specification": False,
+                "may_reuse_backup_root": False,
+            },
+            "successor_fix": {
+                "source_root": str(REPOSITORY_ROOT),
+                "head": head,
+                "tree": tree,
+                "scope": (
+                    "CREATE_NESTED_PREIMAGE_PARENT_DIRECTORIES_NOFOLLOW"
+                ),
+            },
+            "step8_step9_not_entered": True,
+        }
+
     def _capture_anchor(
         self,
         marker: str,
@@ -5868,6 +6036,106 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.rollback_review_candidate.write_text(
                 request_original,
                 encoding="utf-8",
+            )
+
+    def test_failed_preapply_revocation_v3_is_physically_bound(self) -> None:
+        document = self._failed_preapply_revocation_document()
+        source_state = {
+            "head": document["successor_fix"]["head"],
+            "tree": document["successor_fix"]["tree"],
+        }
+        self.assertTrue(
+            step7_gate._failed_preapply_revocation_is_valid(
+                document,
+                source_root=REPOSITORY_ROOT,
+                deployment_root=Path("/Users/moss/SitinaHub"),
+                source_state=source_state,
+                anchor_root=Path("/Users/moss/.codex/sessions"),
+            )
+        )
+
+    def test_failed_preapply_revocation_v3_drift_fails_closed(self) -> None:
+        mutations = (
+            lambda value: value.__setitem__("unexpected", True),
+            lambda value: value.__setitem__("schema", "WRONG"),
+            lambda value: value.__setitem__("decision", "REJECT_DEPLOY_REQUEST"),
+            lambda value: value.__setitem__(
+                "revoked_approval_id", "SITINA_STEP7_DEPLOY_WRONG"
+            ),
+            lambda value: value["revoked_source"].__setitem__("head", "0" * 40),
+            lambda value: value["successor_fix"].__setitem__("tree", "0" * 40),
+            lambda value: value["revoked_artifacts"]["packet"].__setitem__(
+                "sha256", "0" * 64
+            ),
+            lambda value: value["revoked_artifacts"][
+                "authorization_receipt"
+            ].__setitem__("source_raw_record_sha256", "0" * 64),
+            lambda value: value["failed_execution_record"].__setitem__(
+                "line_number", 11731
+            ),
+            lambda value: value["backup_residue"]["inventory"][0].__setitem__(
+                "inode", -1
+            ),
+            lambda value: value["backup_residue"].__setitem__(
+                "directory_count", 8
+            ),
+            lambda value: value["deployment_effects"].__setitem__(
+                "deployment_target_change_count", 1
+            ),
+            lambda value: value["recovery"].__setitem__(
+                "deployment_rollback_permitted", True
+            ),
+            lambda value: value["reuse_policy"].__setitem__(
+                "may_reuse_packet", True
+            ),
+            lambda value: value.__setitem__(
+                "step8_step9_not_entered", False
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                document = self._failed_preapply_revocation_document()
+                source_state = {
+                    "head": document["successor_fix"]["head"],
+                    "tree": document["successor_fix"]["tree"],
+                }
+                mutate(document)
+                self.assertFalse(
+                    step7_gate._failed_preapply_revocation_is_valid(
+                        document,
+                        source_root=REPOSITORY_ROOT,
+                        deployment_root=Path("/Users/moss/SitinaHub"),
+                        source_state=source_state,
+                        anchor_root=Path("/Users/moss/.codex/sessions"),
+                    )
+                )
+
+    def test_failed_preapply_revocation_v3_rejects_preimage_drift(self) -> None:
+        document = self._failed_preapply_revocation_document()
+        source_state = {
+            "head": document["successor_fix"]["head"],
+            "tree": document["successor_fix"]["tree"],
+        }
+        original_sha256 = step7_gate._sha256
+
+        def drift_one_preimage(path: Path) -> str:
+            if path == Path("/Users/moss/SitinaHub/scripts/test-bplus.py"):
+                return "0" * 64
+            return original_sha256(path)
+
+        with mock.patch.object(
+            step7_gate,
+            "_sha256",
+            side_effect=drift_one_preimage,
+        ):
+            self.assertFalse(
+                step7_gate._failed_preapply_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                )
             )
 
     def test_supporting_evidence_malformed_shapes_fail_closed(self) -> None:
