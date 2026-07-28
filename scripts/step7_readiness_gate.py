@@ -149,6 +149,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_E1701C6_6F_20260727T182500Z",
     "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z",
     "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z",
+    "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -247,6 +248,60 @@ INTERRUPTED_PREBACKUP_REVOCATION_SESSION = (
     "/Users/moss/.codex/sessions/2026/07/27/"
     "rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
 )
+REJECTED_TOPOLOGY_REVOCATION_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V5"
+)
+REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID = (
+    "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z"
+)
+REJECTED_TOPOLOGY_REVOCATION_SOURCE = {
+    "head": "bbf50d8139ab15a3b685ff2a4cc36a94cb040377",
+    "tree": "1cd20adfd45b20934f76ac891c6b78dcd7d53c36",
+}
+REJECTED_TOPOLOGY_REVOCATION_BACKUP_ROOT = (
+    "/Users/moss/Desktop/sitina/output/"
+    "sitina-step7-deploy-v4-"
+    "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z"
+)
+REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
+    "authorization_request": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-exact-authorization-request-bbf50d8.txt"
+        ),
+        "sha256": (
+            "82f6a2cf3ae9bb9517c669800fae2a4ce5c9629ca7bcb75fbe8e7e63ab3c2fb7"
+        ),
+    },
+    "packet": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-approval-packet-"
+            "bbf50d8-20260728T082000Z.json"
+        ),
+        "sha256": (
+            "cfc727c83d461dc90ba650de2be00f76c18e5bde6a82e6ca13b8ad681e731c21"
+        ),
+    },
+    "review_candidate": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-review-candidate-bbf50d8.json"
+        ),
+        "sha256": (
+            "32db0965ae1b45b239883bf324bac685f5b1ef2208133474b2ab69e52f439702"
+        ),
+    },
+    "evidence_bundle": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-request-review-evidence-bbf50d8.json"
+        ),
+        "sha256": (
+            "b9d2c4c145ab6fd13aff2f76cad03c0c9c8140a77e5f2f60c4ed081386b00049"
+        ),
+    },
+}
 INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     "authorization_request": {
         "path": (
@@ -2190,6 +2245,7 @@ def _step7_v4_rename_noreplace(
     destination: Path,
     *,
     expected_source_parent_identity: Mapping[str, int] | None = None,
+    expected_destination_parent_identity: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Atomic RENAME_EXCL using NOFOLLOW parent dirfd anchors."""
 
@@ -2204,6 +2260,14 @@ def _step7_v4_rename_noreplace(
             "inode": source_parent_metadata.st_ino,
         }:
             raise ValueError("rename source parent identity drift")
+        destination_parent_metadata = os.fstat(destination_parent_fd)
+        if expected_destination_parent_identity is not None and dict(
+            expected_destination_parent_identity
+        ) != {
+            "device": destination_parent_metadata.st_dev,
+            "inode": destination_parent_metadata.st_ino,
+        }:
+            raise ValueError("rename destination parent identity drift")
         return _step7_v4_rename_noreplace_at(
             source_parent_fd,
             source.name,
@@ -2660,6 +2724,12 @@ def _step7_v4_inventory(root: Path) -> dict[str, dict[str, Any]]:
                 raise ValueError(
                     f"deployment inventory contains forbidden object: {relative}"
                 )
+            if value["type"] == "DIRECTORY":
+                # APFS directory st_size is not a stable tree-state property:
+                # adding a declared CREATE leaf can legitimately change it.
+                # Inventory still binds every directory path, type, and mode,
+                # while regular files retain their SHA-256, size, and mode.
+                value = {**value, "size": None}
             inventory[relative] = value
             if value["type"] == "DIRECTORY":
                 pending.append(child)
@@ -2676,6 +2746,97 @@ def _step7_v4_post_inventory(
             operation, postimage=True
         )
     return dict(sorted(expected.items()))
+
+
+def _step7_v4_quarantine_parent_paths(
+    backup_root: Path,
+    operation: Mapping[str, Any],
+) -> dict[str, Path]:
+    relative_parent = Path(operation["relative_path"]).parent
+    return {
+        "rehearsal_source_parent": (
+            backup_root / "rehearsal" / "created" / relative_parent
+        ),
+        "rehearsal_quarantine_parent": (
+            backup_root
+            / "rehearsal"
+            / "quarantine"
+            / "created"
+            / relative_parent
+        ),
+        "rollback_quarantine_parent": (
+            backup_root / "quarantine" / "created" / relative_parent
+        ),
+    }
+
+
+def _step7_v4_capture_quarantine_parent_identities(
+    backup_root: Path,
+    operations: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    identities: dict[str, dict[str, dict[str, Any]]] = {}
+    for operation in operations:
+        if operation["operation"] != "CREATE":
+            continue
+        relative = operation["relative_path"]
+        identities[relative] = {
+            label: {
+                "path": str(path),
+                **_step7_v4_dir_identity(path),
+            }
+            for label, path in _step7_v4_quarantine_parent_paths(
+                backup_root, operation
+            ).items()
+        }
+    return identities
+
+
+def _step7_v4_verify_quarantine_parent_identities(
+    backup_root: Path,
+    operations: Sequence[Mapping[str, Any]],
+    identities: Any,
+) -> None:
+    create_operations = {
+        operation["relative_path"]: operation
+        for operation in operations
+        if operation["operation"] == "CREATE"
+    }
+    if (
+        not isinstance(identities, Mapping)
+        or set(identities) != set(create_operations)
+    ):
+        raise ValueError("CREATE quarantine parent identity set mismatch")
+    backup_device = _step7_v4_dir_identity(backup_root)["device"]
+    for relative, operation in create_operations.items():
+        entry = identities.get(relative)
+        expected_paths = _step7_v4_quarantine_parent_paths(
+            backup_root, operation
+        )
+        if not isinstance(entry, Mapping) or set(entry) != set(
+            expected_paths
+        ):
+            raise ValueError(
+                f"CREATE quarantine parent binding {relative} mismatch"
+            )
+        for label, expected_path in expected_paths.items():
+            identity = entry.get(label)
+            if (
+                not isinstance(identity, Mapping)
+                or set(identity) != {"path", "device", "inode"}
+                or identity.get("path") != str(expected_path)
+                or not _integer(identity.get("device"))
+                or not _integer(identity.get("inode"))
+                or identity.get("device") != backup_device
+                or _step7_v4_dir_identity(expected_path)
+                != {
+                    "device": identity.get("device"),
+                    "inode": identity.get("inode"),
+                }
+            ):
+                raise ValueError(
+                    "CREATE quarantine parent physical identity "
+                    f"{relative} {label} drift"
+                )
 
 
 def _step7_v4_require_authority(
@@ -3453,6 +3614,9 @@ def _step7_v4_load_manifest(
         "deployment_inventory_expected_after"
     )
     parent_identities = manifest.get("target_parent_identities")
+    quarantine_parent_identities = manifest.get(
+        "quarantine_parent_identities"
+    )
     if (
         set(manifest)
         != {
@@ -3468,6 +3632,7 @@ def _step7_v4_load_manifest(
             "deployment_inventory_before",
             "deployment_inventory_expected_after",
             "target_parent_identities",
+            "quarantine_parent_identities",
             "checkpoint_contract",
         }
         or
@@ -3506,6 +3671,11 @@ def _step7_v4_load_manifest(
         )
     ):
         raise ValueError("immutable execution manifest binding mismatch")
+    _step7_v4_verify_quarantine_parent_identities(
+        backup_root,
+        operations,
+        quarantine_parent_identities,
+    )
     if expected_manifest is not None and manifest != dict(expected_manifest):
         raise ValueError("reloaded execution manifest field mismatch")
     reference = _step7_v4_reference(manifest_path)
@@ -5103,6 +5273,11 @@ def recover_step7_v4_execution(
                     operation["rehearsal_quarantine_path"]
                 )
                 live = Path(operation["rollback_quarantine_path"])
+                live_parent_binding = manifest[
+                    "quarantine_parent_identities"
+                ][operation["relative_path"]][
+                    "rollback_quarantine_parent"
+                ]
                 rehearsal_tuple = _step7_v4_file_tuple(rehearsal)
                 live_tuple = _step7_v4_file_tuple(live)
                 if (
@@ -5120,6 +5295,10 @@ def recover_step7_v4_execution(
                     observed_applied.add(index)
                 state["live"] = live
                 state["live_tuple"] = live_tuple
+                state["live_parent_identity"] = {
+                    field: live_parent_binding[field]
+                    for field in ("device", "inode")
+                }
             else:
                 backup = Path(operation["preimage_backup_path"])
                 if _step7_v4_file_tuple(backup) != preimage:
@@ -5395,6 +5574,9 @@ def recover_step7_v4_execution(
                     expected_source_parent_identity=state[
                         "parent_identity"
                     ],
+                    expected_destination_parent_identity=state[
+                        "live_parent_identity"
+                    ],
                 )
                 _step7_v4_inject(
                     fail_at,
@@ -5570,7 +5752,9 @@ def execute_step7_v4(
         _step7_v4_inject(fail_at, "CREATE_BACKUP_LAYOUT")
         preimages = _step7_v4_mkdir_exclusive(backup_root, "preimages")
         rehearsal = _step7_v4_mkdir_exclusive(backup_root, "rehearsal")
-        _step7_v4_mkdir_exclusive(rehearsal, "created")
+        rehearsal_created = _step7_v4_mkdir_exclusive(
+            rehearsal, "created"
+        )
         replaced = _step7_v4_mkdir_exclusive(rehearsal, "replaced")
         replaced_restored = _step7_v4_mkdir_exclusive(
             replaced, "restored"
@@ -5581,10 +5765,36 @@ def execute_step7_v4(
         rehearsal_quarantine = _step7_v4_mkdir_exclusive(
             rehearsal, "quarantine"
         )
-        _step7_v4_mkdir_exclusive(rehearsal_quarantine, "created")
+        rehearsal_quarantine_created = _step7_v4_mkdir_exclusive(
+            rehearsal_quarantine, "created"
+        )
         quarantine = _step7_v4_mkdir_exclusive(backup_root, "quarantine")
-        _step7_v4_mkdir_exclusive(quarantine, "created")
+        rollback_quarantine_created = _step7_v4_mkdir_exclusive(
+            quarantine, "created"
+        )
         _step7_v4_mkdir_exclusive(backup_root, "checkpoints")
+        for operation in operations:
+            if operation["operation"] != "CREATE":
+                continue
+            relative_parent = Path(operation["relative_path"]).parent
+            for base in (
+                rehearsal_created,
+                rehearsal_quarantine_created,
+                rollback_quarantine_created,
+            ):
+                _step7_v4_ensure_relative_directories(
+                    base, relative_parent
+                )
+        quarantine_parent_identities = (
+            _step7_v4_capture_quarantine_parent_identities(
+                backup_root, operations
+            )
+        )
+        _step7_v4_verify_quarantine_parent_identities(
+            backup_root,
+            operations,
+            quarantine_parent_identities,
+        )
         _step7_v4_inject(fail_at, "CAPTURE_PREIMAGES")
         for operation in operations:
             if operation["operation"] == "REPLACE":
@@ -5628,6 +5838,9 @@ def execute_step7_v4(
             "deployment_inventory_before": before_inventory,
             "deployment_inventory_expected_after": expected_post_inventory,
             "target_parent_identities": target_parent_identities,
+            "quarantine_parent_identities": (
+                quarantine_parent_identities
+            ),
             "checkpoint_contract": _step7_v4_checkpoint_contract(
                 backup_root, operations
             ),
@@ -5763,8 +5976,24 @@ def execute_step7_v4(
             _step7_v4_copy_exclusive(
                 Path(operation["source_path"]), rehearsal_source
             )
+            quarantine_bindings = manifest_document[
+                "quarantine_parent_identities"
+            ][operation["relative_path"]]
             rehearsal_move = _step7_v4_rename_noreplace(
-                rehearsal_source, rehearsal_destination
+                rehearsal_source,
+                rehearsal_destination,
+                expected_source_parent_identity={
+                    field: quarantine_bindings[
+                        "rehearsal_source_parent"
+                    ][field]
+                    for field in ("device", "inode")
+                },
+                expected_destination_parent_identity={
+                    field: quarantine_bindings[
+                        "rehearsal_quarantine_parent"
+                    ][field]
+                    for field in ("device", "inode")
+                },
             )
             _step7_v4_copy_exclusive(
                 rehearsal_destination, rehearsal_source
@@ -5855,6 +6084,11 @@ def execute_step7_v4(
                 "rehearsal result or manifest physical reload mismatch"
             )
         _step7_v4_verify_bound_inputs(specification, operations)
+        _step7_v4_verify_quarantine_parent_identities(
+            backup_root,
+            operations,
+            manifest_document["quarantine_parent_identities"],
+        )
         _step7_v4_inject(
             fail_at,
             "AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT",
@@ -9221,6 +9455,193 @@ def _interrupted_prebackup_revocation_is_valid(
     )
 
 
+def _rejected_topology_revocation_is_valid(
+    revocation: Mapping[str, Any],
+    *,
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    anchor_root: Path,
+) -> bool:
+    """Bind bbf50d8 to the exact nested-CREATE dynamic counterexample."""
+
+    del deployment_root, anchor_root
+    if (
+        set(revocation)
+        != {
+            "schema",
+            "revoked_at_utc",
+            "source_thread_id",
+            "decision",
+            "physical_classification",
+            "revoked_approval_id",
+            "revoked_source",
+            "revoked_artifacts",
+            "dynamic_counterexample",
+            "deployment_effects",
+            "reuse_policy",
+            "successor_requirement",
+            "step8_step9_not_entered",
+        }
+        or revocation.get("schema")
+        != REJECTED_TOPOLOGY_REVOCATION_SCHEMA
+        or not _valid_iso8601(revocation.get("revoked_at_utc"))
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision")
+        != "REJECT_DEPLOY_REQUEST_REVOKE_AND_REBUILD"
+        or revocation.get("physical_classification")
+        != "ISOLATED_DYNAMIC_COUNTEREXAMPLE_NO_PRODUCTION_MUTATION"
+        or revocation.get("revoked_approval_id")
+        != REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID
+        or revocation.get("revoked_source")
+        != {
+            "root": str(source_root),
+            **REJECTED_TOPOLOGY_REVOCATION_SOURCE,
+        }
+        or revocation.get("step8_step9_not_entered") is not True
+    ):
+        return False
+    try:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "merge-base",
+                    "--is-ancestor",
+                    REJECTED_TOPOLOGY_REVOCATION_SOURCE["head"],
+                    str(source_state.get("head")),
+                ],
+                cwd=source_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
+            return False
+    except OSError:
+        return False
+    if revocation.get("successor_requirement") != {
+        "source_root": str(source_root),
+        "head": source_state.get("head"),
+        "tree": source_state.get("tree"),
+        "scope": "NESTED_CREATE_INVENTORY_AND_QUARANTINE_PARENT_CLOSURE_V1",
+        "required_fixes": [
+            "DIRECTORY_INVENTORY_IGNORES_VOLATILE_ST_SIZE_ONLY",
+            "CREATE_PARENT_DIRECTORY_TYPE_MODE_AND_PATH_DRIFT_STILL_DETECTED",
+            "PRECREATE_ALL_REHEARSAL_AND_ROLLBACK_QUARANTINE_PARENTS",
+            "BIND_QUARANTINE_PARENT_PATH_DEVICE_AND_INODE_IN_MANIFEST",
+            "VERIFY_QUARANTINE_PARENT_BINDINGS_BEFORE_FIRST_INTENT_AND_RECOVERY",
+            "EXACT_SIX_OPERATION_SAME_DEVICE_SUCCESS_AND_RECOVERY_REGRESSIONS",
+        ],
+    }:
+        return False
+    artifacts = revocation.get("revoked_artifacts")
+    if (
+        not isinstance(artifacts, Mapping)
+        or dict(artifacts) != REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS
+    ):
+        return False
+    errors: list[str] = []
+    loaded: dict[str, Mapping[str, Any]] = {}
+    for name, reference in artifacts.items():
+        _, value = _verify_file_reference(
+            reference,
+            errors,
+            f"rejected topology revocation {name}",
+            require_json_object=name != "authorization_request",
+        )
+        if isinstance(value, Mapping):
+            loaded[name] = value
+    if errors:
+        return False
+    packet = loaded.get("packet")
+    candidate = loaded.get("review_candidate")
+    evidence = loaded.get("evidence_bundle")
+    packet_reference = REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS[
+        "packet"
+    ]
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or packet.get("approval_id")
+        != REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID
+        or packet.get("source_binding")
+        != REJECTED_TOPOLOGY_REVOCATION_SOURCE
+        or not isinstance(candidate, Mapping)
+        or candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or candidate.get("approval_id")
+        != REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID
+        or candidate.get("approval_packet") != packet_reference
+        or not isinstance(evidence, Mapping)
+        or evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or evidence.get("approval_id")
+        != REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID
+        or evidence.get("approval_packet") != packet_reference
+    ):
+        return False
+    if revocation.get("dynamic_counterexample") != {
+        "python_version": "3.12.13",
+        "filesystem": "APFS_SAME_DEVICE",
+        "operation_order": [
+            "scripts/step7_readiness_gate.py",
+            "scripts/test-bplus.py",
+            "tests/foundation/activation_gate_runner.py",
+            "tests/foundation/registration_gate_runner.py",
+            "tests/foundation/test_step7_readiness_gate.py",
+            "tests/test_suites.json",
+        ],
+        "dry_run_status": "DRY_RUN_VERIFIED",
+        "failure_after_operation_index": 0,
+        "failure_before_operation_index": 1,
+        "execution_error": (
+            "deployment inventory drift immediately before apply"
+        ),
+        "recovery_status": "MANUAL_RECOVERY_REQUIRED",
+        "recovery_error": (
+            "[Errno 2] No such file or directory: 'scripts'"
+        ),
+        "counted_as_pass": False,
+    }:
+        return False
+    if revocation.get("deployment_effects") != {
+        "production_deployment_change_count": 0,
+        "production_data_change_count": 0,
+        "baseline_change_count": 0,
+        "canary_run_count": 0,
+        "execution_switch_change_count": 0,
+        "external_change_count": 0,
+        "backup_root_created": False,
+        "step8_step9_entered": False,
+    }:
+        return False
+    backup_root = Path(REJECTED_TOPOLOGY_REVOCATION_BACKUP_ROOT)
+    if backup_root.exists() or backup_root.is_symlink():
+        return False
+    reuse_fields = {
+        "may_execute",
+        "may_request_authorization",
+        "may_reuse_approval_id",
+        "may_reuse_packet",
+        "may_reuse_candidate",
+        "may_reuse_evidence",
+        "may_reuse_gate_results",
+        "may_reuse_real_sitina_reviews",
+        "may_reuse_authorization_request",
+        "may_reuse_63671f9_authorization",
+        "may_reuse_operations_sha256",
+        "may_reuse_plan_sha256",
+    }
+    reuse_policy = revocation.get("reuse_policy")
+    return bool(
+        isinstance(reuse_policy, Mapping)
+        and set(reuse_policy) == reuse_fields
+        and all(
+            reuse_policy.get(field) is False for field in reuse_fields
+        )
+    )
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -9579,6 +10000,13 @@ def _verify_rollback_and_bound_evidence(
             anchor_root=anchor_root,
         )
         or _interrupted_prebackup_revocation_is_valid(
+            revocation,
+            source_root=source_root,
+            deployment_root=deployment_root,
+            source_state=source_state,
+            anchor_root=anchor_root,
+        )
+        or _rejected_topology_revocation_is_valid(
             revocation,
             source_root=source_root,
             deployment_root=deployment_root,

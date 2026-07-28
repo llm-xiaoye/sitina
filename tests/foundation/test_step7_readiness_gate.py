@@ -2709,6 +2709,39 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ]
         )
 
+    def _step7_v4_exact_six_operation_spec(
+        self,
+    ) -> dict[str, object]:
+        spec = self._step7_v4_execution_spec()
+        source_root = Path(str(spec["source_root"]))
+        deployment_root = Path(str(spec["deployment_root"]))
+        for path in (
+            source_root / "replace.txt",
+            source_root / "create.txt",
+            deployment_root / "replace.txt",
+        ):
+            path.unlink()
+        spec["operations"] = []
+        for relative, kind in (
+            ("scripts/step7_readiness_gate.py", "CREATE"),
+            ("scripts/test-bplus.py", "REPLACE"),
+            (
+                "tests/foundation/activation_gate_runner.py",
+                "REPLACE",
+            ),
+            (
+                "tests/foundation/registration_gate_runner.py",
+                "REPLACE",
+            ),
+            (
+                "tests/foundation/test_step7_readiness_gate.py",
+                "CREATE",
+            ),
+            ("tests/test_suites.json", "REPLACE"),
+        ):
+            self._append_step7_v4_operation(spec, relative, kind)
+        return spec
+
     def test_v4_executor_dry_run_then_real_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             spec = self._step7_v4_execution_spec()
@@ -2798,6 +2831,129 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "rmtree_operation_count",
             ):
                 self.assertEqual(result[field], 0)
+
+    def test_v4_exact_six_path_topology_executes_without_false_inventory_drift(
+        self,
+    ) -> None:
+        spec = self._step7_v4_exact_six_operation_spec()
+        capability = self._step7_v4_capability(spec)
+        deployment = Path(str(spec["deployment_root"]))
+        output = Path(str(spec["allowed_backup_parent"]))
+        self.assertEqual(deployment.stat().st_dev, output.stat().st_dev)
+        dry_run = execute_step7_v4(
+            spec,
+            dry_run=True,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(dry_run["status"], "DRY_RUN_VERIFIED", dry_run)
+        result = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=capability,
+        )
+        self.assertEqual(result["status"], "EXECUTED", result)
+        self.assertEqual(result["applied_indices"], list(range(6)))
+        for operation in spec["operations"]:
+            self.assertEqual(
+                sha256(Path(str(operation["target_path"]))),
+                operation["target_sha256"],
+            )
+
+    def test_v4_exact_six_path_quarantine_parents_are_prebound(
+        self,
+    ) -> None:
+        spec = self._step7_v4_exact_six_operation_spec()
+        result = execute_step7_v4(
+            spec,
+            dry_run=False,
+            fail_at="AFTER_REHEARSAL_RESULT_BEFORE_FIRST_INTENT",
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=self._step7_v4_capability(spec),
+        )
+        self.assertEqual(
+            result["status"],
+            "PREAPPLY_ABORTED_NO_DEPLOYMENT_MUTATION",
+            result,
+        )
+        manifest_path = (
+            Path(str(spec["backup_root"])) / "backup-manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        bindings = manifest["quarantine_parent_identities"]
+        self.assertEqual(
+            set(bindings),
+            {
+                "scripts/step7_readiness_gate.py",
+                "tests/foundation/test_step7_readiness_gate.py",
+            },
+        )
+        for binding in bindings.values():
+            self.assertEqual(
+                set(binding),
+                {
+                    "rehearsal_source_parent",
+                    "rehearsal_quarantine_parent",
+                    "rollback_quarantine_parent",
+                },
+            )
+            for identity in binding.values():
+                parent = Path(identity["path"])
+                metadata = parent.lstat()
+                self.assertTrue(stat.S_ISDIR(metadata.st_mode))
+                self.assertFalse(parent.is_symlink())
+                self.assertEqual(metadata.st_dev, identity["device"])
+                self.assertEqual(metadata.st_ino, identity["inode"])
+
+    def test_v4_exact_six_path_nested_create_failures_recover_exact_preimage(
+        self,
+    ) -> None:
+        for index in (0, 4):
+            with self.subTest(index=index):
+                spec = self._step7_v4_exact_six_operation_spec()
+                capability = self._step7_v4_capability(spec)
+                deployment = Path(str(spec["deployment_root"]))
+                before = self._step7_v4_tree_snapshot(deployment)
+                result = execute_step7_v4(
+                    spec,
+                    dry_run=False,
+                    fail_at=f"AFTER_APPLY:{index}",
+                    gate_callback=lambda _: {"accepted": True},
+                    _test_capability=capability,
+                )
+                self.assertEqual(
+                    result["status"],
+                    "RECOVERED_AFTER_FAILURE",
+                    result,
+                )
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(deployment),
+                    before,
+                )
+                failed_create = spec["operations"][index]
+                self.assertFalse(
+                    Path(str(failed_create["target_path"])).exists()
+                )
+                self.assertTrue(
+                    Path(
+                        str(
+                            failed_create[
+                                "rollback_quarantine_path"
+                            ]
+                        )
+                    ).is_file()
+                )
+                repeated = recover_step7_v4_execution(
+                    spec,
+                    run_id=str(spec["run_id"]),
+                    _test_capability=capability,
+                )
+                self.assertEqual(repeated, result)
+                self.assertEqual(
+                    self._step7_v4_tree_snapshot(deployment),
+                    before,
+                )
 
     def test_v4_executor_captures_nested_replace_preimage(self) -> None:
         spec = self._step7_v4_execution_spec()
@@ -6650,6 +6806,156 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     anchor_root=Path("/Users/moss/.codex/sessions"),
                 )
             )
+
+    def test_rejected_topology_revocation_v5_is_bound_and_fail_closed(
+        self,
+    ) -> None:
+        source_state = {
+            "head": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{commit}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+            "tree": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{tree}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+        }
+        reuse_fields = {
+            "may_execute",
+            "may_request_authorization",
+            "may_reuse_approval_id",
+            "may_reuse_packet",
+            "may_reuse_candidate",
+            "may_reuse_evidence",
+            "may_reuse_gate_results",
+            "may_reuse_real_sitina_reviews",
+            "may_reuse_authorization_request",
+            "may_reuse_63671f9_authorization",
+            "may_reuse_operations_sha256",
+            "may_reuse_plan_sha256",
+        }
+        document = {
+            "schema": step7_gate.REJECTED_TOPOLOGY_REVOCATION_SCHEMA,
+            "revoked_at_utc": "2026-07-28T10:00:00Z",
+            "source_thread_id": step7_gate.STEP7_SOURCE_THREAD_ID,
+            "decision": "REJECT_DEPLOY_REQUEST_REVOKE_AND_REBUILD",
+            "physical_classification": (
+                "ISOLATED_DYNAMIC_COUNTEREXAMPLE_NO_PRODUCTION_MUTATION"
+            ),
+            "revoked_approval_id": (
+                step7_gate.REJECTED_TOPOLOGY_REVOCATION_APPROVAL_ID
+            ),
+            "revoked_source": {
+                "root": str(REPOSITORY_ROOT),
+                **step7_gate.REJECTED_TOPOLOGY_REVOCATION_SOURCE,
+            },
+            "revoked_artifacts": copy.deepcopy(
+                step7_gate.REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS
+            ),
+            "dynamic_counterexample": {
+                "python_version": "3.12.13",
+                "filesystem": "APFS_SAME_DEVICE",
+                "operation_order": [
+                    "scripts/step7_readiness_gate.py",
+                    "scripts/test-bplus.py",
+                    "tests/foundation/activation_gate_runner.py",
+                    "tests/foundation/registration_gate_runner.py",
+                    "tests/foundation/test_step7_readiness_gate.py",
+                    "tests/test_suites.json",
+                ],
+                "dry_run_status": "DRY_RUN_VERIFIED",
+                "failure_after_operation_index": 0,
+                "failure_before_operation_index": 1,
+                "execution_error": (
+                    "deployment inventory drift immediately before apply"
+                ),
+                "recovery_status": "MANUAL_RECOVERY_REQUIRED",
+                "recovery_error": (
+                    "[Errno 2] No such file or directory: 'scripts'"
+                ),
+                "counted_as_pass": False,
+            },
+            "deployment_effects": {
+                "production_deployment_change_count": 0,
+                "production_data_change_count": 0,
+                "baseline_change_count": 0,
+                "canary_run_count": 0,
+                "execution_switch_change_count": 0,
+                "external_change_count": 0,
+                "backup_root_created": False,
+                "step8_step9_entered": False,
+            },
+            "reuse_policy": {
+                field: False for field in reuse_fields
+            },
+            "successor_requirement": {
+                "source_root": str(REPOSITORY_ROOT),
+                "head": source_state["head"],
+                "tree": source_state["tree"],
+                "scope": (
+                    "NESTED_CREATE_INVENTORY_AND_"
+                    "QUARANTINE_PARENT_CLOSURE_V1"
+                ),
+                "required_fixes": [
+                    "DIRECTORY_INVENTORY_IGNORES_VOLATILE_ST_SIZE_ONLY",
+                    (
+                        "CREATE_PARENT_DIRECTORY_TYPE_MODE_AND_"
+                        "PATH_DRIFT_STILL_DETECTED"
+                    ),
+                    (
+                        "PRECREATE_ALL_REHEARSAL_AND_"
+                        "ROLLBACK_QUARANTINE_PARENTS"
+                    ),
+                    (
+                        "BIND_QUARANTINE_PARENT_PATH_DEVICE_"
+                        "AND_INODE_IN_MANIFEST"
+                    ),
+                    (
+                        "VERIFY_QUARANTINE_PARENT_BINDINGS_"
+                        "BEFORE_FIRST_INTENT_AND_RECOVERY"
+                    ),
+                    (
+                        "EXACT_SIX_OPERATION_SAME_DEVICE_"
+                        "SUCCESS_AND_RECOVERY_REGRESSIONS"
+                    ),
+                ],
+            },
+            "step8_step9_not_entered": True,
+        }
+        validate = lambda value: (
+            step7_gate._rejected_topology_revocation_is_valid(
+                value,
+                source_root=REPOSITORY_ROOT,
+                deployment_root=Path("/Users/moss/SitinaHub"),
+                source_state=source_state,
+                anchor_root=Path("/Users/moss/.codex/sessions"),
+            )
+        )
+        self.assertTrue(validate(document))
+        for mutation in (
+            lambda value: value.__setitem__("unexpected", True),
+            lambda value: value["revoked_artifacts"]["packet"].__setitem__(
+                "sha256", "0" * 64
+            ),
+            lambda value: value["dynamic_counterexample"].__setitem__(
+                "failure_after_operation_index", 1
+            ),
+            lambda value: value["deployment_effects"].__setitem__(
+                "production_deployment_change_count", 1
+            ),
+            lambda value: value["reuse_policy"].__setitem__(
+                "may_reuse_63671f9_authorization", True
+            ),
+            lambda value: value["successor_requirement"].__setitem__(
+                "tree", "0" * 40
+            ),
+        ):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(document)
+                mutation(changed)
+                self.assertFalse(validate(changed))
 
     def test_interrupted_prebackup_revocation_v4_is_bound_and_fail_closed(
         self,
