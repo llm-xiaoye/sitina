@@ -5140,6 +5140,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "tree": "b" * 40,
             "clean": True,
             "diff_check_clean": True,
+            "physical_worktree": {
+                "tracked_file_count": 1,
+                "tree_entries_sha256": "c" * 64,
+            },
         }
 
     def _write_official_gate_fixture(
@@ -5336,6 +5340,103 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 first["activation_runner"]["sha256"],
                 second["activation_runner"]["sha256"],
             )
+
+    def test_v4_production_gate_contract_closes_physical_source_binding(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            test_home_root = root / "test-homes"
+            test_home_root.mkdir()
+            self._write_official_gate_fixture(
+                source,
+                test_home_root=test_home_root,
+                label="source",
+            )
+            subprocess.run(
+                [step7_gate.GIT_EXECUTABLE_PATH, "init", "-q"],
+                cwd=source,
+                env=step7_gate._step7_git_environment(),
+                check=True,
+            )
+            subprocess.run(
+                [
+                    step7_gate.GIT_EXECUTABLE_PATH,
+                    "config",
+                    "user.email",
+                    "step7-tests@example.invalid",
+                ],
+                cwd=source,
+                env=step7_gate._step7_git_environment(),
+                check=True,
+            )
+            subprocess.run(
+                [
+                    step7_gate.GIT_EXECUTABLE_PATH,
+                    "config",
+                    "user.name",
+                    "Step7 Tests",
+                ],
+                cwd=source,
+                env=step7_gate._step7_git_environment(),
+                check=True,
+            )
+            subprocess.run(
+                [step7_gate.GIT_EXECUTABLE_PATH, "add", "."],
+                cwd=source,
+                env=step7_gate._step7_git_environment(),
+                check=True,
+            )
+            subprocess.run(
+                [
+                    step7_gate.GIT_EXECUTABLE_PATH,
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                cwd=source,
+                env=step7_gate._step7_git_environment(),
+                check=True,
+            )
+            source_binding = step7_gate._step7_v4_git_state(source)
+            contract = _step7_v4_production_gate_contract(source)
+            self.assertEqual(contract["source_binding"], source_binding)
+            self.assertEqual(
+                set(contract["source_binding"]),
+                {
+                    "root",
+                    "head",
+                    "tree",
+                    "clean",
+                    "diff_check_clean",
+                    "physical_worktree",
+                },
+            )
+
+            for mutation in (
+                lambda value: value.pop("physical_worktree"),
+                lambda value: value["physical_worktree"].__setitem__(
+                    "tracked_file_count", 0
+                ),
+                lambda value: value["physical_worktree"].__setitem__(
+                    "tree_entries_sha256", "0" * 63
+                ),
+                lambda value: value["physical_worktree"].__setitem__(
+                    "unexpected", True
+                ),
+            ):
+                with self.subTest(mutation=mutation):
+                    changed = copy.deepcopy(source_binding)
+                    mutation(changed)
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "official gate source binding is invalid",
+                    ):
+                        _step7_v4_production_gate_contract(
+                            source,
+                            source_binding=changed,
+                        )
 
     def test_v4_production_gate_contract_binds_postimage_to_deployment_path(
         self,

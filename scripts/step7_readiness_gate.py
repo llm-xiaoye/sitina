@@ -3766,10 +3766,22 @@ def _step7_v4_production_gate_contract(
         )
     if source_binding is None:
         source_binding = _step7_v4_git_state(source_root)
+    physical_worktree = (
+        source_binding.get("physical_worktree")
+        if isinstance(source_binding, Mapping)
+        else None
+    )
     if (
         not isinstance(source_binding, Mapping)
         or set(source_binding)
-        != {"root", "head", "tree", "clean", "diff_check_clean"}
+        != {
+            "root",
+            "head",
+            "tree",
+            "clean",
+            "diff_check_clean",
+            "physical_worktree",
+        }
         or source_binding.get("root") != str(source_root)
         or re.fullmatch(
             r"[0-9a-f]{40}", str(source_binding.get("head"))
@@ -3781,6 +3793,14 @@ def _step7_v4_production_gate_contract(
         is None
         or source_binding.get("clean") is not True
         or source_binding.get("diff_check_clean") is not True
+        or not isinstance(physical_worktree, Mapping)
+        or set(physical_worktree)
+        != {"tracked_file_count", "tree_entries_sha256"}
+        or not _integer(physical_worktree.get("tracked_file_count"))
+        or physical_worktree.get("tracked_file_count") <= 0
+        or not _valid_sha256(
+            physical_worktree.get("tree_entries_sha256")
+        )
     ):
         raise ValueError("official gate source binding is invalid")
     target_test_runner = deployment_root / "scripts/test-bplus.py"
