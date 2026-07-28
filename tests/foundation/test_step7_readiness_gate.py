@@ -2481,9 +2481,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
         deployment_root = Path(str(spec["deployment_root"]))
         backup_root = Path(str(spec["backup_root"]))
         source = source_root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(f"new {relative}\n", encoding="utf-8")
         target = deployment_root / relative
         if kind == "REPLACE":
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f"old {relative}\n", encoding="utf-8")
         source_stat = source.stat()
         operation = {
@@ -2615,8 +2617,34 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 result["rehearsal_result"]["sha256"],
                 sha256(backup_root / "rehearsal-result.json"),
             )
-            for field in ("delete_operation_count", "unlink_operation_count", "rmtree_operation_count"):
+            for field in (
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            ):
                 self.assertEqual(result[field], 0)
+
+    def test_v4_executor_captures_nested_replace_preimage(self) -> None:
+        spec = self._step7_v4_execution_spec()
+        self._append_step7_v4_operation(
+            spec,
+            "nested/replace.txt",
+            "REPLACE",
+        )
+        result = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=self._step7_v4_capability(spec),
+        )
+        self.assertEqual(result["status"], "EXECUTED", result)
+        nested = spec["operations"][-1]
+        backup = Path(str(nested["preimage_backup_path"]))
+        self.assertTrue(backup.is_file())
+        self.assertEqual(
+            sha256(backup),
+            nested["preimage_sha256"],
+        )
 
     def test_v4_recovery_after_success_is_read_only_and_idempotent(self) -> None:
         spec = self._step7_v4_execution_spec()

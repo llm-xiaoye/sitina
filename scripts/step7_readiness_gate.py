@@ -4689,6 +4689,10 @@ def execute_step7_v4(
         _step7_v4_inject(fail_at, "CAPTURE_PREIMAGES")
         for operation in operations:
             if operation["operation"] == "REPLACE":
+                _step7_v4_ensure_relative_directories(
+                    preimages,
+                    Path(operation["relative_path"]).parent,
+                )
                 _step7_v4_copy_exclusive(
                     Path(operation["target_path"]),
                     Path(operation["preimage_backup_path"]),
