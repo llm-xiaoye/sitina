@@ -379,6 +379,71 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "rollback-approval-packet.json",
             self._rollback_packet_document(),
         )
+        packet_document = json.loads(
+            self.rollback_packet.read_text(encoding="utf-8")
+        )
+        source_head = self._git("rev-parse", "HEAD^{commit}")
+        source_tree = self._git("rev-parse", "HEAD^{tree}")
+        source_short = source_head[:7]
+        self.formal_executor = (
+            self.output / f"step7-{source_short}-authorized-execution.py"
+        )
+        formal_executor_binding = {
+            "schema": "SITINA_STEP7_FORMAL_EXECUTOR_RUNTIME_BINDING_V1",
+            "approved_python": APPROVED_PYTHON_PATH,
+            "pycache_prefix": step7_gate.STEP7_PYCACHE_PREFIX,
+            "git": {
+                "path": step7_gate.GIT_EXECUTABLE_PATH,
+                "sha256": step7_gate.GIT_EXECUTABLE_SHA256,
+            },
+            "approval_id": self.rollback_approval_id,
+            "run_id": f"{self.rollback_approval_id}_EXECUTION",
+            "source_root": str(self.source.resolve()),
+            "source_head": source_head,
+            "source_tree": source_tree,
+            "deployment_root": str(self.deployment.resolve()),
+            "allowed_backup_parent": str(self.output.resolve()),
+            "backup_root": str(self.rollback_root),
+            "packet": self._reference(self.rollback_packet),
+            "candidate_path": str(
+                self.output.resolve()
+                / "rollback-deployment-request-candidate.json"
+            ),
+            "evidence_path": str(
+                self.output.resolve() / "rollback-request-evidence.json"
+            ),
+            "static_integrity_path": str(self.general_evidence.resolve()),
+            "operations_path": str(
+                self.output.resolve()
+                / f"sitina-step7-deployment-operations-{source_short}.json"
+            ),
+            "operations_sha256": _json_value_sha256(
+                packet_document["exact_file_operations"]
+            ),
+            "plan_sha256": packet_document[
+                "backup_and_rollback_plan_sha256"
+            ],
+            "authorization_receipt_path": str(
+                self.output.resolve()
+                / f"sitina-step7-authorization-receipt-{source_short}.json"
+            ),
+            "execution_specification_path": str(
+                self.output.resolve()
+                / f"sitina-step7-authorized-execution-spec-{source_short}.json"
+            ),
+            "gate_path": str(self.source.resolve() / "tracked.txt"),
+            "source_dependencies": [
+                self._reference(self.source / "tracked.txt"),
+                self._reference(self.source / "created.txt"),
+            ],
+        }
+        self.formal_executor_binding = formal_executor_binding
+        self.formal_executor.write_text(
+            step7_gate._step7_formal_executor_source(
+                formal_executor_binding
+            ),
+            encoding="utf-8",
+        )
         self.general_evidence.write_text(
             json.dumps(
                 self._static_integrity_document(),
@@ -1563,6 +1628,36 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ],
             "gates": gate_references,
             "revocation": self._reference(self.rollback_revocation_stub),
+            "formal_executor": {
+                "schema": "SITINA_STEP7_FORMAL_EXECUTOR_BINDING_V1",
+                "executor": self._reference(self.formal_executor),
+                "launch_command": [
+                    APPROVED_PYTHON_PATH,
+                    "-I",
+                    "-B",
+                    "-X",
+                    f"pycache_prefix={step7_gate.STEP7_PYCACHE_PREFIX}",
+                    str(self.formal_executor.resolve()),
+                ],
+                "binding": copy.deepcopy(
+                    self.formal_executor_binding
+                ),
+                "self_contained": True,
+                "fully_bound_before_authorization": True,
+                "dynamic_template": None,
+                "source_dependencies": [
+                    self._reference(self.source / "tracked.txt"),
+                    self._reference(self.source / "created.txt"),
+                ],
+                "forbidden_runtime_parameters": [
+                    "FAILURE_INJECTION",
+                    "CALLER_GATE_CALLBACK",
+                    "TEST_CAPABILITY",
+                    "VARIABLE_SOURCE_ROOT",
+                    "VARIABLE_DEPLOYMENT_ROOT",
+                    "VARIABLE_BACKUP_ROOT",
+                ],
+            },
         }
 
     def _rollback_review_candidate_document(self) -> dict[str, object]:
@@ -1901,6 +1996,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 self.general_evidence,
                 "json",
                 "deployment request static integrity",
+            ),
+            self._review_required_file(
+                self.formal_executor,
+                "text",
+                "hash-bound self-contained formal executor",
             ),
             self._review_required_file(
                 self.source / "tracked.txt", "text", "Step7 changed source"
@@ -2376,6 +2476,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             {**self._reference(self.source / "tracked.txt"), "format": "text"},
             {**self._reference(self.source / "created.txt"), "format": "text"},
             self._reference(self.general_evidence),
+            {**self._reference(self.formal_executor), "format": "text"},
         ]
         return {
             "schema": CANDIDATE_SCHEMA,
@@ -5268,6 +5369,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 {
                     "PYTHONDONTWRITEBYTECODE": "1",
                     "PYTHONNOUSERSITE": "1",
+                    "PYTHONPYCACHEPREFIX": (
+                        step7_gate.STEP7_PYCACHE_PREFIX
+                    ),
                     "SITINA_STEP7_OFFICIAL_GATE_CAPTURE": "1",
                     "SITINA_STEP7_SOURCE_ROOT": str(source),
                     "SITINA_STEP7_CAPTURE_READONLY_ROOTS_JSON": (
@@ -6168,6 +6272,258 @@ class Step7ReadinessGateTests(unittest.TestCase):
                         )
                     )
 
+    def test_v7_ca61797_revocation_is_exact_physical_and_fail_closed(
+        self,
+    ) -> None:
+        path = Path(
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-packet-revocation-"
+            "ca61797-v7-20260728T151500Z.json"
+        )
+        document = json.loads(path.read_text(encoding="utf-8"))
+        source_state = {
+            "head": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{commit}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+            "tree": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{tree}"],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+            ).strip(),
+        }
+
+        def validate(value: dict[str, object]) -> bool:
+            return step7_gate._failed_ca61797_revocation_v7_is_valid(
+                value,
+                source_root=REPOSITORY_ROOT,
+                deployment_root=Path("/Users/moss/SitinaHub"),
+                source_state=source_state,
+                anchor_root=Path("/Users/moss/.codex/sessions"),
+            )
+
+        self.assertTrue(validate(document))
+        original_file_tuple = step7_gate._step7_v4_file_tuple
+        original_inventory = step7_gate._step7_v4_inventory
+
+        def reject_live_target(path: Path) -> dict[str, object]:
+            if Path(path).is_relative_to(Path("/Users/moss/SitinaHub")):
+                raise AssertionError("V7 historical validation read live target")
+            return original_file_tuple(path)
+
+        def reject_live_inventory(path: Path) -> dict[str, object]:
+            if Path(path) == Path("/Users/moss/SitinaHub"):
+                raise AssertionError(
+                    "V7 historical validation read live inventory"
+                )
+            return original_inventory(path)
+
+        with (
+            mock.patch.object(
+                step7_gate,
+                "_step7_v4_file_tuple",
+                side_effect=reject_live_target,
+            ),
+            mock.patch.object(
+                step7_gate,
+                "_step7_v4_inventory",
+                side_effect=reject_live_inventory,
+            ),
+        ):
+            self.assertTrue(validate(document))
+
+        mutations = (
+            lambda value: value.__setitem__("unexpected", True),
+            lambda value: value.__setitem__("schema", "WRONG"),
+            lambda value: value.__setitem__(
+                "historical_revocation_snapshot_mode", "PREIMAGE"
+            ),
+            lambda value: value["revoked_artifacts"]["packet"].__setitem__(
+                "sha256", "0" * 64
+            ),
+            lambda value: value["authorization_chain"][
+                "source_record"
+            ].__setitem__("raw_record_sha256", "0" * 64),
+            lambda value: value["active_session_prefix_anchor"][
+                "accepted_prefix"
+            ].__setitem__("sha256", "0" * 64),
+            lambda value: value["executor_dependency_closure"].__setitem__(
+                "fully_bound_before_execution", True
+            ),
+            lambda value: value["gate_failure"].__setitem__("failed", 1),
+            lambda value: value["recovery"].__setitem__(
+                "checkpoint_closure_sha256", "0" * 64
+            ),
+            lambda value: value["recovery"].__setitem__(
+                "delete_operation_count", 1
+            ),
+            lambda value: value["reuse_policy"].__setitem__(
+                "may_reuse_executor", True
+            ),
+            lambda value: value["successor_requirement"].__setitem__(
+                "tree", "0" * 40
+            ),
+            lambda value: value.__setitem__(
+                "step8_step9_not_entered", False
+            ),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(document)
+                mutation(changed)
+                self.assertFalse(validate(changed))
+
+        fresh_body_semantic_mutations = (
+            lambda value: value["execution_attempt"].__setitem__(
+                "registration_run", True
+            ),
+            lambda value: value["execution_attempt"].__setitem__(
+                "terminal_status", "EXECUTED"
+            ),
+            lambda value: value["gate_failure"].__setitem__(
+                "failure_ids", []
+            ),
+            lambda value: value["recovery"].__setitem__(
+                "status", "EXECUTED"
+            ),
+            lambda value: value["production_state"]["source_switches"].__setitem__(
+                "tool_calls_allowed", True
+            ),
+            lambda value: value["deployment_effects"].__setitem__(
+                "external_change_count", 1
+            ),
+            lambda value: value["reuse_policy"].__setitem__(
+                "may_execute", True
+            ),
+            lambda value: value["executor_dependency_closure"].update(
+                {
+                    "launcher": copy.deepcopy(
+                        value["executor_dependency_closure"][
+                            "dynamic_template"
+                        ]
+                    ),
+                    "dynamic_template": copy.deepcopy(
+                        value["executor_dependency_closure"]["launcher"]
+                    ),
+                }
+            ),
+            lambda value: value["revoked_artifacts"].__setitem__(
+                "authorization_request",
+                copy.deepcopy(
+                    value["revoked_artifacts"]["prior_exclusions"]
+                ),
+            ),
+            lambda value: value["recovery"]["artifacts"].update(
+                {
+                    "rehearsal_result": copy.deepcopy(
+                        value["recovery"]["artifacts"][
+                            "recovery_verification"
+                        ]
+                    ),
+                    "recovery_verification": copy.deepcopy(
+                        value["recovery"]["artifacts"]["rehearsal_result"]
+                    ),
+                }
+            ),
+            lambda value: value["recovery"]["artifacts"].__setitem__(
+                "failure_checkpoint",
+                copy.deepcopy(
+                    value["recovery"]["artifacts"]["rollback_intent"]
+                ),
+            ),
+        )
+        for mutation in fresh_body_semantic_mutations:
+            with self.subTest(fresh_body_semantic_mutation=mutation):
+                changed = copy.deepcopy(document)
+                mutation(changed)
+                changed_body = copy.deepcopy(changed)
+                changed_body.pop("successor_requirement")
+                with mock.patch.object(
+                    step7_gate,
+                    "CA61797_REVOCATION_BODY_SHA256",
+                    _json_value_sha256(changed_body),
+                ):
+                    self.assertFalse(validate(changed))
+
+    def test_v7_active_prefix_allows_tail_append_and_rejects_prefix_drift(
+        self,
+    ) -> None:
+        original = Path(step7_gate.CA61797_REVOCATION_ACTIVE_SESSION)
+        prefix_size = step7_gate.CA61797_REVOCATION_ACTIVE_PREFIX[
+            "byte_length"
+        ]
+        with original.open("rb") as handle:
+            prefix = handle.read(prefix_size)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            fixture = root / "active.jsonl"
+            tail = (
+                json.dumps(
+                    {
+                        "timestamp": "2026-07-28T16:00:00.000Z",
+                        "type": "response_item",
+                        "payload": {
+                            "type": "message",
+                            "id": "tail-only",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "append only",
+                                }
+                            ],
+                        },
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8")
+            fixture.write_bytes(prefix + tail)
+            anchor = {
+                "session_path": str(fixture),
+                "session_id": (
+                    step7_gate.CA61797_REVOCATION_ACTIVE_SESSION_ID
+                ),
+                "session_meta_raw_sha256": (
+                    step7_gate.CA61797_REVOCATION_ACTIVE_SESSION_META_SHA256
+                ),
+                "accepted_prefix": copy.deepcopy(
+                    step7_gate.CA61797_REVOCATION_ACTIVE_PREFIX
+                ),
+                "tail_append_allowed": True,
+            }
+            with mock.patch.object(
+                step7_gate,
+                "CA61797_REVOCATION_ACTIVE_SESSION",
+                str(fixture),
+            ):
+                accepted, _ = (
+                    step7_gate._ca61797_active_session_prefix_is_valid(
+                        anchor,
+                        anchor_root=root,
+                    )
+                )
+                self.assertTrue(accepted)
+                fixture.write_bytes(prefix + tail.replace(b"append", b"change"))
+                accepted, _ = (
+                    step7_gate._ca61797_active_session_prefix_is_valid(
+                        anchor,
+                        anchor_root=root,
+                    )
+                )
+                self.assertTrue(accepted)
+                changed_prefix = bytearray(prefix)
+                changed_prefix[1024] ^= 1
+                fixture.write_bytes(bytes(changed_prefix) + tail)
+                accepted, _ = (
+                    step7_gate._ca61797_active_session_prefix_is_valid(
+                        anchor,
+                        anchor_root=root,
+                    )
+                )
+                self.assertFalse(accepted)
+
     def test_v4_guarded_capture_rejects_boundary_and_dependency_drift(
         self,
     ) -> None:
@@ -6288,7 +6644,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
     ) -> dict[str, str]:
         reference = self._reference(path)
         for index, existing in enumerate(candidate["evidence"]):
-            if existing["path"] == str(path):
+            if existing["path"] == reference["path"]:
                 candidate["evidence"][index] = copy.deepcopy(reference)
         return reference
 
@@ -6305,11 +6661,387 @@ class Step7ReadinessGateTests(unittest.TestCase):
         )
 
     def test_valid_candidate_is_accepted_without_granting_step8(self) -> None:
+        compile(
+            self.formal_executor.read_text(encoding="utf-8"),
+            str(self.formal_executor),
+            "exec",
+        )
         result = self._validate()
         self.assertTrue(result["accepted"], result["errors"])
         self.assertEqual(result["error_count"], 0)
         self.assertFalse(result["step8_admission_granted"])
         self.assertEqual(result["marker"], READY_MARKER)
+
+    def test_formal_executor_is_required_in_candidate_and_full_review(
+        self,
+    ) -> None:
+        candidate = copy.deepcopy(self.candidate)
+        candidate["evidence"] = [
+            reference
+            for reference in candidate["evidence"]
+            if reference["path"] != str(self.formal_executor.resolve())
+        ]
+        self.assertRejected(
+            candidate,
+            "candidate bound evidence list omits a required JSON artifact",
+        )
+
+        input_original = self.review_input.read_text(encoding="utf-8")
+        audit_original = self.audit.read_text(encoding="utf-8")
+        receipt_original = self.review_receipt.read_text(encoding="utf-8")
+        original_document = json.loads(input_original)
+        required_identities = {
+            (reference["path"], reference["sha256"])
+            for reference in original_document["required_files"]
+        }
+        original_document["required_files"] = [
+            reference
+            for reference in original_document["required_files"]
+            if reference["path"] != str(self.formal_executor.resolve())
+        ]
+        try:
+            self.review_input.write_text(
+                json.dumps(original_document, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            self.audit.write_text(
+                self._audit_jsonl(
+                    "STEP7_FULL_REVIEW",
+                    self.review_input,
+                    "agent-run-step7-full-fixture",
+                ),
+                encoding="utf-8",
+            )
+            self.review_receipt = self._audit_receipt_file(
+                "review-receipt.json",
+                "STEP7_FULL_REVIEW",
+                self.review_input,
+                self.audit,
+                "agent-run-step7-full-fixture",
+            )
+            errors: list[str] = []
+            step7_gate._verify_review(
+                self._review(
+                    "STEP7_FULL_REVIEW",
+                    self.review_input,
+                    self.audit,
+                    self.review_receipt,
+                    "agent-run-step7-full-fixture",
+                ),
+                {
+                    "head": self._git("rev-parse", "HEAD^{commit}"),
+                    "tree": self._git("rev-parse", "HEAD^{tree}"),
+                },
+                self.source.resolve(),
+                self.deployment.resolve(),
+                "STEP7_FULL_REVIEW",
+                required_identities,
+                errors,
+                "Step7 Sitina review",
+                self.anchor_root.resolve(),
+            )
+            self.assertTrue(
+                any(
+                    "input required-file closure mismatch" in error
+                    for error in errors
+                ),
+                errors,
+            )
+        finally:
+            self.review_input.write_text(input_original, encoding="utf-8")
+            self.audit.write_text(audit_original, encoding="utf-8")
+            self.review_receipt.write_text(
+                receipt_original,
+                encoding="utf-8",
+            )
+
+    def test_same_path_fresh_hash_noop_executor_is_rejected(self) -> None:
+        executor_original = self.formal_executor.read_text(encoding="utf-8")
+        static_original = self.general_evidence.read_text(encoding="utf-8")
+        bundle_original = self.rollback_request_evidence.read_text(
+            encoding="utf-8"
+        )
+        request_original = self.rollback_review_candidate.read_text(
+            encoding="utf-8"
+        )
+        try:
+            self.formal_executor.write_text(
+                "#!/usr/bin/env python3\n"
+                "def main() -> int:\n"
+                "    return 0\n",
+                encoding="utf-8",
+            )
+            static_document = json.loads(static_original)
+            static_document["formal_executor"]["executor"] = self._reference(
+                self.formal_executor
+            )
+            self.general_evidence.write_text(
+                json.dumps(static_document, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            bundle = json.loads(bundle_original)
+            bundle["evidence"]["static_integrity"] = self._reference(
+                self.general_evidence
+            )
+            self.rollback_request_evidence.write_text(
+                json.dumps(bundle, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            request = json.loads(request_original)
+            request["evidence_bundle"] = self._reference(
+                self.rollback_request_evidence
+            )
+            self.rollback_review_candidate.write_text(
+                json.dumps(request, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["deployment_request_supporting_evidence"][
+                "static_integrity"
+            ] = self._reference(self.general_evidence)
+            self._refresh_bound_reference(candidate, self.formal_executor)
+            self._refresh_bound_reference(candidate, self.general_evidence)
+            self._refresh_bound_reference(
+                candidate,
+                self.rollback_request_evidence,
+            )
+            candidate["rollback_proof"]["deployment_request_candidate"] = (
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_review_candidate,
+                )
+            )
+            self.assertRejected(
+                candidate,
+                "deployment request formal executor binding mismatch",
+            )
+        finally:
+            self.formal_executor.write_text(
+                executor_original,
+                encoding="utf-8",
+            )
+            self.general_evidence.write_text(
+                static_original,
+                encoding="utf-8",
+            )
+            self.rollback_request_evidence.write_text(
+                bundle_original,
+                encoding="utf-8",
+            )
+            self.rollback_review_candidate.write_text(
+                request_original,
+                encoding="utf-8",
+            )
+
+    def test_formal_executor_requires_bound_isolated_python_before_imports(
+        self,
+    ) -> None:
+        shadow = self.formal_executor.parent / "hashlib.py"
+        marker = self.formal_executor.parent / "shadow-imported.txt"
+        symlink = self.formal_executor.parent / "executor-symlink.py"
+        shadow.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        try:
+            ordinary = subprocess.run(
+                [APPROVED_PYTHON_PATH, str(self.formal_executor.resolve())],
+                cwd=self.formal_executor.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(ordinary.returncode, 0)
+            self.assertFalse(marker.exists())
+            isolated = subprocess.run(
+                [
+                    APPROVED_PYTHON_PATH,
+                    "-I",
+                    "-B",
+                    "-X",
+                    f"pycache_prefix={step7_gate.STEP7_PYCACHE_PREFIX}",
+                    str(self.formal_executor.resolve()),
+                ],
+                cwd=self.formal_executor.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(isolated.returncode, 0)
+            self.assertFalse(marker.exists())
+            symlink.symlink_to(self.formal_executor.resolve())
+            symlink_launch = subprocess.run(
+                [
+                    APPROVED_PYTHON_PATH,
+                    "-I",
+                    "-B",
+                    "-X",
+                    f"pycache_prefix={step7_gate.STEP7_PYCACHE_PREFIX}",
+                    str(symlink),
+                ],
+                cwd=self.formal_executor.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(symlink_launch.returncode, 0)
+            self.assertIn(
+                "exact non-symlink launch path",
+                symlink_launch.stderr,
+            )
+        finally:
+            shadow.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            symlink.unlink(missing_ok=True)
+
+    def test_formal_executor_rejects_path_shadowed_git(self) -> None:
+        fake_bin = self.output / "fake-bin"
+        fake_bin.mkdir()
+        marker = fake_bin / "fake-git-executed.txt"
+        fake_git = fake_bin / "git"
+        fake_git.write_text(
+            "#!/bin/sh\n"
+            f"printf executed > {str(marker)!r}\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_git.chmod(0o755)
+        operations_path = Path(
+            self.formal_executor_binding["operations_path"]
+        )
+        packet = json.loads(
+            self.rollback_packet.read_text(encoding="utf-8")
+        )
+        operations_path.write_text(
+            json.dumps(
+                packet["exact_file_operations"],
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(fake_bin) + os.pathsep + environment.get("PATH", "")
+            )
+            completed = subprocess.run(
+                [
+                    APPROVED_PYTHON_PATH,
+                    "-I",
+                    "-B",
+                    "-X",
+                    f"pycache_prefix={step7_gate.STEP7_PYCACHE_PREFIX}",
+                    str(self.formal_executor.resolve()),
+                ],
+                cwd=self.formal_executor.parent,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertIn(
+                Path(
+                    self.formal_executor_binding[
+                        "execution_specification_path"
+                    ]
+                ).name,
+                completed.stderr,
+            )
+        finally:
+            operations_path.unlink(missing_ok=True)
+            fake_git.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            fake_bin.rmdir()
+
+    def test_git_attestation_disables_local_fsmonitor_hook(self) -> None:
+        local_config = self.source / ".git" / "config"
+        config_original = local_config.read_bytes()
+        expected_head = self._git("rev-parse", "HEAD^{commit}")
+        hook = self.output / "malicious-fsmonitor.sh"
+        marker = self.output / "fsmonitor-executed.txt"
+        hook.write_text(
+            "#!/bin/sh\n"
+            f"printf executed > {str(marker)!r}\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+        try:
+            subprocess.run(
+                [
+                    step7_gate.GIT_EXECUTABLE_PATH,
+                    "config",
+                    "--local",
+                    "core.fsmonitor",
+                    str(hook),
+                ],
+                cwd=self.source,
+                env=step7_gate._step7_git_environment(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            state = step7_gate._step7_v4_git_state(self.source)
+            self.assertEqual(state["head"], expected_head)
+            self.assertFalse(marker.exists())
+            result = self._validate()
+            self.assertTrue(result["accepted"], result["errors"])
+            self.assertFalse(marker.exists())
+            subprocess.run(
+                [
+                    step7_gate.GIT_EXECUTABLE_PATH,
+                    "config",
+                    "--local",
+                    "filter.pwn.clean",
+                    str(hook),
+                ],
+                cwd=self.source,
+                env=step7_gate._step7_git_environment(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            attributes = self.source / ".gitattributes"
+            attributes.write_text(
+                "tracked.txt filter=pwn\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "untracked source file",
+            ):
+                step7_gate._step7_v4_git_state(self.source)
+            self.assertFalse(marker.exists())
+            attributes.unlink()
+            info_attributes = self.source / ".git" / "info" / "attributes"
+            info_attributes.write_text(
+                "tracked.txt filter=pwn\n",
+                encoding="utf-8",
+            )
+            state = step7_gate._step7_v4_git_state(self.source)
+            self.assertEqual(state["head"], expected_head)
+            self.assertFalse(marker.exists())
+            result = self._validate()
+            self.assertTrue(result["accepted"], result["errors"])
+            self.assertFalse(marker.exists())
+        finally:
+            local_config.write_bytes(config_original)
+            (self.source / ".gitattributes").unlink(missing_ok=True)
+            (self.source / ".git" / "info" / "attributes").unlink(
+                missing_ok=True
+            )
+            hook.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
 
     def test_wrong_schema_or_marker_is_rejected(self) -> None:
         for field, value, fragment in (
@@ -6339,6 +7071,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def test_dirty_worktree_is_rejected(self) -> None:
         (self.source / "tracked.txt").write_text("dirty\n", encoding="utf-8")
         self.assertRejected(self.candidate, "not clean")
+
+    def test_hardlinked_tracked_source_is_rejected(self) -> None:
+        alias = self.output / "tracked-hardlink-alias.txt"
+        os.link(self.source / "tracked.txt", alias)
+        try:
+            self.assertRejected(self.candidate, "not clean")
+        finally:
+            alias.unlink()
 
     def test_incomplete_or_unknown_gate_set_is_rejected(self) -> None:
         candidate = copy.deepcopy(self.candidate)
@@ -8649,6 +9389,20 @@ class Step7ReadinessGateTests(unittest.TestCase):
         request_original = self.rollback_review_candidate.read_text(
             encoding="utf-8"
         )
+        dynamic_executor = self.output / "step7-dynamic-executor.py"
+        dynamic_executor.write_text(
+            "#!/usr/bin/env python3\n"
+            "template = 'step7-5aef88e-authorized-execution.py'\n"
+            "exec(compile(template, template, 'exec'))\n",
+            encoding="utf-8",
+        )
+        noop_executor = self.output / "step7-noop-executor.py"
+        noop_executor.write_text(
+            "#!/usr/bin/env python3\n"
+            "def main() -> int:\n"
+            "    return 0\n",
+            encoding="utf-8",
+        )
         cases = (
             (
                 "static_integrity",
@@ -8679,6 +9433,42 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "forbidden_actions", {}
                 ),
                 "deployment request static-integrity evidence mismatch",
+            ),
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document["formal_executor"].__setitem__(
+                    "self_contained", False
+                ),
+                "deployment request formal executor binding mismatch",
+            ),
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document["formal_executor"].__setitem__(
+                    "dynamic_template",
+                    {
+                        "path": "step7-5aef88e-authorized-execution.py",
+                        "sha256": "0" * 64,
+                    },
+                ),
+                "deployment request formal executor binding mismatch",
+            ),
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document["formal_executor"].__setitem__(
+                    "executor", self._reference(dynamic_executor)
+                ),
+                "deployment request formal executor binding mismatch",
+            ),
+            (
+                "static_integrity",
+                self.general_evidence,
+                lambda document: document["formal_executor"].__setitem__(
+                    "executor", self._reference(noop_executor)
+                ),
+                "deployment request formal executor binding mismatch",
             ),
         )
         originals = {

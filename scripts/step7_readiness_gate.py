@@ -44,6 +44,11 @@ APPROVED_PYTHON_PATH = (
     "/Users/moss/Desktop/sitina/bplus-test-runtime/"
     "cpython-3.12.13-lock-dbc3f95b77ed/bin/python"
 )
+STEP7_PYCACHE_PREFIX = "/var/empty/sitina-step7-pycache-disabled"
+GIT_EXECUTABLE_PATH = "/usr/bin/git"
+GIT_EXECUTABLE_SHA256 = (
+    "179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818"
+)
 STEP7_AUTHORITY_PATH = (
     "/Users/moss/.codex/attachments/"
     "198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt"
@@ -534,6 +539,113 @@ FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS = {
         ),
         "sha256": (
             "ff1f8787145bae6213b226c5282be6a018459b2a7eb3883bdfd23b3938d12fd0"
+        ),
+    },
+}
+CA61797_REVOCATION_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V7"
+)
+CA61797_REVOCATION_APPROVAL_ID = (
+    "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z"
+)
+CA61797_REVOCATION_RUN_ID = (
+    "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z_EXECUTION"
+)
+CA61797_REVOCATION_SOURCE = {
+    "head": "ca61797efa5cc4e67f1dda6d8df38bfd1def8bf6",
+    "tree": "8fe817a8565a7529fce9bff953233965e08d1f5e",
+}
+CA61797_REVOCATION_BACKUP_ROOT = (
+    "/Users/moss/Desktop/sitina/output/"
+    "sitina-step7-deploy-v4-"
+    "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z"
+)
+CA61797_REVOCATION_BODY_SHA256 = (
+    "006b2eaad0d6b779ccdfcffa6edcbf6b531aa696f1ee9e730643ef53da16c622"
+)
+CA61797_REVOCATION_ACTIVE_SESSION = (
+    "/Users/moss/.codex/sessions/2026/07/27/"
+    "rollout-2026-07-27T01-36-47-"
+    "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+)
+CA61797_REVOCATION_ACTIVE_PREFIX = {
+    "byte_length": 32068553,
+    "line_count": 17294,
+    "sha256": (
+        "11704b8c4684144c0f45299ab9b6b9c444f56b77ae2bf6e592f898f407c94268"
+    ),
+}
+CA61797_REVOCATION_ACTIVE_SESSION_META_SHA256 = (
+    "282de05d388318304e027f5b87f31e4e4862260e2be00dc73d2df1a10927d705"
+)
+CA61797_REVOCATION_ACTIVE_SESSION_ID = (
+    "019fa24a-5147-7001-9788-2af4521d1ea7"
+)
+CA61797_REVOCATION_SOURCE_SESSION = (
+    "/Users/moss/.codex/sessions/2026/07/20/"
+    "rollout-2026-07-20T14-42-51-"
+    "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+)
+CA61797_REVOCATION_SOURCE_RECORD = {
+    "line_number": 15135,
+    "record_id": "msg_019fa906-e093-7f22-8230-efac17e022f2",
+    "raw_record_sha256": (
+        "5786528381e9a98a08e5ea2908d4e7cae85773decfe8f7fd85328adbb5a02290"
+    ),
+    "actual_content_sha256": (
+        "27c703603e673fcff0281d0bc59e7f014e59d182f76ea269bbb8772e6f8d5c27"
+    ),
+    "actual_content_length": 667,
+    "canonical_logical_sha256": (
+        "e3a9bfc9e638d5af4f6f8f97eb77ef8f3f9146b975b3d704c36136de84df127a"
+    ),
+    "canonical_logical_length": 666,
+}
+CA61797_REVOCATION_WRAPPER_RECORD = {
+    "line_number": 17294,
+    "record_id": "msg_019fa909-ba70-7830-a280-a5e3c89b91d1",
+    "raw_record_sha256": (
+        "963092207e1c43bbd5f05a12ee8aff8b1d6539eae7f283efef8e1becfbf29f7a"
+    ),
+    "content_sha256": (
+        "0fc758e827a31a7622aa97fab0e431d4196f2075803d8e38f8a5d1860f5e1dfe"
+    ),
+}
+CA61797_REVOCATION_SUCCESSOR_FIXES = [
+    "HISTORICAL_REVOCATION_NO_LIVE_CURRENT_TARGET_RECHECK",
+    "PREAPPLY_LIVE_PREIMAGE_MODE_REMAINS_FAIL_CLOSED",
+    "POSTIMAGE_OFFICIAL_GATE_DIRECT_REGRESSION",
+    "SELF_CONTAINED_HASH_BOUND_SUCCESSOR_EXECUTOR",
+]
+CA61797_REVOCATION_FAILURE_IDS = [
+    (
+        "tests.foundation.test_step7_readiness_gate."
+        "Step7ReadinessGateTests."
+        "test_failed_preapply_revocation_v3_is_physically_bound"
+    ),
+    (
+        "tests.foundation.test_step7_readiness_gate."
+        "Step7ReadinessGateTests."
+        "test_interrupted_prebackup_revocation_v4_is_bound_and_fail_closed"
+    ),
+]
+CA61797_REVOCATION_UNBOUND_EXECUTOR = {
+    "launcher": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "step7-ca61797-authorized-execution.py"
+        ),
+        "sha256": (
+            "1dc9577b63c56e0ad7e10bdf95d828fdb4dd33131798c8fc5ef2a60d8892e056"
+        ),
+    },
+    "dynamic_template": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "step7-5aef88e-authorized-execution.py"
+        ),
+        "sha256": (
+            "19f7bc8041ba79ef70662c56756dc943116978ceaa0616664907738a8a6d66ef"
         ),
     },
 }
@@ -2311,6 +2423,23 @@ def _step7_v4_read_regular(path: Path) -> tuple[bytes, os.stat_result]:
             if not chunk:
                 break
             chunks.append(chunk)
+        after = os.fstat(descriptor)
+        if (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            raise ValueError(f"executor file drift while reading: {path}")
         return b"".join(chunks), metadata
     finally:
         os.close(descriptor)
@@ -3355,9 +3484,9 @@ def _step7_v4_require_authority(
     if (
         _git(source_root, "rev-parse", "HEAD^{commit}") != binding["source_head"]
         or _git(source_root, "rev-parse", "HEAD^{tree}") != binding["source_tree"]
-        or _git(source_root, "status", "--porcelain")
     ):
         raise ValueError("source HEAD/tree/clean binding mismatch")
+    _step7_physical_worktree_state(source_root, binding["source_head"])
     expected_payload = {
         "approval_id": packet.get("approval_id"),
         "approval_packet_sha256": binding["packet_sha256"],
@@ -3420,15 +3549,176 @@ def _step7_v4_production_sentinels() -> list[dict[str, Any]]:
     return sentinels
 
 
+def _step7_git_environment() -> dict[str, str]:
+    return {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "GIT_PAGER": "cat",
+        "PAGER": "cat",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+    }
+
+
+def _step7_git_command(*arguments: str) -> list[str]:
+    return [
+        GIT_EXECUTABLE_PATH,
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        *arguments,
+    ]
+
+
+def _step7_physical_worktree_state(
+    root: Path,
+    head: str,
+) -> dict[str, Any]:
+    """Compare physical worktree bytes to the committed tree without filters."""
+
+    completed = subprocess.run(
+        _step7_git_command(
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            head,
+        ),
+        cwd=root,
+        env=_step7_git_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError("cannot read the bound source tree")
+    entries: dict[str, tuple[str, str]] = {}
+    for raw_entry in completed.stdout.split(b"\0"):
+        if not raw_entry:
+            continue
+        try:
+            metadata, raw_path = raw_entry.split(b"\t", 1)
+            mode, object_type, object_id = metadata.decode("ascii").split()
+            relative = raw_path.decode("utf-8")
+        except (UnicodeError, ValueError):
+            raise ValueError("bound source tree entry is malformed") from None
+        relative_path = Path(relative)
+        if (
+            object_type != "blob"
+            or mode not in {"100644", "100755"}
+            or relative_path.is_absolute()
+            or ".." in relative_path.parts
+            or relative_path.as_posix() != relative
+            or relative in entries
+        ):
+            raise ValueError("bound source tree contains an unsafe entry")
+        entries[relative] = (mode, object_id)
+    if not entries:
+        raise ValueError("bound source tree is empty")
+
+    tracked_directories: set[str] = set()
+    for relative in entries:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            tracked_directories.add(parent.as_posix())
+            parent = parent.parent
+    for relative, (mode, object_id) in entries.items():
+        path = root / relative
+        try:
+            payload, metadata = _step7_v4_read_regular(path)
+        except (OSError, ValueError):
+            raise ValueError(
+                f"bound source file is not a nofollow regular file: {relative}"
+            ) from None
+        physical_mode = (
+            "100755" if stat.S_IMODE(metadata.st_mode) & 0o111 else "100644"
+        )
+        digest_factory = hashlib.sha1 if len(object_id) == 40 else hashlib.sha256
+        digest = digest_factory()
+        digest.update(f"blob {len(payload)}\0".encode("ascii"))
+        digest.update(payload)
+        if (
+            metadata.st_nlink != 1
+            or physical_mode != mode
+            or digest.hexdigest() != object_id
+        ):
+            raise ValueError(f"bound source physical drift: {relative}")
+
+    observed_files: set[str] = set()
+    for directory, directory_names, file_names in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        directory_path = Path(directory)
+        if directory_path == root:
+            directory_names[:] = [
+                name for name in directory_names if name != ".git"
+            ]
+        for name in list(directory_names):
+            path = directory_path / name
+            relative = path.relative_to(root).as_posix()
+            try:
+                metadata = path.lstat()
+            except OSError:
+                raise ValueError("source directory changed during inventory") from None
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(f"unsafe source directory: {relative}")
+            if (
+                relative not in tracked_directories
+                and name != "__pycache__"
+                and "__pycache__" not in path.relative_to(root).parts
+            ):
+                raise ValueError(f"untracked source directory: {relative}")
+        for name in file_names:
+            path = directory_path / name
+            relative_path = path.relative_to(root)
+            relative = relative_path.as_posix()
+            if relative in entries:
+                observed_files.add(relative)
+                continue
+            try:
+                metadata = path.lstat()
+            except OSError:
+                raise ValueError("source file changed during inventory") from None
+            if not (
+                stat.S_ISREG(metadata.st_mode)
+                and "__pycache__" in relative_path.parts
+                and path.suffix == ".pyc"
+            ):
+                raise ValueError(f"untracked source file: {relative}")
+    if observed_files != set(entries):
+        raise ValueError("bound source worktree inventory is incomplete")
+    return {
+        "tracked_file_count": len(entries),
+        "tree_entries_sha256": _json_value_sha256(
+            [
+                {
+                    "relative_path": relative,
+                    "mode": entries[relative][0],
+                    "object_id": entries[relative][1],
+                }
+                for relative in sorted(entries)
+            ]
+        ),
+    }
+
+
 def _step7_v4_git_state(root: Path) -> dict[str, Any]:
     root = root.resolve(strict=True)
-    environment = dict(os.environ)
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment = _step7_git_environment()
     commands = {
-        "head": ["git", "rev-parse", "HEAD^{commit}"],
-        "tree": ["git", "rev-parse", "HEAD^{tree}"],
-        "top_level": ["git", "rev-parse", "--show-toplevel"],
-        "status": ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        "head": _step7_git_command("rev-parse", "HEAD^{commit}"),
+        "tree": _step7_git_command("rev-parse", "HEAD^{tree}"),
+        "top_level": _step7_git_command(
+            "rev-parse",
+            "--show-toplevel",
+        ),
     }
     values: dict[str, str] = {}
     for label, command in commands.items():
@@ -3444,27 +3734,16 @@ def _step7_v4_git_state(root: Path) -> dict[str, Any]:
         if completed.returncode != 0:
             raise ValueError(f"official gate source git {label} failed")
         values[label] = completed.stdout.strip()
-    diff_check = subprocess.run(
-        ["git", "diff", "--check"],
-        cwd=root,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if (
-        Path(values["top_level"]).resolve(strict=True) != root
-        or values["status"]
-        or diff_check.returncode != 0
-    ):
+    if Path(values["top_level"]).resolve(strict=True) != root:
         raise ValueError("official gate source worktree is not clean")
+    physical = _step7_physical_worktree_state(root, values["head"])
     return {
         "root": str(root),
         "head": values["head"],
         "tree": values["tree"],
         "clean": True,
         "diff_check_clean": True,
+        "physical_worktree": physical,
     }
 
 
@@ -3669,6 +3948,7 @@ def _step7_v4_production_gate_contract(
         "environment": {
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
+            "PYTHONPYCACHEPREFIX": STEP7_PYCACHE_PREFIX,
             "SITINA_STEP7_OFFICIAL_GATE_CAPTURE": "1",
             "SITINA_STEP7_SOURCE_ROOT": str(source_root),
             "SITINA_STEP7_CAPTURE_READONLY_ROOTS_JSON": json.dumps(
@@ -7395,8 +7675,9 @@ def _verify_file_reference(
 
 def _git(source_root: Path, *arguments: str) -> str:
     return subprocess.check_output(
-        ["git", *arguments],
+        _step7_git_command(*arguments),
         cwd=source_root,
+        env=_step7_git_environment(),
         text=True,
         stderr=subprocess.DEVNULL,
     ).strip()
@@ -7404,8 +7685,9 @@ def _git(source_root: Path, *arguments: str) -> str:
 
 def _tracked_files(source_root: Path) -> list[str]:
     raw = subprocess.check_output(
-        ["git", "ls-files", "-z"],
+        _step7_git_command("ls-files", "-z"),
         cwd=source_root,
+        env=_step7_git_environment(),
         stderr=subprocess.DEVNULL,
     )
     return [item.decode("utf-8") for item in raw.split(b"\0") if item]
@@ -7424,17 +7706,22 @@ def _verify_source_state(
     try:
         head = _git(source_root, "rev-parse", "HEAD^{commit}")
         tree = _git(source_root, "rev-parse", "HEAD^{tree}")
-        status = _git(source_root, "status", "--porcelain=v1", "--untracked-files=all")
     except (OSError, subprocess.CalledProcessError):
         errors.append("source root is not a readable Git worktree")
         return {}
+    worktree_clean = True
+    try:
+        _step7_physical_worktree_state(source_root, head)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        worktree_clean = False
+        errors.append("source worktree is not clean")
     if source.get("root") != str(source_root):
         errors.append("candidate source root mismatch")
     if source.get("head") != head:
         errors.append("candidate source HEAD mismatch")
     if source.get("tree") != tree:
         errors.append("candidate source tree mismatch")
-    if source.get("worktree_clean") is not True or status:
+    if source.get("worktree_clean") is not True and worktree_clean:
         errors.append("source worktree is not clean")
     changed_files = source.get("changed_files")
     if not isinstance(changed_files, list) or not changed_files:
@@ -7457,8 +7744,16 @@ def _verify_source_state(
                 "--",
             ).splitlines()
             diff_check = subprocess.run(
-                ["git", "diff", "--check", f"{STEP7_BASE_COMMIT}..{head}", "--"],
+                _step7_git_command(
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--check",
+                    f"{STEP7_BASE_COMMIT}..{head}",
+                    "--",
+                ),
                 cwd=source_root,
+                env=_step7_git_environment(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -7473,7 +7768,7 @@ def _verify_source_state(
                 errors.append("candidate Step7 changed files do not match the committed diff")
             if diff_check.returncode != 0:
                 errors.append("committed Step7 diff fails git diff --check")
-    return {"head": head, "tree": tree, "worktree_clean": not bool(status)}
+    return {"head": head, "tree": tree, "worktree_clean": worktree_clean}
 
 
 def _verify_source_deployment(
@@ -9696,14 +9991,14 @@ def _failed_preapply_revocation_is_valid(
     try:
         if (
             subprocess.run(
-                [
-                    "git",
+                _step7_git_command(
                     "merge-base",
                     "--is-ancestor",
                     FAILED_PREAPPLY_REVOCATION_SUCCESSOR["head"],
                     str(source_state.get("head")),
-                ],
+                ),
                 cwd=source_root,
+                env=_step7_git_environment(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -10158,14 +10453,14 @@ def _interrupted_prebackup_revocation_is_valid(
     try:
         if (
             subprocess.run(
-                [
-                    "git",
+                _step7_git_command(
                     "merge-base",
                     "--is-ancestor",
                     INTERRUPTED_PREBACKUP_REVOCATION_SOURCE["head"],
                     str(source_state.get("head")),
-                ],
+                ),
                 cwd=source_root,
+                env=_step7_git_environment(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -10610,14 +10905,14 @@ def _rejected_topology_revocation_is_valid(
     try:
         if (
             subprocess.run(
-                [
-                    "git",
+                _step7_git_command(
                     "merge-base",
                     "--is-ancestor",
                     REJECTED_TOPOLOGY_REVOCATION_SOURCE["head"],
                     str(source_state.get("head")),
-                ],
+                ),
                 cwd=source_root,
+                env=_step7_git_environment(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -10807,14 +11102,14 @@ def _failed_official_gate_revocation_is_valid(
     try:
         if (
             subprocess.run(
-                [
-                    "git",
+                _step7_git_command(
                     "merge-base",
                     "--is-ancestor",
                     FAILED_OFFICIAL_GATE_REVOCATION_SOURCE["head"],
                     str(source_state.get("head")),
-                ],
+                ),
                 cwd=source_root,
+                env=_step7_git_environment(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -11218,6 +11513,1157 @@ def _failed_official_gate_revocation_is_valid(
     )
 
 
+def _ca61797_active_session_prefix_is_valid(
+    anchor: Any,
+    *,
+    anchor_root: Path,
+) -> tuple[bool, list[bytes]]:
+    """Verify only the immutable prefix through the CA61797 wrapper record."""
+
+    expected_anchor = {
+        "session_path": CA61797_REVOCATION_ACTIVE_SESSION,
+        "session_id": CA61797_REVOCATION_ACTIVE_SESSION_ID,
+        "session_meta_raw_sha256": (
+            CA61797_REVOCATION_ACTIVE_SESSION_META_SHA256
+        ),
+        "accepted_prefix": CA61797_REVOCATION_ACTIVE_PREFIX,
+        "tail_append_allowed": True,
+    }
+    if not isinstance(anchor, Mapping) or dict(anchor) != expected_anchor:
+        return False, []
+    path = Path(CA61797_REVOCATION_ACTIVE_SESSION)
+    descriptor = -1
+    try:
+        resolved_root = anchor_root.expanduser().resolve(strict=True)
+        resolved_path = path.expanduser().resolve(strict=True)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        metadata = os.fstat(descriptor)
+        if (
+            path != resolved_path
+            or not path.is_relative_to(resolved_root)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size
+            < CA61797_REVOCATION_ACTIVE_PREFIX["byte_length"]
+        ):
+            return False, []
+        remaining = CA61797_REVOCATION_ACTIVE_PREFIX["byte_length"]
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        prefix = b"".join(chunks)
+        raw_lines = prefix.splitlines(keepends=True)
+        meta = json.loads(raw_lines[0])
+        wrapper = json.loads(
+            raw_lines[
+                CA61797_REVOCATION_WRAPPER_RECORD["line_number"] - 1
+            ]
+        )
+    except (
+        IndexError,
+        OSError,
+        UnicodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return False, []
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    meta_payload = meta.get("payload") if isinstance(meta, Mapping) else None
+    wrapper_payload = (
+        wrapper.get("payload") if isinstance(wrapper, Mapping) else None
+    )
+    wrapper_content = (
+        wrapper_payload.get("content")
+        if isinstance(wrapper_payload, Mapping)
+        else None
+    )
+    wrapper_text = (
+        wrapper_content[0].get("text")
+        if isinstance(wrapper_content, list)
+        and len(wrapper_content) == 1
+        and isinstance(wrapper_content[0], Mapping)
+        else None
+    )
+    return bool(
+        len(prefix) == CA61797_REVOCATION_ACTIVE_PREFIX["byte_length"]
+        and hashlib.sha256(prefix).hexdigest()
+        == CA61797_REVOCATION_ACTIVE_PREFIX["sha256"]
+        and len(raw_lines)
+        == CA61797_REVOCATION_ACTIVE_PREFIX["line_count"]
+        and raw_lines[-1].endswith(b"\n")
+        and hashlib.sha256(raw_lines[0]).hexdigest()
+        == CA61797_REVOCATION_ACTIVE_SESSION_META_SHA256
+        and meta.get("type") == "session_meta"
+        and isinstance(meta_payload, Mapping)
+        and meta_payload.get("id") == CA61797_REVOCATION_ACTIVE_SESSION_ID
+        and meta_payload.get("session_id")
+        == CA61797_REVOCATION_ACTIVE_SESSION_ID
+        and meta_payload.get("originator") == "Codex Desktop"
+        and meta_payload.get("source") == "vscode"
+        and meta_payload.get("thread_source") == "subagent"
+        and meta_payload.get("model_provider") == "openai"
+        and hashlib.sha256(raw_lines[-1]).hexdigest()
+        == CA61797_REVOCATION_WRAPPER_RECORD["raw_record_sha256"]
+        and wrapper.get("type") == "response_item"
+        and isinstance(wrapper_payload, Mapping)
+        and wrapper_payload.get("type") == "message"
+        and wrapper_payload.get("role") == "user"
+        and wrapper_payload.get("id")
+        == CA61797_REVOCATION_WRAPPER_RECORD["record_id"]
+        and isinstance(wrapper_text, str)
+        and _sha256_text(wrapper_text)
+        == CA61797_REVOCATION_WRAPPER_RECORD["content_sha256"]
+    ), raw_lines
+
+
+def _failed_ca61797_revocation_v7_is_valid(
+    revocation: Mapping[str, Any],
+    *,
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    anchor_root: Path,
+) -> bool:
+    """Bind CA61797 to its immutable failure and complete recovery snapshot."""
+
+    fields = {
+        "schema",
+        "revoked_at_utc",
+        "source_thread_id",
+        "decision",
+        "historical_revocation_snapshot_mode",
+        "revoked_approval_id",
+        "revoked_run_id",
+        "revoked_source",
+        "revoked_artifacts",
+        "authorization_chain",
+        "active_session_prefix_anchor",
+        "executor_dependency_closure",
+        "execution_attempt",
+        "gate_failure",
+        "recovery",
+        "production_state",
+        "deployment_effects",
+        "reuse_policy",
+        "successor_requirement",
+        "step8_step9_not_entered",
+    }
+    body = dict(revocation) if isinstance(revocation, Mapping) else {}
+    successor = body.pop("successor_requirement", None)
+    if (
+        set(revocation) != fields
+        or _json_value_sha256(body) != CA61797_REVOCATION_BODY_SHA256
+        or revocation.get("schema") != CA61797_REVOCATION_SCHEMA
+        or not _valid_iso8601(revocation.get("revoked_at_utc"))
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision")
+        != "REVOKE_CONSUMED_AUTHORIZATION_AFTER_OFFICIAL_GATE_FAILURE"
+        or revocation.get("historical_revocation_snapshot_mode")
+        != "NO_LIVE_CURRENT_TARGET_RECHECK"
+        or revocation.get("revoked_approval_id")
+        != CA61797_REVOCATION_APPROVAL_ID
+        or revocation.get("revoked_run_id") != CA61797_REVOCATION_RUN_ID
+        or revocation.get("revoked_source")
+        != {
+            "root": str(source_root),
+            **CA61797_REVOCATION_SOURCE,
+        }
+        or successor
+        != {
+            "source_root": str(source_root),
+            "head": "e209dd66accf57ee9e6d8c06658db15bb662ce95",
+            "tree": "70bd06bdd4f27469b2904ff630c78f30ee0850cf",
+            "scope": (
+                "HISTORICAL_REVOCATION_LIFECYCLE_AND_"
+                "EXECUTOR_CLOSURE_V1"
+            ),
+            "required_fixes": CA61797_REVOCATION_SUCCESSOR_FIXES,
+        }
+        or revocation.get("step8_step9_not_entered") is not True
+    ):
+        return False
+    try:
+        if (
+            subprocess.run(
+                _step7_git_command(
+                    "merge-base",
+                    "--is-ancestor",
+                    CA61797_REVOCATION_SOURCE["head"],
+                    str(source_state.get("head")),
+                ),
+                cwd=source_root,
+                env=_step7_git_environment(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+            or subprocess.run(
+                _step7_git_command(
+                    "merge-base",
+                    "--is-ancestor",
+                    "e209dd66accf57ee9e6d8c06658db15bb662ce95",
+                    str(source_state.get("head")),
+                ),
+                cwd=source_root,
+                env=_step7_git_environment(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
+            return False
+    except OSError:
+        return False
+
+    prefix_valid, prefix_lines = _ca61797_active_session_prefix_is_valid(
+        revocation.get("active_session_prefix_anchor"),
+        anchor_root=anchor_root,
+    )
+    if not prefix_valid:
+        return False
+    authorization_chain = revocation.get("authorization_chain")
+    if (
+        not isinstance(authorization_chain, Mapping)
+        or authorization_chain.get("consumed") is not True
+        or authorization_chain.get("reusable") is not False
+        or authorization_chain.get("source_record")
+        != {
+            "session_path": CA61797_REVOCATION_SOURCE_SESSION,
+            "line_number": CA61797_REVOCATION_SOURCE_RECORD["line_number"],
+            "record_id": CA61797_REVOCATION_SOURCE_RECORD["record_id"],
+            "raw_record_sha256": CA61797_REVOCATION_SOURCE_RECORD[
+                "raw_record_sha256"
+            ],
+            "actual_content_sha256": CA61797_REVOCATION_SOURCE_RECORD[
+                "actual_content_sha256"
+            ],
+            "canonical_logical_sha256": CA61797_REVOCATION_SOURCE_RECORD[
+                "canonical_logical_sha256"
+            ],
+        }
+        or authorization_chain.get("wrapper_record")
+        != {
+            "session_path": CA61797_REVOCATION_ACTIVE_SESSION,
+            "line_number": CA61797_REVOCATION_WRAPPER_RECORD["line_number"],
+            "record_id": CA61797_REVOCATION_WRAPPER_RECORD["record_id"],
+            "raw_record_sha256": CA61797_REVOCATION_WRAPPER_RECORD[
+                "raw_record_sha256"
+            ],
+            "content_sha256": CA61797_REVOCATION_WRAPPER_RECORD[
+                "content_sha256"
+            ],
+        }
+    ):
+        return False
+    try:
+        source_session = Path(CA61797_REVOCATION_SOURCE_SESSION)
+        source_descriptor = os.open(
+            source_session,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        source_metadata = os.fstat(source_descriptor)
+        with os.fdopen(source_descriptor, "rb", closefd=True) as handle:
+            source_meta_raw = handle.readline()
+            source_raw = b""
+            for line_number, raw in enumerate(handle, start=2):
+                if (
+                    line_number
+                    == CA61797_REVOCATION_SOURCE_RECORD["line_number"]
+                ):
+                    source_raw = raw
+                    break
+        source_meta = json.loads(source_meta_raw)
+        source_record = json.loads(source_raw)
+    except (
+        IndexError,
+        OSError,
+        UnicodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return False
+    source_meta_payload = (
+        source_meta.get("payload")
+        if isinstance(source_meta, Mapping)
+        else None
+    )
+    source_payload = (
+        source_record.get("payload")
+        if isinstance(source_record, Mapping)
+        else None
+    )
+    source_content = (
+        source_payload.get("content")
+        if isinstance(source_payload, Mapping)
+        else None
+    )
+    source_text = (
+        source_content[0].get("text")
+        if isinstance(source_content, list)
+        and len(source_content) == 1
+        and isinstance(source_content[0], Mapping)
+        else None
+    )
+    canonical_source_text = (
+        _normalize_source_authorization_transport(source_text)
+        if isinstance(source_text, str)
+        else None
+    )
+    if (
+        stat.S_ISLNK(source_metadata.st_mode)
+        or not stat.S_ISREG(source_metadata.st_mode)
+        or not source_session.resolve(strict=True).is_relative_to(
+            anchor_root.resolve(strict=True)
+        )
+        or hashlib.sha256(source_meta_raw).hexdigest()
+        != STEP56_SOURCE_SESSION_META_RAW_SHA256
+        or source_meta.get("type") != "session_meta"
+        or not isinstance(source_meta_payload, Mapping)
+        or source_meta_payload.get("id") != STEP7_SOURCE_THREAD_ID
+        or source_meta_payload.get("session_id") != STEP7_SOURCE_THREAD_ID
+        or source_meta_payload.get("originator") != "codex_work_desktop"
+        or source_meta_payload.get("source") != "vscode"
+        or source_meta_payload.get("thread_source") != "user"
+        or hashlib.sha256(source_raw).hexdigest()
+        != CA61797_REVOCATION_SOURCE_RECORD["raw_record_sha256"]
+        or source_record.get("type") != "response_item"
+        or not isinstance(source_payload, Mapping)
+        or source_payload.get("type") != "message"
+        or source_payload.get("role") != "user"
+        or source_payload.get("id")
+        != CA61797_REVOCATION_SOURCE_RECORD["record_id"]
+        or not isinstance(source_text, str)
+        or hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+        != CA61797_REVOCATION_SOURCE_RECORD["actual_content_sha256"]
+        or len(source_text.encode("utf-8"))
+        != CA61797_REVOCATION_SOURCE_RECORD["actual_content_length"]
+        or not isinstance(canonical_source_text, str)
+        or hashlib.sha256(canonical_source_text.encode("utf-8")).hexdigest()
+        != CA61797_REVOCATION_SOURCE_RECORD[
+            "canonical_logical_sha256"
+        ]
+        or len(canonical_source_text.encode("utf-8"))
+        != CA61797_REVOCATION_SOURCE_RECORD["canonical_logical_length"]
+    ):
+        return False
+    wrapper_raw = prefix_lines[
+        CA61797_REVOCATION_WRAPPER_RECORD["line_number"] - 1
+    ]
+    if (
+        hashlib.sha256(wrapper_raw).hexdigest()
+        != authorization_chain["wrapper_record"]["raw_record_sha256"]
+    ):
+        return False
+
+    artifacts = revocation.get("revoked_artifacts")
+    executor_closure = revocation.get("executor_dependency_closure")
+    recovery = revocation.get("recovery")
+    recovery_artifacts = (
+        recovery.get("artifacts")
+        if isinstance(recovery, Mapping)
+        else None
+    )
+    if (
+        not isinstance(artifacts, Mapping)
+        or set(artifacts)
+        != {
+            "authorization_request",
+            "authorization_receipt",
+            "packet",
+            "review_candidate",
+            "evidence_bundle",
+            "operations",
+            "execution_specification",
+            "prior_exclusions",
+        }
+        or not isinstance(executor_closure, Mapping)
+        or executor_closure.get("launcher")
+        != CA61797_REVOCATION_UNBOUND_EXECUTOR["launcher"]
+        or executor_closure.get("dynamic_template")
+        != CA61797_REVOCATION_UNBOUND_EXECUTOR["dynamic_template"]
+        or executor_closure.get("fully_bound_before_execution") is not False
+        or executor_closure.get("counted_as_pass") is not False
+        or not isinstance(recovery_artifacts, Mapping)
+        or set(recovery_artifacts)
+        != {
+            "manifest",
+            "rehearsal_result",
+            "recovery_verification",
+            "failure_checkpoint",
+            "rollback_intent",
+            "recovery_result",
+            "official_activation_attempt",
+        }
+    ):
+        return False
+    errors: list[str] = []
+    loaded: dict[str, Any] = {}
+    loaded_paths: dict[str, Path | None] = {}
+    for name, reference in artifacts.items():
+        path, value = _verify_file_reference(
+            reference,
+            errors,
+            f"CA61797 revoked artifact {name}",
+            require_json_object=name
+            not in {"authorization_request", "operations"},
+        )
+        if path is not None and name == "operations":
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                errors.append("CA61797 operations artifact is invalid JSON")
+        loaded_paths[name] = path
+        loaded[name] = value
+    executor_paths: dict[str, Path | None] = {}
+    for name in ("launcher", "dynamic_template"):
+        executor_paths[name], _ = _verify_file_reference(
+            executor_closure.get(name),
+            errors,
+            f"CA61797 unbound executor {name}",
+            require_json_object=False,
+        )
+    recovered: dict[str, Any] = {}
+    for name, reference in recovery_artifacts.items():
+        _, recovered[name] = _verify_file_reference(
+            reference,
+            errors,
+            f"CA61797 recovery artifact {name}",
+        )
+    if errors:
+        return False
+
+    packet = loaded.get("packet")
+    candidate = loaded.get("review_candidate")
+    evidence = loaded.get("evidence_bundle")
+    receipt = loaded.get("authorization_receipt")
+    operations = loaded.get("operations")
+    specification = loaded.get("execution_specification")
+    exclusions = loaded.get("prior_exclusions")
+    packet_ref = artifacts["packet"]
+    candidate_ref = artifacts["review_candidate"]
+    expected_authorization_payload = {
+        "approval_id": CA61797_REVOCATION_APPROVAL_ID,
+        "approval_packet_sha256": packet_ref["sha256"],
+        "exact_file_operation_count": 6,
+        "exact_file_operations_sha256": (
+            packet.get("backup_and_rollback_plan", {}).get(
+                "exact_file_operations_sha256"
+            )
+            if isinstance(packet, Mapping)
+            else None
+        ),
+        "rollback_plan_sha256": (
+            packet.get("backup_and_rollback_plan_sha256")
+            if isinstance(packet, Mapping)
+            else None
+        ),
+        "review_candidate_sha256": candidate_ref["sha256"],
+        "source_head": CA61797_REVOCATION_SOURCE["head"],
+        "source_tree": CA61797_REVOCATION_SOURCE["tree"],
+        "deployment_root": str(deployment_root),
+    }
+    expected_authorization_text = (
+        DEPLOYMENT_AUTHORIZATION_MARKER
+        + " "
+        + json.dumps(
+            expected_authorization_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    try:
+        authorization_request_text = loaded_paths[
+            "authorization_request"
+        ].read_text(encoding="utf-8")
+        launcher_text = executor_paths["launcher"].read_text(
+            encoding="utf-8"
+        )
+        template_text = executor_paths["dynamic_template"].read_text(
+            encoding="utf-8"
+        )
+    except (AttributeError, OSError, UnicodeError):
+        return False
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or packet.get("approval_id") != CA61797_REVOCATION_APPROVAL_ID
+        or packet.get("source_binding") != CA61797_REVOCATION_SOURCE
+        or packet.get("deployment_binding")
+        != {"root": str(deployment_root)}
+        or not isinstance(candidate, Mapping)
+        or candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or candidate.get("approval_id") != CA61797_REVOCATION_APPROVAL_ID
+        or candidate.get("approval_packet") != packet_ref
+        or not isinstance(evidence, Mapping)
+        or evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or evidence.get("approval_id") != CA61797_REVOCATION_APPROVAL_ID
+        or evidence.get("approval_packet") != packet_ref
+        or not isinstance(operations, list)
+        or operations != packet.get("exact_file_operations")
+        or len(operations) != 6
+        or _json_value_sha256(operations)
+        != expected_authorization_payload["exact_file_operations_sha256"]
+        or authorization_request_text.splitlines().count(
+            expected_authorization_text
+        )
+        != 1
+        or canonical_source_text != expected_authorization_text
+        or not isinstance(exclusions, Mapping)
+        or exclusions.get("schema") != "SITINA_STEP7_EXCLUDED_ATTEMPTS_V2"
+        or exclusions.get("source") != CA61797_REVOCATION_SOURCE
+        or exclusions.get("all_counted_as_pass") is not False
+        or not isinstance(exclusions.get("attempts"), list)
+        or exclusions.get("attempt_count")
+        != len(exclusions.get("attempts", []))
+        or not exclusions.get("attempts")
+        or any(
+            not isinstance(item, Mapping)
+            or item.get("counted_as_pass") is not False
+            for item in exclusions.get("attempts", [])
+        )
+        or "step7-5aef88e-authorized-execution.py" not in launcher_text
+        or ".read_text(" not in launcher_text
+        or "exec(compile(" not in launcher_text
+        or not template_text.startswith("#!/usr/bin/env python3")
+        or not isinstance(receipt, Mapping)
+        or not isinstance(specification, Mapping)
+        or specification.get("run_id") != CA61797_REVOCATION_RUN_ID
+        or specification.get("packet") != packet_ref
+        or specification.get("candidate") != candidate_ref
+        or specification.get("source_head")
+        != CA61797_REVOCATION_SOURCE["head"]
+        or specification.get("source_tree")
+        != CA61797_REVOCATION_SOURCE["tree"]
+        or specification.get("backup_root")
+        != CA61797_REVOCATION_BACKUP_ROOT
+        or specification.get("packet_sha256") != packet_ref["sha256"]
+        or specification.get("candidate_sha256")
+        != candidate_ref["sha256"]
+        or specification.get("operations_sha256")
+        != _json_value_sha256(operations)
+        or specification.get("plan_sha256")
+        != packet.get("backup_and_rollback_plan_sha256")
+        or specification.get("authorization_receipt_sha256")
+        != _json_value_sha256(receipt)
+        or specification.get("authorization_source_sha256")
+        != CA61797_REVOCATION_SOURCE_RECORD["raw_record_sha256"]
+        or specification.get("authorization_wrapper_sha256")
+        != CA61797_REVOCATION_WRAPPER_RECORD["raw_record_sha256"]
+    ):
+        return False
+    authorization_errors: list[str] = []
+    _verify_user_authorization(
+        receipt,
+        expected_payload=expected_authorization_payload,
+        anchor_root=anchor_root,
+        errors=authorization_errors,
+    )
+    if authorization_errors:
+        return False
+
+    manifest = recovered.get("manifest")
+    failure = recovered.get("failure_checkpoint")
+    rollback_intent = recovered.get("rollback_intent")
+    recovery_result = recovered.get("recovery_result")
+    rehearsal_result = recovered.get("rehearsal_result")
+    recovery_verification = recovered.get("recovery_verification")
+    activation = recovered.get("official_activation_attempt")
+    capture = (
+        activation.get("capture")
+        if isinstance(activation, Mapping)
+        else None
+    )
+    strict = (
+        activation.get("strict_summary")
+        if isinstance(activation, Mapping)
+        else None
+    )
+    failure_details = (
+        strict.get("failure_details")
+        if isinstance(strict, Mapping)
+        else None
+    )
+    gate_failure = revocation.get("gate_failure")
+    execution_attempt = revocation.get("execution_attempt")
+    recovery_summary = revocation.get("recovery")
+    production_state = revocation.get("production_state")
+    deployment_effects = revocation.get("deployment_effects")
+    reuse_policy = revocation.get("reuse_policy")
+    activation_reference = recovery_artifacts.get(
+        "official_activation_attempt"
+    )
+    try:
+        expected_binding = _step7_v4_binding(specification)
+    except (KeyError, TypeError, ValueError):
+        return False
+    if (
+        not isinstance(manifest, Mapping)
+        or manifest.get("schema") != "SITINA_STEP7_EXECUTION_MANIFEST_V1"
+        or manifest.get("run_id") != CA61797_REVOCATION_RUN_ID
+        or manifest.get("status") != "VERIFIED_BEFORE_APPLY"
+        or manifest.get("binding") != expected_binding
+        or _step7_v4_core_operations(manifest.get("operations", []))
+        != operations
+        or execution_attempt
+        != {
+            "applied_indices": list(range(6)),
+            "backup_root": CA61797_REVOCATION_BACKUP_ROOT,
+            "committed_indices": list(range(6)),
+            "counted_as_pass": False,
+            "failure_error": (
+                "official activation gate did not return one PASS summary"
+            ),
+            "failure_phase": "DEPLOYED_OFFICIAL_ACTIVATION_GATE",
+            "registration_run": False,
+            "terminal_status": "RECOVERED_AFTER_FAILURE",
+        }
+        or not isinstance(failure, Mapping)
+        or failure.get("run_id") != CA61797_REVOCATION_RUN_ID
+        or failure.get("error")
+        != "official activation gate did not return one PASS summary"
+        or failure.get("error_type") != "ValueError"
+        or failure.get("official_gate_attempt_references")
+        != [activation_reference]
+        or failure.get("official_gate_attempt_reference_set_sha256")
+        != _json_value_sha256([activation_reference])
+        or not isinstance(rollback_intent, Mapping)
+        or rollback_intent.get("schema") != "SITINA_STEP7_ROLLBACK_INTENT_V1"
+        or rollback_intent.get("run_id") != CA61797_REVOCATION_RUN_ID
+        or rollback_intent.get("applied_indices") != list(range(6))
+        or rollback_intent.get("commit_indices") != list(range(6))
+        or rollback_intent.get("intent_indices") != list(range(6))
+        or rollback_intent.get("recovery_order") != list(reversed(range(6)))
+        or rollback_intent.get("official_gate_attempt_references")
+        != [activation_reference]
+        or rollback_intent.get("official_gate_attempt_reference_set_sha256")
+        != _json_value_sha256([activation_reference])
+        or any(
+            rollback_intent.get(field) != 0
+            for field in (
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            )
+        )
+        or not isinstance(rehearsal_result, Mapping)
+        or rehearsal_result.get("schema")
+        != "SITINA_STEP7_ROLLBACK_REHEARSAL_RESULT_V4"
+        or rehearsal_result.get("binding") != expected_binding
+        or rehearsal_result.get("manifest") != recovery_artifacts["manifest"]
+        or rehearsal_result.get("recovery_verification")
+        != recovery_artifacts["recovery_verification"]
+        or any(
+            rehearsal_result.get(field) != 0
+            for field in (
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            )
+        )
+        or not isinstance(recovery_verification, Mapping)
+        or recovery_verification.get("schema")
+        != "SITINA_STEP7_RECOVERY_VERIFICATION_V1"
+        or recovery_verification.get("run_id")
+        != CA61797_REVOCATION_RUN_ID
+        or recovery_verification.get("status")
+        != "DISPOSABLE_RESTORE_REAPPLY_VERIFIED_BEFORE_APPLY"
+        or recovery_verification.get("binding") != expected_binding
+        or recovery_verification.get("manifest")
+        != recovery_artifacts["manifest"]
+        or recovery_verification.get("operation_count") != 6
+        or recovery_verification.get("operations_sha256")
+        != _json_value_sha256(operations)
+        or recovery_verification.get("live_deployment_mutation_count") != 0
+        or any(
+            recovery_verification.get(field) != 0
+            for field in (
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            )
+        )
+        or not isinstance(recovery_result, Mapping)
+        or recovery_result.get("schema") != "SITINA_STEP7_RECOVERY_RESULT_V1"
+        or recovery_result.get("run_id") != CA61797_REVOCATION_RUN_ID
+        or recovery_result.get("status") != "RECOVERED_AFTER_FAILURE"
+        or recovery_result.get("binding") != expected_binding
+        or recovery_result.get("applied_indices") != list(range(6))
+        or recovery_result.get("reverse_recovery_indices")
+        != list(reversed(range(6)))
+        or recovery_result.get("delete_operation_count") != 0
+        or recovery_result.get("unlink_operation_count") != 0
+        or recovery_result.get("rmtree_operation_count") != 0
+        or not isinstance(recovery_summary, Mapping)
+        or any(
+            recovery_summary.get(field) != recovery_result.get(field)
+            for field in (
+                "status",
+                "applied_indices",
+                "reverse_recovery_indices",
+                "checkpoint_references_sha256",
+                "checkpoint_reference_set_sha256",
+                "checkpoint_closure_sha256",
+                "recovered_checkpoints_sha256",
+                "deployment_inventory_after_sha256",
+                "delete_operation_count",
+                "unlink_operation_count",
+                "rmtree_operation_count",
+            )
+        )
+        or recovery_summary.get("deployment_inventory_before_sha256")
+        != recovery_verification.get(
+            "deployment_inventory_before_sha256"
+        )
+        or recovery_summary.get("artifacts") != recovery_artifacts
+        or not isinstance(activation, Mapping)
+        or activation.get("schema") != "SITINA_STEP7_OFFICIAL_GATE_ATTEMPT_V2"
+        or activation.get("return_code") != 1
+        or activation.get("capture_count") != 1
+        or activation.get("strict_summary_count") != 1
+        or activation.get("capture_marker_line_count") != 1
+        or activation.get("strict_marker_line_count") != 1
+        or not isinstance(strict, Mapping)
+        or not isinstance(capture, Mapping)
+        or capture.get("stage") != "execution_activation"
+        or capture.get("return_code") != 1
+        or capture.get("timed_out") is not False
+        or capture.get("capture_only") is not True
+        or capture.get("production_attempt_count") != 0
+        or capture.get("external_attempt_count") != 0
+        or capture.get("readonly_attempt_count") != 0
+        or capture.get("production_sentinel_unchanged") is not True
+        or not isinstance(gate_failure, Mapping)
+        or gate_failure.get("artifact") != activation_reference
+        or gate_failure.get("collected") != 199
+        or gate_failure.get("executed") != 199
+        or gate_failure.get("passed") != 197
+        or gate_failure.get("failed") != 2
+        or any(
+            gate_failure.get(field) != 0
+            for field in ("errors", "skipped", "xfail", "xpass")
+        )
+        or gate_failure.get("failure_ids")
+        != CA61797_REVOCATION_FAILURE_IDS
+        or gate_failure.get("counted_as_pass") is not False
+        or strict.get("collected_test_count")
+        != gate_failure.get("collected")
+        or strict.get("executed_test_count")
+        != gate_failure.get("executed")
+        or strict.get("passed") != gate_failure.get("passed")
+        or strict.get("failures") != gate_failure.get("failed")
+        or strict.get("errors") != gate_failure.get("errors")
+        or strict.get("skipped") != gate_failure.get("skipped")
+        or strict.get("expected_failures") != gate_failure.get("xfail")
+        or strict.get("unexpected_successes") != gate_failure.get("xpass")
+        or not isinstance(failure_details, list)
+        or _json_value_sha256(failure_details)
+        != gate_failure.get("failure_details_sha256")
+        or not isinstance(production_state, Mapping)
+        or production_state.get("deployment_root") != str(deployment_root)
+        or production_state.get("deployment_inventory_sha256")
+        != recovery_result.get("deployment_inventory_after_sha256")
+        or production_state.get("sentinels")
+        != recovery_result.get("sentinels")
+        or production_state.get("source_switches")
+        != {field: False for field in SWITCHES}
+        or production_state.get("deployment_switches")
+        != {field: False for field in SWITCHES}
+        or deployment_effects
+        != {
+            "backup_root_created": True,
+            "backup_root_retained": True,
+            "baseline_change_count": 0,
+            "canary_run_count": 0,
+            "execution_switch_change_count": 0,
+            "external_change_count": 0,
+            "permanent_delete_count": 0,
+            "production_data_change_count": 0,
+            "step8_step9_entered": False,
+            "terminal_deployment_change_count": 0,
+            "transient_applied_operation_count": 6,
+        }
+        or not isinstance(reuse_policy, Mapping)
+        or len(reuse_policy) != 20
+        or any(value is not False for value in reuse_policy.values())
+    ):
+        return False
+    try:
+        checkpoint_references = _step7_v4_checkpoint_reference_closure(
+            Path(CA61797_REVOCATION_BACKUP_ROOT),
+            expected_binding,
+            operations,
+        )
+        checkpoint_closure = _step7_v4_checkpoint_directory_closure(
+            Path(CA61797_REVOCATION_BACKUP_ROOT),
+            manifest["checkpoint_contract"],
+        )
+        backup_metadata = Path(CA61797_REVOCATION_BACKUP_ROOT).lstat()
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return bool(
+        not stat.S_ISLNK(backup_metadata.st_mode)
+        and stat.S_ISDIR(backup_metadata.st_mode)
+        and stat.S_IMODE(backup_metadata.st_mode) == 0o700
+        and recovery_result.get("checkpoint_references_sha256")
+        == checkpoint_references["checkpoint_references_sha256"]
+        and recovery_result.get("checkpoint_reference_set_sha256")
+        == checkpoint_references["checkpoint_reference_set_sha256"]
+        and recovery_result.get("checkpoint_closure_sha256")
+        == checkpoint_closure["checkpoint_closure_sha256"]
+        and recovery_result.get("recovered_checkpoints_sha256")
+        == _json_value_sha256(recovery_result.get("recovered_checkpoints"))
+    )
+
+
+def _step7_formal_executor_source(binding: Mapping[str, Any]) -> str:
+    """Render the only accepted production executor source for one binding."""
+
+    encoded = json.dumps(
+        dict(binding),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    approved_python = str(binding["approved_python"])
+    return f'''#!{approved_python} -I
+from __future__ import annotations
+
+import sys
+
+if (
+    sys.flags.isolated != 1
+    or sys.executable != {approved_python!r}
+    or not sys.dont_write_bytecode
+    or sys.pycache_prefix != {STEP7_PYCACHE_PREFIX!r}
+):
+    raise RuntimeError("formal executor requires the bound isolated Python")
+
+import hashlib
+import json
+import os
+import stat
+import subprocess
+import types
+from pathlib import Path
+
+
+BINDING = json.loads({encoded!r})
+
+
+def read_regular(path: Path) -> tuple[bytes, str]:
+    if not path.is_absolute() or ".." in path.parts:
+        raise RuntimeError(f"unsafe formal-executor path: {{path}}")
+    directory_descriptor = os.open(
+        "/",
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    descriptor = -1
+    try:
+        for component in path.parts[1:-1]:
+            next_descriptor = os.open(
+                component,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=directory_descriptor,
+            )
+            os.close(directory_descriptor)
+            directory_descriptor = next_descriptor
+        descriptor = os.open(
+            path.name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_descriptor,
+        )
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise RuntimeError(f"not a regular file: {{path}}")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_mode,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            raise RuntimeError(f"file drift while reading: {{path}}")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_descriptor)
+    payload = b"".join(chunks)
+    return payload, hashlib.sha256(payload).hexdigest()
+
+
+def read_json(path: Path) -> tuple[object, bytes, str]:
+    payload, digest = read_regular(path)
+    return json.loads(payload.decode("utf-8")), payload, digest
+
+
+def value_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)
+
+
+def main() -> int:
+    require(len(sys.argv) == 1, "formal executor accepts no arguments")
+    self_path = Path(__file__).resolve(strict=True)
+    require(
+        sys.argv[0] == str(self_path)
+        and stat.S_ISREG(Path(sys.argv[0]).lstat().st_mode),
+        "formal executor must use its exact non-symlink launch path",
+    )
+    _, self_sha256 = read_regular(self_path)
+    self_reference = {{"path": str(self_path), "sha256": self_sha256}}
+    packet_path = Path(BINDING["packet"]["path"])
+    candidate_path = Path(BINDING["candidate_path"])
+    receipt_path = Path(BINDING["authorization_receipt_path"])
+    specification_path = Path(BINDING["execution_specification_path"])
+    evidence_path = Path(BINDING["evidence_path"])
+    static_integrity_path = Path(BINDING["static_integrity_path"])
+    operations_path = Path(BINDING["operations_path"])
+    gate_path = Path(BINDING["gate_path"])
+    git_path = Path(BINDING["git"]["path"])
+    _, git_sha256 = read_regular(git_path)
+    require(
+        git_sha256 == BINDING["git"]["sha256"],
+        "bound git executable drift",
+    )
+    git_environment = {{
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "GIT_PAGER": "cat",
+        "PAGER": "cat",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }}
+    def git_command(*arguments: str) -> list[str]:
+        return [
+            str(git_path),
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            *arguments,
+        ]
+    packet, _, packet_sha256 = read_json(packet_path)
+    require(
+        packet_sha256 == BINDING["packet"]["sha256"],
+        "approval packet drift",
+    )
+    require(
+        packet.get("approval_id") == BINDING["approval_id"]
+        and packet.get("source_binding")
+        == {{
+            "head": BINDING["source_head"],
+            "tree": BINDING["source_tree"],
+        }}
+        and packet.get("deployment_binding")
+        == {{"root": BINDING["deployment_root"]}}
+        and packet.get("backup_and_rollback_plan_sha256")
+        == BINDING["plan_sha256"],
+        "approval packet authority drift",
+    )
+    candidate, candidate_bytes, candidate_sha256 = read_json(candidate_path)
+    evidence_reference = candidate.get("evidence_bundle", {{}})
+    require(
+        candidate.get("approval_id") == BINDING["approval_id"]
+        and candidate.get("approval_packet") == BINDING["packet"]
+        and evidence_reference.get("path") == str(evidence_path)
+        ,
+        "deployment request candidate authority drift",
+    )
+    evidence, _, evidence_sha256 = read_json(evidence_path)
+    require(
+        evidence_sha256 == evidence_reference.get("sha256"),
+        "deployment request evidence drift",
+    )
+    static_reference = evidence.get("evidence", {{}}).get(
+        "static_integrity",
+        {{}},
+    )
+    require(
+        evidence.get("approval_id") == BINDING["approval_id"]
+        and evidence.get("approval_packet") == BINDING["packet"]
+        and static_reference.get("path") == str(static_integrity_path)
+        ,
+        "deployment request evidence authority drift",
+    )
+    static_integrity, _, static_integrity_sha256 = read_json(
+        static_integrity_path
+    )
+    require(
+        static_integrity_sha256 == static_reference.get("sha256"),
+        "static integrity drift",
+    )
+    require(
+        static_integrity.get("source", {{}}).get("head")
+        == BINDING["source_head"]
+        and static_integrity.get("source", {{}}).get("tree")
+        == BINDING["source_tree"]
+        and static_integrity.get("source", {{}}).get("root")
+        == BINDING["source_root"],
+        "static integrity authority drift",
+    )
+    require(
+        static_integrity.get("formal_executor")
+        == {{
+            "schema": "SITINA_STEP7_FORMAL_EXECUTOR_BINDING_V1",
+            "executor": self_reference,
+            "launch_command": [
+                BINDING["approved_python"],
+                "-I",
+                "-B",
+                "-X",
+                "pycache_prefix=" + {STEP7_PYCACHE_PREFIX!r},
+                str(self_path),
+            ],
+            "binding": BINDING,
+            "self_contained": True,
+            "fully_bound_before_authorization": True,
+            "dynamic_template": None,
+            "source_dependencies": BINDING["source_dependencies"],
+            "forbidden_runtime_parameters": [
+                "FAILURE_INJECTION",
+                "CALLER_GATE_CALLBACK",
+                "TEST_CAPABILITY",
+                "VARIABLE_SOURCE_ROOT",
+                "VARIABLE_DEPLOYMENT_ROOT",
+                "VARIABLE_BACKUP_ROOT",
+            ],
+        }},
+        "formal executor static-integrity closure drift",
+    )
+    operations, _, _ = read_json(operations_path)
+    require(
+        value_sha256(operations) == BINDING["operations_sha256"]
+        and value_sha256(packet.get("exact_file_operations"))
+        == BINDING["operations_sha256"],
+        "exact file operations drift",
+    )
+    source_dependency_bytes: dict[str, bytes] = {{}}
+    for reference in BINDING["source_dependencies"]:
+        dependency_bytes, dependency_sha256 = read_regular(
+            Path(reference["path"])
+        )
+        require(
+            dependency_sha256 == reference["sha256"],
+            "source dependency drift",
+        )
+        source_dependency_bytes[reference["path"]] = dependency_bytes
+    require(
+        subprocess.check_output(
+            git_command("rev-parse", "HEAD^{{commit}}"),
+            cwd=BINDING["source_root"],
+            env=git_environment,
+            text=True,
+        ).strip() == BINDING["source_head"],
+        "source HEAD drift",
+    )
+    require(
+        subprocess.check_output(
+            git_command("rev-parse", "HEAD^{{tree}}"),
+            cwd=BINDING["source_root"],
+            env=git_environment,
+            text=True,
+        ).strip() == BINDING["source_tree"],
+        "source tree drift",
+    )
+    specification, _, _ = read_json(specification_path)
+    require(
+        specification.get("formal_executor") == self_reference,
+        "formal executor specification binding mismatch",
+    )
+    require(
+        specification.get("run_id") == BINDING["run_id"]
+        and specification.get("source_head") == BINDING["source_head"]
+        and specification.get("source_tree") == BINDING["source_tree"]
+        and specification.get("source_root") == BINDING["source_root"]
+        and specification.get("deployment_root") == BINDING["deployment_root"]
+        and specification.get("backup_root") == BINDING["backup_root"]
+        and specification.get("packet") == BINDING["packet"]
+        and specification.get("candidate", {{}}).get("path")
+        == str(candidate_path)
+        and specification.get("authorization_receipt", {{}}).get("path")
+        == str(receipt_path)
+        and specification.get("operations_sha256")
+        == BINDING["operations_sha256"]
+        and specification.get("plan_sha256") == BINDING["plan_sha256"],
+        "formal execution specification authority drift",
+    )
+    require(
+        candidate_sha256 == specification["candidate"]["sha256"],
+        "review candidate drift",
+    )
+    receipt, _, receipt_sha256 = read_json(receipt_path)
+    require(
+        receipt_sha256 == specification["authorization_receipt"]["sha256"]
+        and receipt.get("schema") == "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3",
+        "authorization receipt drift",
+    )
+    gate_source = source_dependency_bytes.get(str(gate_path))
+    require(gate_source is not None, "bound Step7 gate bytes are missing")
+    os.environ.clear()
+    os.environ.update(
+        {{
+            **git_environment,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONPYCACHEPREFIX": {STEP7_PYCACHE_PREFIX!r},
+        }}
+    )
+    gate = types.ModuleType("sitina_step7_authorized_gate")
+    gate.__file__ = str(gate_path)
+    exec(compile(gate_source, str(gate_path), "exec"), gate.__dict__)
+    gate._step7_physical_worktree_state(
+        Path(BINDING["source_root"]),
+        BINDING["source_head"],
+    )
+    result = gate.execute_step7_v4(specification, dry_run=False)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result.get("status") == "EXECUTED" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -11496,6 +12942,11 @@ def _verify_rollback_and_bound_evidence(
         if isinstance(static_integrity, Mapping)
         else None
     )
+    static_formal_executor = (
+        static_integrity.get("formal_executor")
+        if isinstance(static_integrity, Mapping)
+        else None
+    )
     static_gate_identities = [
         {"path": item.get("path"), "sha256": item.get("sha256")}
         for item in static_gates
@@ -11509,6 +12960,155 @@ def _verify_rollback_and_bound_evidence(
         "step8_entered": False,
         "step9_entered": False,
     }
+    executor_errors: list[str] = []
+    executor_path: Path | None = None
+    if isinstance(static_formal_executor, Mapping):
+        executor_path, _ = _verify_file_reference(
+            static_formal_executor.get("executor"),
+            executor_errors,
+            "deployment request formal executor",
+            require_json_object=False,
+        )
+    expected_executor_parent = source_root.parent / "output"
+    expected_executor_dependencies = changed_source_references
+    source_short = str(source_state.get("head", ""))[:7]
+    expected_executor_path = (
+        expected_executor_parent
+        / f"step7-{source_short}-authorized-execution.py"
+    )
+    expected_executor_binding = {
+        "schema": "SITINA_STEP7_FORMAL_EXECUTOR_RUNTIME_BINDING_V1",
+        "approved_python": APPROVED_PYTHON_PATH,
+        "pycache_prefix": STEP7_PYCACHE_PREFIX,
+        "git": {
+            "path": GIT_EXECUTABLE_PATH,
+            "sha256": GIT_EXECUTABLE_SHA256,
+        },
+        "approval_id": packet.get("approval_id")
+        if isinstance(packet, Mapping)
+        else None,
+        "run_id": (
+            f"{packet.get('approval_id')}_EXECUTION"
+            if isinstance(packet, Mapping)
+            else None
+        ),
+        "source_root": str(source_root),
+        "source_head": source_state.get("head"),
+        "source_tree": source_state.get("tree"),
+        "deployment_root": str(deployment_root),
+        "allowed_backup_parent": str(expected_executor_parent),
+        "backup_root": plan_verification.get("backup_root"),
+        "packet": (
+            {"path": str(packet_path), "sha256": _sha256(packet_path)}
+            if packet_path is not None
+            else None
+        ),
+        "candidate_path": (
+            str(request_candidate_path)
+            if request_candidate_path is not None
+            else None
+        ),
+        "evidence_path": (
+            str(request_evidence_path)
+            if request_evidence_path is not None
+            else None
+        ),
+        "static_integrity_path": (
+            supporting_evidence.get("static_integrity", {}).get("path")
+            if isinstance(supporting_evidence, Mapping)
+            and isinstance(
+                supporting_evidence.get("static_integrity"), Mapping
+            )
+            else None
+        ),
+        "operations_path": str(
+            expected_executor_parent
+            / f"sitina-step7-deployment-operations-{source_short}.json"
+        ),
+        "operations_sha256": operations_sha256,
+        "plan_sha256": plan_sha256,
+        "authorization_receipt_path": str(
+            expected_executor_parent
+            / f"sitina-step7-authorization-receipt-{source_short}.json"
+        ),
+        "execution_specification_path": str(
+            expected_executor_parent
+            / f"sitina-step7-authorized-execution-spec-{source_short}.json"
+        ),
+        "gate_path": str(
+            source_root
+            / (
+                "scripts/step7_readiness_gate.py"
+                if (
+                    source_root / "scripts/step7_readiness_gate.py"
+                ).is_file()
+                else str(changed_files[0])
+            )
+        ),
+        "source_dependencies": expected_executor_dependencies,
+    }
+    _verify_file_reference(
+        expected_executor_binding["git"],
+        executor_errors,
+        "formal executor bound git",
+        require_json_object=False,
+    )
+    executor_text = ""
+    if executor_path is not None:
+        try:
+            executor_text = executor_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            executor_errors.append("formal executor cannot be read as UTF-8")
+    if (
+        not isinstance(static_formal_executor, Mapping)
+        or set(static_formal_executor)
+        != {
+            "schema",
+            "executor",
+            "launch_command",
+            "binding",
+            "self_contained",
+            "fully_bound_before_authorization",
+            "dynamic_template",
+            "source_dependencies",
+            "forbidden_runtime_parameters",
+        }
+        or static_formal_executor.get("schema")
+        != "SITINA_STEP7_FORMAL_EXECUTOR_BINDING_V1"
+        or static_formal_executor.get("launch_command")
+        != [
+            APPROVED_PYTHON_PATH,
+            "-I",
+            "-B",
+            "-X",
+            f"pycache_prefix={STEP7_PYCACHE_PREFIX}",
+            str(expected_executor_path),
+        ]
+        or static_formal_executor.get("binding")
+        != expected_executor_binding
+        or static_formal_executor.get("self_contained") is not True
+        or static_formal_executor.get("fully_bound_before_authorization")
+        is not True
+        or static_formal_executor.get("dynamic_template") is not None
+        or static_formal_executor.get("source_dependencies")
+        != expected_executor_dependencies
+        or static_formal_executor.get("forbidden_runtime_parameters")
+        != [
+            "FAILURE_INJECTION",
+            "CALLER_GATE_CALLBACK",
+            "TEST_CAPABILITY",
+            "VARIABLE_SOURCE_ROOT",
+            "VARIABLE_DEPLOYMENT_ROOT",
+            "VARIABLE_BACKUP_ROOT",
+        ]
+        or executor_path is None
+        or executor_path != expected_executor_path
+        or executor_path.suffix != ".py"
+        or executor_text
+        != _step7_formal_executor_source(expected_executor_binding)
+        or executor_errors
+    ):
+        errors.append("deployment request formal executor binding mismatch")
     if not isinstance(static_integrity, Mapping) or (
         static_integrity.get("schema")
         != "SITINA_STEP7_SOURCE_BOUNDARY_STATIC_INTEGRITY_V2"
@@ -11590,6 +13190,13 @@ def _verify_rollback_and_bound_evidence(
             anchor_root=anchor_root,
         )
         or _failed_official_gate_revocation_is_valid(
+            revocation,
+            source_root=source_root,
+            deployment_root=deployment_root,
+            source_state=source_state,
+            anchor_root=anchor_root,
+        )
+        or _failed_ca61797_revocation_v7_is_valid(
             revocation,
             source_root=source_root,
             deployment_root=deployment_root,
@@ -12354,6 +13961,11 @@ def _verify_rollback_and_bound_evidence(
         if isinstance(request_candidate, Mapping):
             required_references.append(request_candidate.get("evidence_bundle"))
         required_references.extend(evidence_references)
+        if isinstance(static_formal_executor, Mapping):
+            required_references.append(static_formal_executor.get("executor"))
+            required_references.extend(
+                static_formal_executor.get("source_dependencies") or []
+            )
         required_identities = {
             (reference.get("path"), reference.get("sha256"))
             for reference in required_references
@@ -12483,6 +14095,23 @@ def validate_step7_candidate(
     )
     if isinstance(supporting_evidence, Mapping):
         full_review_references.extend(supporting_evidence.values())
+        _, review_static = _verify_file_reference(
+            supporting_evidence.get("static_integrity"),
+            errors,
+            "Step7 full review formal-executor static evidence",
+        )
+        review_formal_executor = (
+            review_static.get("formal_executor")
+            if isinstance(review_static, Mapping)
+            else None
+        )
+        if isinstance(review_formal_executor, Mapping):
+            full_review_references.append(
+                review_formal_executor.get("executor")
+            )
+            full_review_references.extend(
+                review_formal_executor.get("source_dependencies") or []
+            )
     source_value = candidate.get("source")
     if isinstance(source_value, Mapping):
         for relative in source_value.get("changed_files", []):
