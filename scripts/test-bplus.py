@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +33,7 @@ INITIAL_SENTINEL = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-producti
 MUTABLE_SENTINEL = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-production-mutable-sentinel-phase-minus1-baseline.json")
 CONTROL_ROOT = Path("/Users/moss/Desktop/sitina/output")
 GOAL_THREAD_ID = "019f5c6b-3083-7860-b45b-c8b487c4e3ab"
+CAPTURE_MARKER = "SITINA_BPLUS_CAPTURE_JSON:"
 
 
 NETWORK_GUARD = r'''
@@ -45,7 +46,12 @@ import traceback
 
 _attempt_log = os.environ.get("SITINA_EXTERNAL_ATTEMPT_LOG")
 _production_attempt_log = os.environ.get("SITINA_PRODUCTION_ATTEMPT_LOG")
+_readonly_attempt_log = os.environ.get("SITINA_READONLY_ATTEMPT_LOG")
 _production_home = os.path.realpath(os.environ["SITINA_PRODUCTION_HOME"])
+_readonly_roots = tuple(
+    os.path.realpath(value)
+    for value in json.loads(os.environ.get("SITINA_READONLY_ROOTS_JSON", "[]"))
+)
 _production_mutable_roots = tuple(
     os.path.join(_production_home, name)
     for name in ("data", "logs", "state", "artifacts", "outputs", "memory", "backups", "temp")
@@ -70,9 +76,42 @@ def _inside_production_mutable(value):
         return False
     return any(resolved == root or resolved.startswith(root + os.sep) for root in _production_mutable_roots)
 
+def _inside_readonly_root(value):
+    resolved = _resolved_path(value)
+    if resolved is None:
+        return False
+    return any(
+        resolved == root or resolved.startswith(root + os.sep)
+        for root in _readonly_roots
+    )
+
+def _is_write_event(event, arguments):
+    if event == "open":
+        mode = arguments[1] if len(arguments) > 1 else None
+        flags = arguments[2] if len(arguments) > 2 else 0
+        if isinstance(mode, str) and any(value in mode for value in "wax+"):
+            return True
+        if isinstance(flags, int):
+            write_flags = (
+                os.O_WRONLY | os.O_RDWR | os.O_CREAT
+                | os.O_TRUNC | os.O_APPEND
+            )
+            return bool(flags & write_flags)
+        return False
+    return event not in {"os.listdir", "os.scandir"}
+
 def _record_production_attempt(event, arguments):
     if _production_attempt_log:
         with open(_production_attempt_log, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "event": event,
+                "arguments": [repr(item) for item in arguments],
+                "stack": traceback.format_stack(limit=12),
+            }, sort_keys=True) + "\n")
+
+def _record_readonly_attempt(event, arguments):
+    if _readonly_attempt_log:
+        with open(_readonly_attempt_log, "a", encoding="utf-8") as handle:
             handle.write(json.dumps({
                 "event": event,
                 "arguments": [repr(item) for item in arguments],
@@ -100,6 +139,12 @@ def _production_audit_guard(event, arguments):
     if any(_inside_production_mutable(value) for value in selected):
         _record_production_attempt(event, selected)
         raise PermissionError("B+ isolated test guard denied Production mutable-path access")
+    if (
+        _is_write_event(event, arguments)
+        and any(_inside_readonly_root(value) for value in selected)
+    ):
+        _record_readonly_attempt(event, selected)
+        raise PermissionError("B+ isolated test guard denied read-only-root mutation")
 
 sys.addaudithook(_production_audit_guard)
 
@@ -256,6 +301,26 @@ def _write_json_new_or_replace(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def _publish_result(
+    *,
+    result_path: Path,
+    suite_result_root: Path,
+    suite: str,
+    result: dict[str, Any],
+    capture_only: bool,
+) -> None:
+    """Publish ordinary evidence, or leave all global result paths untouched."""
+
+    if capture_only:
+        return
+    _write_json_new_or_replace(result_path, result)
+    suite_result_root.mkdir(parents=True, exist_ok=True)
+    _write_json_new_or_replace(
+        suite_result_root / f"{suite}.json",
+        result,
+    )
+
+
 def _parse_json_lines(value: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for line in value.splitlines():
@@ -297,6 +362,254 @@ def _registration_gate_summary(output: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _execute_disposable_child(
+    *,
+    arguments: argparse.Namespace,
+    config: Mapping[str, Any],
+    definition: Mapping[str, Any],
+    selectors: list[str],
+    manifest_path: Path,
+    capture_readonly_roots: list[str],
+    home: Path,
+) -> dict[str, Any]:
+    guard_directory = home / ".guard"
+    guard_directory.mkdir()
+    (guard_directory / "sitecustomize.py").write_text(
+        NETWORK_GUARD,
+        encoding="utf-8",
+    )
+    attempt_log = home / "external-attempts.jsonl"
+    production_attempt_log = home / "production-attempts.jsonl"
+    readonly_attempt_log = home / "readonly-attempts.jsonl"
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "SITINA_HOME": str(home),
+            "SITINA_PYTHON": config["approved_python"],
+            "SITINA_LIVE_TEST": "0",
+            "SITINA_BPLUS_TEST_LAYER": arguments.suite,
+            "SITINA_EXECUTION_MANIFEST": str(
+                manifest_path.resolve(strict=True)
+            ),
+            "SITINA_PRODUCTION_SENTINEL_VERIFIED": "1",
+            "SITINA_EXTERNAL_ATTEMPT_LOG": str(attempt_log),
+            "SITINA_PRODUCTION_ATTEMPT_LOG": str(
+                production_attempt_log
+            ),
+            "SITINA_READONLY_ATTEMPT_LOG": str(readonly_attempt_log),
+            "SITINA_READONLY_ROOTS_JSON": json.dumps(
+                capture_readonly_roots,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            "SITINA_PRODUCTION_HOME": config["production_home"],
+            "SITINA_PRODUCTION_GUARD_PROFILE": (
+                "APPLICATION_ENFORCED_PYTHON_AUDIT_HOOK_V1"
+            ),
+            "HOME": str(home),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join(
+                (
+                    str(guard_directory),
+                    str(ROOT),
+                    str(ROOT / "tests/foundation"),
+                    str(ROOT / "core"),
+                )
+            ),
+            "PATH": os.pathsep.join(
+                (
+                    str(Path(config["approved_python"]).parent),
+                    os.environ.get("PATH", ""),
+                )
+            ),
+        }
+    )
+    for name in list(environment):
+        if any(
+            fragment in name.upper()
+            for fragment in (
+                "API_KEY",
+                "AUTH_TOKEN",
+                "PASSWORD",
+                "PRIVATE_KEY",
+            )
+        ):
+            environment.pop(name, None)
+    strict_activation_gate = (
+        definition.get("result_policy")
+        == "ZERO_NONPASS_AND_COMPLETE_V1"
+    )
+    registration_policy = (
+        definition.get("result_policy")
+        == "EXACT_HISTORICAL_SKIP_ALLOWLIST_V1"
+    )
+    if strict_activation_gate:
+        command = [
+            config["approved_python"],
+            "-m",
+            "tests.foundation.activation_gate_runner",
+            *selectors,
+        ]
+    elif registration_policy:
+        command = [
+            config["approved_python"],
+            "-m",
+            "tests.foundation.registration_gate_runner",
+            "--registry",
+            str(CONFIG),
+        ]
+    else:
+        command = [
+            config["approved_python"],
+            "-m",
+            "unittest",
+            *[_unittest_selector(item) for item in selectors],
+        ]
+    started = time.monotonic()
+    process = subprocess.Popen(
+        command,
+        cwd=home,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def terminate_child_group(
+        _signum: int,
+        _frame: Any,
+    ) -> None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.communicate(timeout=10)
+        except ProcessLookupError:
+            pass
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+        raise SystemExit(143)
+
+    signal.signal(signal.SIGTERM, terminate_child_group)
+    timed_out = False
+    try:
+        try:
+            output, _ = process.communicate(
+                timeout=int(definition["timeout_seconds"])
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                output, _ = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                output, _ = process.communicate()
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
+    duration = time.monotonic() - started
+    sys.stdout.write(output)
+    test_count_match = re.search(
+        r"Ran\s+(\d+)\s+tests?\s+in\s+",
+        output,
+    )
+    skipped_match = re.search(r"skipped=(\d+)", output)
+    warning_lines = [
+        line[:1000]
+        for line in output.splitlines()
+        if re.search(
+            r"(?:^|\b)(?:[A-Za-z]+Warning|WARNING)(?:\b|:)",
+            line,
+        )
+    ]
+    external_attempts = (
+        attempt_log.read_text(encoding="utf-8")
+        if attempt_log.exists()
+        else ""
+    )
+    production_attempts = (
+        production_attempt_log.read_text(encoding="utf-8")
+        if production_attempt_log.exists()
+        else ""
+    )
+    readonly_attempts = (
+        readonly_attempt_log.read_text(encoding="utf-8")
+        if readonly_attempt_log.exists()
+        else ""
+    )
+    activation_gate = (
+        _activation_gate_summary(output)
+        if strict_activation_gate
+        else None
+    )
+    registration_gate = (
+        _registration_gate_summary(output)
+        if registration_policy
+        else None
+    )
+    return_code = process.returncode if not timed_out else 124
+    if strict_activation_gate and (
+        activation_gate is None
+        or activation_gate.get("accepted") is not True
+    ):
+        return_code = return_code or 128
+    if registration_policy and (
+        registration_gate is None
+        or registration_gate.get("accepted") is not True
+    ):
+        return_code = return_code or 129
+    if external_attempts:
+        return_code = return_code or 125
+    if production_attempts:
+        return_code = return_code or 127
+    if readonly_attempts:
+        return_code = return_code or 130
+    return {
+        "command": command,
+        "duration": duration,
+        "output": output,
+        "test_count_match": test_count_match,
+        "skipped_match": skipped_match,
+        "warning_lines": warning_lines,
+        "external_attempts": external_attempts,
+        "production_attempts": production_attempts,
+        "production_attempt_records": _parse_json_lines(
+            production_attempts
+        ),
+        "readonly_attempts": readonly_attempts,
+        "readonly_attempt_records": _parse_json_lines(
+            readonly_attempts
+        ),
+        "activation_gate": activation_gate,
+        "registration_gate": registration_gate,
+        "return_code": return_code,
+        "timed_out": timed_out,
+    }
+
+
+def _execute_with_disposable_cleanup(
+    disposable: Any,
+    operation: Callable[[], dict[str, Any]],
+) -> tuple[dict[str, Any], bool, str | None]:
+    cleanup_error: str | None = None
+    try:
+        result = operation()
+    finally:
+        try:
+            disposable.cleanup()
+        except Exception as exc:
+            cleanup_error = f"{type(exc).__name__}: {exc}"
+            print(
+                f"disposable home cleanup failed: {cleanup_error}",
+                file=sys.stderr,
+            )
+    cleanup_succeeded = (
+        cleanup_error is None and not disposable.path.exists()
+    )
+    return result, cleanup_succeeded, cleanup_error
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("suite", nargs="?")
@@ -307,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execution-manifest", type=Path)
     parser.add_argument("--production-sentinel", type=Path)
     parser.add_argument("--production-mutable-sentinel", type=Path)
+    parser.add_argument("--capture-only", action="store_true")
     arguments = parser.parse_args(argv)
     config = _load_json(CONFIG)
     suites = config["suites"]
@@ -318,6 +632,54 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"suite must be one of: {', '.join(sorted(suites))}")
     if arguments.suite == "live_provider_opt_in":
         raise SystemExit("The selected pre-cutover manifest does not authorize live-provider tests")
+    if arguments.capture_only and (
+        os.environ.get("SITINA_STEP7_OFFICIAL_GATE_CAPTURE") != "1"
+        or arguments.suite
+        not in {"execution_activation_gate", "all_registered_unique"}
+    ):
+        raise SystemExit(
+            "capture-only is reserved for the Step 7 official deployed gates"
+        )
+    capture_readonly_roots: list[str] = []
+    if arguments.capture_only:
+        try:
+            source_root = Path(
+                os.environ["SITINA_STEP7_SOURCE_ROOT"]
+            )
+            if (
+                not source_root.is_absolute()
+                or source_root.resolve(strict=True) != source_root
+            ):
+                raise ValueError(
+                    "capture-only source root is not canonical"
+                )
+            raw_capture_roots = json.loads(
+                os.environ["SITINA_STEP7_CAPTURE_READONLY_ROOTS_JSON"]
+            )
+            capture_readonly_roots = [
+                str(Path(value).resolve(strict=True))
+                for value in raw_capture_roots
+            ]
+        except (
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise SystemExit(
+                "capture-only read-only roots are invalid"
+            ) from exc
+        expected_capture_roots = [
+            str(source_root),
+            str(ROOT.resolve(strict=True)),
+            str(CONTROL_ROOT.resolve(strict=True)),
+        ]
+        if capture_readonly_roots != expected_capture_roots:
+            raise SystemExit(
+                "capture-only read-only roots do not match source, "
+                "deployment, and control roots"
+            )
     definition = suites[arguments.suite]
     evidence_stage = arguments.evidence_stage or arguments.suite
     directed_stage_contracts = {
@@ -422,100 +784,37 @@ def main(argv: list[str] | None = None) -> int:
     factory = DisposableHomeFactory(ROOT, production, Path(config["test_home_root"]))
     disposable = factory.create(prefix=f"{arguments.suite}-")
     home = disposable.path
-    guard_directory = home / ".guard"
-    guard_directory.mkdir()
-    (guard_directory / "sitecustomize.py").write_text(NETWORK_GUARD, encoding="utf-8")
-    attempt_log = home / "external-attempts.jsonl"
-    production_attempt_log = home / "production-attempts.jsonl"
-    environment = dict(os.environ)
-    environment.update(
-        {
-            "SITINA_HOME": str(home),
-            "SITINA_PYTHON": config["approved_python"],
-            "SITINA_LIVE_TEST": "0",
-            "SITINA_BPLUS_TEST_LAYER": arguments.suite,
-            "SITINA_EXECUTION_MANIFEST": str(manifest_path.resolve(strict=True)),
-            "SITINA_PRODUCTION_SENTINEL_VERIFIED": "1",
-            "SITINA_EXTERNAL_ATTEMPT_LOG": str(attempt_log),
-            "SITINA_PRODUCTION_ATTEMPT_LOG": str(production_attempt_log),
-            "SITINA_PRODUCTION_HOME": str(production),
-            "SITINA_PRODUCTION_GUARD_PROFILE": "APPLICATION_ENFORCED_PYTHON_AUDIT_HOOK_V1",
-            "HOME": str(home),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": os.pathsep.join(
-                (str(guard_directory), str(ROOT), str(ROOT / "tests/foundation"), str(ROOT / "core"))
+    child, cleanup_succeeded, cleanup_error = (
+        _execute_with_disposable_cleanup(
+            disposable,
+            lambda: _execute_disposable_child(
+                arguments=arguments,
+                config=config,
+                definition=definition,
+                selectors=selectors,
+                manifest_path=manifest_path,
+                capture_readonly_roots=capture_readonly_roots,
+                home=home,
             ),
-            "PATH": os.pathsep.join((str(Path(config["approved_python"]).parent), os.environ.get("PATH", ""))),
-        }
+        )
     )
-    for name in list(environment):
-        if any(fragment in name.upper() for fragment in ("API_KEY", "AUTH_TOKEN", "PASSWORD", "PRIVATE_KEY")):
-            environment.pop(name, None)
-    strict_activation_gate = definition.get("result_policy") == "ZERO_NONPASS_AND_COMPLETE_V1"
-    if strict_activation_gate:
-        command = [
-            config["approved_python"], "-m", "tests.foundation.activation_gate_runner", *selectors,
-        ]
-    elif registration_policy:
-        command = [
-            config["approved_python"],
-            "-m",
-            "tests.foundation.registration_gate_runner",
-            "--registry",
-            str(CONFIG),
-        ]
-    else:
-        command = [config["approved_python"], "-m", "unittest", *[_unittest_selector(item) for item in selectors]]
-    started = time.monotonic()
-    process = subprocess.Popen(
-        command,
-        cwd=home,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    timed_out = False
-    try:
-        output, _ = process.communicate(timeout=int(definition["timeout_seconds"]))
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            output, _ = process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            output, _ = process.communicate()
-    duration = time.monotonic() - started
-    sys.stdout.write(output)
-    test_count_match = re.search(r"Ran\s+(\d+)\s+tests?\s+in\s+", output)
-    skipped_match = re.search(r"skipped=(\d+)", output)
-    warning_lines = [
-        line[:1000]
-        for line in output.splitlines()
-        if re.search(r"(?:^|\b)(?:[A-Za-z]+Warning|WARNING)(?:\b|:)", line)
-    ]
-    external_attempts = attempt_log.read_text(encoding="utf-8") if attempt_log.exists() else ""
-    production_attempts = production_attempt_log.read_text(encoding="utf-8") if production_attempt_log.exists() else ""
-    production_attempt_records = _parse_json_lines(production_attempts)
-    activation_gate = _activation_gate_summary(output) if strict_activation_gate else None
-    registration_gate = _registration_gate_summary(output) if registration_policy else None
-    return_code = process.returncode if not timed_out else 124
-    if strict_activation_gate and (
-        activation_gate is None or activation_gate.get("accepted") is not True
-    ):
-        return_code = return_code or 128
-    if registration_policy and (
-        registration_gate is None or registration_gate.get("accepted") is not True
-    ):
-        return_code = return_code or 129
-    if external_attempts:
-        return_code = return_code or 125
-    if production_attempts:
-        return_code = return_code or 127
-
-    disposable.cleanup()
+    command = child["command"]
+    duration = child["duration"]
+    output = child["output"]
+    test_count_match = child["test_count_match"]
+    skipped_match = child["skipped_match"]
+    warning_lines = child["warning_lines"]
+    external_attempts = child["external_attempts"]
+    production_attempts = child["production_attempts"]
+    production_attempt_records = child["production_attempt_records"]
+    readonly_attempts = child["readonly_attempts"]
+    readonly_attempt_records = child["readonly_attempt_records"]
+    activation_gate = child["activation_gate"]
+    registration_gate = child["registration_gate"]
+    return_code = child["return_code"]
+    timed_out = child["timed_out"]
+    if not cleanup_succeeded:
+        return_code = return_code or 131
     after = capture_production_sentinel(production, GOAL_THREAD_ID)
     mutable_after = capture_production_mutable_sentinel(production, GOAL_THREAD_ID)
     sentinel_unchanged = (
@@ -526,13 +825,15 @@ def main(argv: list[str] | None = None) -> int:
     if not sentinel_unchanged:
         return_code = return_code or 126
     result = {
-        "schema": "BPLUS_TEST_RESULT_V1",
+        "schema": "BPLUS_TEST_RESULT_V2",
         "stage": evidence_stage,
         "suite": arguments.suite,
         "selectors": selectors,
         "mode": "tests",
         "command": command,
         "child_cwd": str(home),
+        "child_home_cleanup_succeeded": cleanup_succeeded,
+        "child_home_cleanup_error": cleanup_error,
         "duration_seconds": round(duration, 6),
         "test_count": int(test_count_match.group(1)) if test_count_match else None,
         "skipped_count": int(skipped_match.group(1)) if skipped_match else 0,
@@ -548,6 +849,12 @@ def main(argv: list[str] | None = None) -> int:
         "production_attempt_count": len(production_attempts.splitlines()),
         "production_attempt_records": production_attempt_records[:500],
         "production_attempt_log_sha256": hashlib.sha256(production_attempts.encode("utf-8")).hexdigest(),
+        "readonly_attempt_count": len(readonly_attempts.splitlines()),
+        "readonly_attempt_records": readonly_attempt_records[:500],
+        "readonly_attempt_log_sha256": hashlib.sha256(
+            readonly_attempts.encode("utf-8")
+        ).hexdigest(),
+        "capture_only": arguments.capture_only,
         "production_guard_profile": "APPLICATION_ENFORCED_PYTHON_AUDIT_HOOK_V1",
         "production_sentinel_before": before["report_sha256"],
         "production_sentinel_after": after["report_sha256"],
@@ -558,15 +865,33 @@ def main(argv: list[str] | None = None) -> int:
         "production_mutable_sentinel_baseline": str(mutable_sentinel_path),
         "execution_manifest_hash": manifest.manifest_hash,
     }
-    _write_json_new_or_replace(result_path, result)
-    suite_result_root.mkdir(parents=True, exist_ok=True)
-    _write_json_new_or_replace(suite_result_root / f"{arguments.suite}.json", result)
+    _publish_result(
+        result_path=result_path,
+        suite_result_root=suite_result_root,
+        suite=arguments.suite,
+        result=result,
+        capture_only=arguments.capture_only,
+    )
+    if arguments.capture_only:
+        print(
+            CAPTURE_MARKER
+            + json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
     if timed_out:
         print(f"suite timeout after {definition['timeout_seconds']}s", file=sys.stderr)
     if external_attempts:
         print("external network attempt denied", file=sys.stderr)
     if production_attempts:
         print("Production mutable-path attempt denied", file=sys.stderr)
+    if readonly_attempts:
+        print("read-only-root mutation attempt denied", file=sys.stderr)
+    if not cleanup_succeeded:
+        print("disposable home cleanup failed", file=sys.stderr)
     if not sentinel_unchanged:
         print("production sentinel changed during tests", file=sys.stderr)
     return return_code

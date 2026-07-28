@@ -104,7 +104,7 @@ STEP56_ACCEPT_RECORDS = {
 }
 POLICY_RELATIVE_PATH = "config/true_multi_agent_policy.json"
 TEST_REGISTRY_RELATIVE_PATH = "tests/test_suites.json"
-TEST_RESULT_SCHEMA = "BPLUS_TEST_RESULT_V1"
+TEST_RESULT_SCHEMA = "BPLUS_TEST_RESULT_V2"
 ACTIVATION_RESULT_SCHEMA = "SITINA_EXECUTION_ACTIVATION_GATE_RESULT_V1"
 REGISTRATION_RESULT_SCHEMA = "SITINA_REGISTERED_TEST_GATE_RESULT_V1"
 DEPENDENCY_RESULT_SCHEMA = "SITINA_BPLUS_DEPENDENCY_GATE_V1"
@@ -150,6 +150,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z",
     "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z",
     "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z",
+    "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -299,6 +300,239 @@ REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
         ),
         "sha256": (
             "b9d2c4c145ab6fd13aff2f76cad03c0c9c8140a77e5f2f60c4ed081386b00049"
+        ),
+    },
+}
+FAILED_OFFICIAL_GATE_REVOCATION_SCHEMA = (
+    "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V6"
+)
+FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID = (
+    "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z"
+)
+FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID = (
+    "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z_EXECUTION"
+)
+FAILED_OFFICIAL_GATE_REVOCATION_SOURCE = {
+    "head": "5aef88ef2bd265615b3828e1c1bf5c96e7c13e63",
+    "tree": "15ff2d7601b5346e1483b2c18030a3e2f1dc22eb",
+}
+FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT = (
+    "/Users/moss/Desktop/sitina/output/"
+    "sitina-step7-deploy-v4-"
+    "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z"
+)
+FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
+    "authorization_request": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-exact-authorization-request-5aef88e.txt"
+        ),
+        "sha256": (
+            "2e88f450fe974d9d9685c170b533e8f219749d80ead34a35e478b9e9964800e4"
+        ),
+    },
+    "authorization_receipt": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorization-receipt-5aef88e.json"
+        ),
+        "sha256": (
+            "a107220f9dd2de4ad62ca1d0ef110bd3f808c3ac8d23a78b9504fa1d1f071123"
+        ),
+        "canonical_sha256": (
+            "cbe0fd9d182534797771e048eac74da6ef840ba3f5db721b0dc9d925d3c97c7d"
+        ),
+    },
+    "packet": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-approval-packet-"
+            "5aef88e-20260728T092724Z.json"
+        ),
+        "sha256": (
+            "992974827462462fd88a9cd4098c5230e48c58c2d09c0c5d199e1fe70b8a08f5"
+        ),
+    },
+    "review_candidate": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-review-candidate-5aef88e.json"
+        ),
+        "sha256": (
+            "9d3716aa6486857e76f0a6486336a621b733c1192262ddbc6efd81361acef398"
+        ),
+    },
+    "evidence_bundle": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-request-review-evidence-5aef88e.json"
+        ),
+        "sha256": (
+            "1e7b8a0e18fe71008c81d9ffd3339450f2d9897b55c7d000908e4fc8c2514e47"
+        ),
+    },
+    "operations": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-deployment-operations-5aef88e.json"
+        ),
+        "sha256": (
+            "e151b95cb0bf1e7c9f2ade49265a9057eba208a3f30881d10acbecd29dcd4e53"
+        ),
+    },
+    "preimage_capture": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-preimage-capture-payload-5aef88e.json"
+        ),
+        "sha256": (
+            "0053356cb085a30690c6be1baae4dcd0d63c05f6e24fa494c5d15d1adcfa1f08"
+        ),
+    },
+    "execution_specification": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorized-execution-spec-5aef88e.json"
+        ),
+        "sha256": (
+            "d5d64bf793814bf70a0ef54d069820fe22bbe4e3aadf3c37c2760d6b55fc5e39"
+        ),
+    },
+    "dry_run": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorized-dry-run-5aef88e.json"
+        ),
+        "sha256": (
+            "c12e6156e5b1e7d50f4b558192fa7904e1b1fab7e934dc941a7318637446b216"
+        ),
+    },
+    "execution_result": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-authorized-execution-result-5aef88e.json"
+        ),
+        "sha256": (
+            "ecc0560e3c4064eef0bd10348f1e82e172e37f99edb60973fd05f84412e356c9"
+        ),
+    },
+    "prior_exclusions": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-excluded-attempts-5aef88e.json"
+        ),
+        "sha256": (
+            "abdd781acdfc5c767a113a0cb50318b3b5ee8ddd3b9774cd6a2bb20571ea0da1"
+        ),
+    },
+    "cleanup_review_receipt": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-cleanup-source-real-review-5aef88e-receipt.json"
+        ),
+        "sha256": (
+            "613c759ec4bae06bf7d95b5a214a281a38813f114ed6a538e565532d56a67edb"
+        ),
+    },
+    "full_review_receipt": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-full-source-real-review-5aef88e-receipt.json"
+        ),
+        "sha256": (
+            "643cc5f3059c52c4742b97781fc2eee8c19781ba6c54a2618f330a7e07222842"
+        ),
+    },
+    "diagnostic_stdout": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-postimage-activation-diagnostic-5aef88e.stdout"
+        ),
+        "sha256": (
+            "c5a2892160a4e29839b0d8ed0d5a2e87f90fd4ab172581c7c27e654fbc4b6a8f"
+        ),
+    },
+    "diagnostic_stderr": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-postimage-activation-diagnostic-5aef88e.stderr"
+        ),
+        "sha256": (
+            "e577f46b27882c4c45fb5ff541248c10a406b0882ac7639b8c4d0a963e10536c"
+        ),
+    },
+    "diagnostic_exit": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-postimage-activation-diagnostic-5aef88e.exit"
+        ),
+        "sha256": (
+            "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        ),
+    },
+    "diagnostic_root_record": {
+        "path": (
+            "/Users/moss/Desktop/sitina/output/"
+            "sitina-step7-postimage-diagnostic-root-5aef88e.txt"
+        ),
+        "sha256": (
+            "4b0ca49d25283cddccf7f7e8b6b7f7fb1d6bb68f6fa9b45fbb73400c30f74e4c"
+        ),
+    },
+}
+FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS = {
+    "manifest": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/backup-manifest.json"
+        ),
+        "sha256": (
+            "015d43ff75eabe9fc60b822a5d676613b7eb563bc01ed6f27be371c6bf10ddb7"
+        ),
+    },
+    "rehearsal_result": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/rehearsal-result.json"
+        ),
+        "sha256": (
+            "2a1cd031e0b7ea7733e64b763da7b070351bf882e40c6007ac41f3ec1446c34b"
+        ),
+    },
+    "failure_checkpoint": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/checkpoints/failure.json"
+        ),
+        "sha256": (
+            "7e2bf9c543dc0db2b1416f4e34a739117196b0d7b4ba07e8a4688d878fe0721f"
+        ),
+    },
+    "rollback_intent": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/checkpoints/rollback-intent.json"
+        ),
+        "sha256": (
+            "bdc13de0914d47f1a976512cf186310d5af478b55669b7cd913b165a3b922dec"
+        ),
+    },
+    "recovery_verification": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/recovery-verification.json"
+        ),
+        "sha256": (
+            "43787891ebbeabfd527c0f9e2ac7b8de0aa9c81dbb929c493bbf3ec6b047dcdc"
+        ),
+    },
+    "recovery_result": {
+        "path": (
+            FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+            + "/recovery-result.json"
+        ),
+        "sha256": (
+            "ff1f8787145bae6213b226c5282be6a018459b2a7eb3883bdfd23b3938d12fd0"
         ),
     },
 }
@@ -1079,6 +1313,8 @@ TEST_RESULT_FIELDS = {
     "mode",
     "command",
     "child_cwd",
+    "child_home_cleanup_succeeded",
+    "child_home_cleanup_error",
     "duration_seconds",
     "test_count",
     "skipped_count",
@@ -1094,6 +1330,10 @@ TEST_RESULT_FIELDS = {
     "production_attempt_count",
     "production_attempt_records",
     "production_attempt_log_sha256",
+    "readonly_attempt_count",
+    "readonly_attempt_records",
+    "readonly_attempt_log_sha256",
+    "capture_only",
     "production_guard_profile",
     "production_sentinel_before",
     "production_sentinel_after",
@@ -3179,12 +3419,91 @@ def _step7_v4_production_sentinels() -> list[dict[str, Any]]:
     return sentinels
 
 
+def _step7_v4_git_state(root: Path) -> dict[str, Any]:
+    root = root.resolve(strict=True)
+    environment = dict(os.environ)
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    commands = {
+        "head": ["git", "rev-parse", "HEAD^{commit}"],
+        "tree": ["git", "rev-parse", "HEAD^{tree}"],
+        "top_level": ["git", "rev-parse", "--show-toplevel"],
+        "status": ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+    }
+    values: dict[str, str] = {}
+    for label, command in commands.items():
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise ValueError(f"official gate source git {label} failed")
+        values[label] = completed.stdout.strip()
+    diff_check = subprocess.run(
+        ["git", "diff", "--check"],
+        cwd=root,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if (
+        Path(values["top_level"]).resolve(strict=True) != root
+        or values["status"]
+        or diff_check.returncode != 0
+    ):
+        raise ValueError("official gate source worktree is not clean")
+    return {
+        "root": str(root),
+        "head": values["head"],
+        "tree": values["tree"],
+        "clean": True,
+        "diff_check_clean": True,
+    }
+
+
 def _step7_v4_production_gate_contract(
     deployment_root: Path,
     *,
     content_root: Path | None = None,
+    source_root: Path | None = None,
+    source_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     content_root = content_root or deployment_root
+    source_root = (source_root or content_root).resolve(strict=True)
+    source_metadata = source_root.lstat()
+    if (
+        stat.S_ISLNK(source_metadata.st_mode)
+        or not stat.S_ISDIR(source_metadata.st_mode)
+    ):
+        raise ValueError(
+            "official gate source root is not a physical directory"
+        )
+    if source_binding is None:
+        source_binding = _step7_v4_git_state(source_root)
+    if (
+        not isinstance(source_binding, Mapping)
+        or set(source_binding)
+        != {"root", "head", "tree", "clean", "diff_check_clean"}
+        or source_binding.get("root") != str(source_root)
+        or re.fullmatch(
+            r"[0-9a-f]{40}", str(source_binding.get("head"))
+        )
+        is None
+        or re.fullmatch(
+            r"[0-9a-f]{40}", str(source_binding.get("tree"))
+        )
+        is None
+        or source_binding.get("clean") is not True
+        or source_binding.get("diff_check_clean") is not True
+    ):
+        raise ValueError("official gate source binding is invalid")
+    target_test_runner = deployment_root / "scripts/test-bplus.py"
     target_registry_path = deployment_root / TEST_REGISTRY_RELATIVE_PATH
     target_activation_runner = (
         deployment_root / "tests/foundation/activation_gate_runner.py"
@@ -3199,7 +3518,9 @@ def _step7_v4_production_gate_contract(
     content_registration_runner = (
         content_root / "tests/foundation/registration_gate_runner.py"
     )
+    content_test_runner = content_root / "scripts/test-bplus.py"
     for path, label in (
+        (content_test_runner, "test runner"),
         (content_registry_path, "registry"),
         (content_activation_runner, "activation runner"),
         (content_registration_runner, "registration runner"),
@@ -3218,6 +3539,21 @@ def _step7_v4_production_gate_contract(
         if isinstance(activation_suite, Mapping)
         else None
     )
+    registration_suite = (
+        suites.get("all_registered_unique")
+        if isinstance(suites, Mapping)
+        else None
+    )
+    activation_inner_timeout = (
+        activation_suite.get("timeout_seconds")
+        if isinstance(activation_suite, Mapping)
+        else None
+    )
+    registration_inner_timeout = (
+        registration_suite.get("timeout_seconds")
+        if isinstance(registration_suite, Mapping)
+        else None
+    )
     expected_skips = [
         {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
         for test_id in HISTORICAL_SKIP_IDS
@@ -3227,12 +3563,72 @@ def _step7_v4_production_gate_contract(
         or registry.get("approved_python") != APPROVED_PYTHON_PATH
         or not isinstance(selectors, list)
         or not selectors
+        or not _integer(activation_inner_timeout)
+        or activation_inner_timeout <= 0
+        or not _integer(registration_inner_timeout)
+        or registration_inner_timeout <= 0
         or registry.get("historical_skip_allowlist") != expected_skips
     ):
         raise ValueError("versioned official gate registry contract mismatch")
+    test_home_root = registry.get("test_home_root")
+    test_home_path = (
+        Path(test_home_root)
+        if isinstance(test_home_root, str)
+        else None
+    )
+    if (
+        test_home_path is None
+        or not test_home_path.is_absolute()
+        or test_home_path.is_symlink()
+        or not test_home_path.is_dir()
+        or test_home_path.resolve(strict=True) != test_home_path
+    ):
+        raise ValueError("official gate test home root is invalid")
+    registered_selectors: list[str] = []
+    suites = registry.get("suites")
+    if not isinstance(suites, Mapping):
+        raise ValueError("official gate suite registry is missing")
+    for suite_name, suite in suites.items():
+        if suite_name == "all_registered_unique":
+            continue
+        suite_selectors = (
+            suite.get("selectors") if isinstance(suite, Mapping) else None
+        )
+        if not isinstance(suite_selectors, list) or any(
+            not isinstance(value, str) or not value
+            for value in suite_selectors
+        ):
+            raise ValueError("official gate registered selectors are invalid")
+        for value in suite_selectors:
+            if value not in registered_selectors:
+                registered_selectors.append(value)
+    readonly_roots = [
+        str(source_root),
+        str(deployment_root.resolve(strict=True)),
+        str(STEP7_V4_REAL_ROOTS[2].resolve(strict=True)),
+    ]
+    dependency_lock_sha256 = registry.get("dependency_lock_sha256")
+    if not _valid_sha256(dependency_lock_sha256):
+        raise ValueError("official gate dependency lock binding is invalid")
     return {
-        "schema": "SITINA_STEP7_OFFICIAL_GATE_CONTRACT_V1",
-        "runner_mode": "CAPTURE_STDOUT_ONLY_NO_EVIDENCE_FILE",
+        "schema": "SITINA_STEP7_OFFICIAL_GATE_CONTRACT_V2",
+        "runner_mode": (
+            "GUARDED_DISPOSABLE_HOME_CAPTURE_ONLY_NO_GLOBAL_EVIDENCE_V2"
+        ),
+        "source_root": str(source_root),
+        "source_binding": dict(source_binding),
+        "test_home_root": test_home_root,
+        "test_home_root_identity": _step7_v4_dir_identity(
+            test_home_path
+        ),
+        "readonly_roots": readonly_roots,
+        "dependency_lock_sha256": dependency_lock_sha256,
+        "test_runner": {
+            "path": str(target_test_runner),
+            "sha256": hashlib.sha256(
+                _step7_v4_read_regular(content_test_runner)[0]
+            ).hexdigest(),
+        },
         "registry": {
             "path": str(target_registry_path),
             "sha256": hashlib.sha256(
@@ -3253,34 +3649,341 @@ def _step7_v4_production_gate_contract(
         },
         "approved_python": APPROVED_PYTHON_PATH,
         "activation_selectors": selectors,
+        "registered_selectors": registered_selectors,
         "historical_skip_allowlist": expected_skips,
-        "environment": {"PYTHONDONTWRITEBYTECODE": "1"},
+        "capture_suites": {
+            "activation": {
+                "suite": "execution_activation_gate",
+                "stage": "execution_activation",
+                "inner_timeout_seconds": activation_inner_timeout,
+                "outer_timeout_seconds": activation_inner_timeout + 60,
+            },
+            "registration": {
+                "suite": "all_registered_unique",
+                "stage": "all_registered_unique",
+                "inner_timeout_seconds": registration_inner_timeout,
+                "outer_timeout_seconds": registration_inner_timeout + 60,
+            },
+        },
+        "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "SITINA_STEP7_OFFICIAL_GATE_CAPTURE": "1",
+            "SITINA_STEP7_SOURCE_ROOT": str(source_root),
+            "SITINA_STEP7_CAPTURE_READONLY_ROOTS_JSON": json.dumps(
+                readonly_roots,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        },
+        "sentinels": _step7_v4_production_sentinels(),
+        "execution_switches": {field: False for field in SWITCHES},
     }
+
+
+def _step7_v4_assert_official_gate_boundary(
+    deployment_root: Path,
+    contract: Mapping[str, Any],
+    expected_inventory: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if _step7_v4_inventory(deployment_root) != dict(expected_inventory):
+        raise ValueError("official gate deployment inventory drift")
+    source_root = Path(str(contract["source_root"]))
+    if _step7_v4_git_state(source_root) != contract["source_binding"]:
+        raise ValueError("official gate source identity drift")
+    _step7_v4_verify_sentinels(contract["sentinels"])
+    expected_switches = contract["execution_switches"]
+    for label, root in (
+        ("source", source_root),
+        ("deployment", deployment_root),
+    ):
+        policy = _step7_v4_load_json(
+            root / "config/true_multi_agent_policy.json"
+        )
+        observed = {
+            field: policy.get(field) for field in SWITCHES
+        }
+        if observed != expected_switches:
+            raise ValueError(
+                f"official gate {label} execution switch drift"
+            )
+
+
+def _step7_v4_control_inventory_outside_backup(
+    control_root: Path,
+    backup_root: Path,
+) -> dict[str, dict[str, Any]]:
+    control_root = control_root.resolve(strict=True)
+    backup_root = backup_root.resolve(strict=True)
+    if backup_root.parent != control_root:
+        raise ValueError(
+            "official gate backup root is not a direct control-root child"
+        )
+    prefix = backup_root.name
+    return {
+        relative: value
+        for relative, value in _step7_v4_inventory(
+            control_root
+        ).items()
+        if relative != prefix
+        and not relative.startswith(f"{prefix}/")
+    }
+
+
+def _step7_v4_inventory_outside_descendant(
+    root: Path,
+    excluded: Path,
+) -> dict[str, dict[str, Any]]:
+    root = root.resolve(strict=True)
+    excluded = excluded.resolve(strict=True)
+    if excluded.parent != root:
+        raise ValueError(
+            "official gate excluded directory is not a direct child"
+        )
+    prefix = excluded.name
+    return {
+        relative: value
+        for relative, value in _step7_v4_inventory(root).items()
+        if relative != prefix
+        and not relative.startswith(f"{prefix}/")
+    }
+
+
+def _step7_v4_parse_capture_marker(
+    output: str,
+    marker: str,
+) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    invalid = False
+    for line in output.splitlines():
+        if not line.startswith(marker):
+            continue
+        try:
+            value = json.loads(line[len(marker) :])
+        except json.JSONDecodeError:
+            invalid = True
+            continue
+        if isinstance(value, dict):
+            values.append(value)
+        else:
+            invalid = True
+    return [] if invalid else values
+
+
+def _step7_v4_validate_official_capture(
+    *,
+    name: str,
+    capture: Mapping[str, Any],
+    strict: Mapping[str, Any],
+    deployment_root: Path,
+    contract: Mapping[str, Any],
+) -> None:
+    capture_contract = contract["capture_suites"][name]
+    expected_selectors = (
+        contract["activation_selectors"]
+        if name == "activation"
+        else contract["registered_selectors"]
+    )
+    expected_command = (
+        [
+            APPROVED_PYTHON_PATH,
+            "-m",
+            "tests.foundation.activation_gate_runner",
+            *expected_selectors,
+        ]
+        if name == "activation"
+        else [
+            APPROVED_PYTHON_PATH,
+            "-m",
+            "tests.foundation.registration_gate_runner",
+            "--registry",
+            contract["registry"]["path"],
+        ]
+    )
+    dependency = capture.get("dependency_gate")
+    dependency_lock_path = deployment_root / "requirements-bplus.lock"
+    try:
+        locked_versions = _locked_versions(dependency_lock_path)
+    except (OSError, UnicodeError, ValueError):
+        locked_versions = None
+    child_cwd = capture.get("child_cwd")
+    child_path = (
+        Path(child_cwd) if isinstance(child_cwd, str) else None
+    )
+    strict_field = (
+        "activation_gate"
+        if name == "activation"
+        else "registration_gate"
+    )
+    other_strict_field = (
+        "registration_gate"
+        if name == "activation"
+        else "activation_gate"
+    )
+    if (
+        set(capture) != TEST_RESULT_FIELDS
+        or capture.get("schema") != TEST_RESULT_SCHEMA
+        or capture.get("stage") != capture_contract["stage"]
+        or capture.get("suite") != capture_contract["suite"]
+        or capture.get("selectors") != expected_selectors
+        or capture.get("mode") != "tests"
+        or capture.get("command") != expected_command
+        or capture.get("return_code") != 0
+        or capture.get("timed_out") is not False
+        or capture.get("capture_only") is not True
+        or capture.get(strict_field) != dict(strict)
+        or capture.get(other_strict_field) is not None
+        or capture.get("test_count")
+        != strict.get("executed_test_count")
+        or capture.get("skipped_count") != strict.get("skipped")
+        or capture.get("warning_count") != 0
+        or capture.get("warning_lines") != []
+        or capture.get("external_attempt_count") != 0
+        or capture.get("production_attempt_count") != 0
+        or capture.get("production_attempt_records") != []
+        or capture.get("production_attempt_log_sha256")
+        != hashlib.sha256(b"").hexdigest()
+        or capture.get("readonly_attempt_count") != 0
+        or capture.get("readonly_attempt_records") != []
+        or capture.get("readonly_attempt_log_sha256")
+        != hashlib.sha256(b"").hexdigest()
+        or capture.get("production_guard_profile")
+        != EXPECTED_PRODUCTION_GUARD_PROFILE
+        or capture.get("production_sentinel_baseline")
+        != BASE_SENTINEL_PATH
+        or capture.get("production_sentinel_before")
+        != BASE_SENTINEL_REPORT_SHA256
+        or capture.get("production_sentinel_after")
+        != BASE_SENTINEL_REPORT_SHA256
+        or capture.get("production_mutable_sentinel_baseline")
+        != MUTABLE_SENTINEL_PATH
+        or capture.get("production_mutable_sentinel_before")
+        != MUTABLE_SENTINEL_REPORT_SHA256
+        or capture.get("production_mutable_sentinel_after")
+        != MUTABLE_SENTINEL_REPORT_SHA256
+        or capture.get("production_sentinel_unchanged") is not True
+        or capture.get("execution_manifest_hash")
+        != f"sha256:{EXECUTION_MANIFEST_CANONICAL_SHA256}"
+        or not _valid_sha256(capture.get("stdout_sha256"))
+        or not isinstance(capture.get("duration_seconds"), (int, float))
+        or isinstance(capture.get("duration_seconds"), bool)
+        or capture.get("duration_seconds") < 0
+        or child_path is None
+        or capture.get("child_home_cleanup_succeeded") is not True
+        or capture.get("child_home_cleanup_error") is not None
+        or not child_path.is_absolute()
+        or child_path.parent != Path(contract["test_home_root"])
+        or child_path.exists()
+        or child_path.is_symlink()
+        or child_path == deployment_root
+        or child_path == Path(contract["source_root"])
+        or not isinstance(dependency, Mapping)
+        or set(dependency) != DEPENDENCY_RESULT_FIELDS
+        or dependency.get("schema") != DEPENDENCY_RESULT_SCHEMA
+        or dependency.get("accepted") is not True
+        or dependency.get("dependencies_match") is not True
+        or dependency.get("manifest_binding_match") is not True
+        or dependency.get("python_match") is not True
+        or dependency.get("python_executable") != APPROVED_PYTHON_PATH
+        or dependency.get("python_version") != "3.12.13"
+        or dependency.get("expected_python_version") != "3.12.13"
+        or dependency.get("lock_sha256")
+        != contract["dependency_lock_sha256"]
+        or dependency.get("expected_lock_sha256")
+        != contract["dependency_lock_sha256"]
+        or dependency.get("lock_path") != str(dependency_lock_path)
+        or dependency.get("missing") != []
+        or dependency.get("version_mismatches") != []
+        or locked_versions is None
+        or dependency.get("locked_versions") != locked_versions
+        or dependency.get("installed_locked_versions")
+        != locked_versions
+        or dependency.get("locked_distribution_count")
+        != len(locked_versions or {})
+        or not isinstance(
+            dependency.get("historical_manifest_binding_match"),
+            bool,
+        )
+        or not _valid_sha256(
+            dependency.get(
+                "historical_manifest_dependency_lock_sha256"
+            )
+        )
+    ):
+        raise ValueError(
+            f"official {name} guarded capture mismatch"
+        )
 
 
 def _step7_v4_run_official_gates(
     deployment_root: Path,
     contract: Mapping[str, Any],
+    *,
+    gate_evidence: Mapping[str, Any],
+    expected_inventory: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    expected_contract = _step7_v4_production_gate_contract(deployment_root)
+    source_root = Path(str(contract.get("source_root", "")))
+    expected_contract = _step7_v4_production_gate_contract(
+        deployment_root,
+        source_root=source_root,
+        source_binding=contract.get("source_binding"),
+    )
     if contract != expected_contract:
         raise ValueError("deployed official gate bytes do not match bound postimages")
+    if (
+        not isinstance(gate_evidence, Mapping)
+        or set(gate_evidence) != {"root", "identity"}
+    ):
+        raise ValueError("official gate evidence binding is malformed")
+    gate_evidence_root = Path(str(gate_evidence["root"]))
+    gate_evidence_identity = dict(gate_evidence["identity"])
+    if (
+        _step7_v4_dir_identity(gate_evidence_root)
+        != gate_evidence_identity
+        or _step7_v4_inventory(gate_evidence_root)
+    ):
+        raise ValueError("official gate evidence root is not empty and bound")
+    backup_root = gate_evidence_root.parent
+    control_root = Path(contract["readonly_roots"][2])
+    test_home_root = Path(contract["test_home_root"])
+    test_home_identity = dict(contract["test_home_root_identity"])
+    if _step7_v4_dir_identity(test_home_root) != test_home_identity:
+        raise ValueError("official gate test home root identity drift")
+    test_home_inventory = _step7_v4_inventory(test_home_root)
+    control_inventory = _step7_v4_control_inventory_outside_backup(
+        control_root,
+        backup_root,
+    )
+    backup_inventory = _step7_v4_inventory_outside_descendant(
+        backup_root,
+        gate_evidence_root,
+    )
     environment = dict(os.environ)
-    environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    registry_path = contract["registry"]["path"]
+    for name in (
+        "PYTHONHOME",
+        "PYTHONINSPECT",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+    ):
+        environment.pop(name, None)
+    environment.update(contract["environment"])
     commands = {
         "activation": [
             APPROVED_PYTHON_PATH,
-            "-m",
-            "tests.foundation.activation_gate_runner",
-            *contract["activation_selectors"],
+            contract["test_runner"]["path"],
+            contract["capture_suites"]["activation"]["suite"],
+            "--evidence-stage",
+            contract["capture_suites"]["activation"]["stage"],
+            "--capture-only",
         ],
         "registration": [
             APPROVED_PYTHON_PATH,
-            "-m",
-            "tests.foundation.registration_gate_runner",
-            "--registry",
-            registry_path,
+            contract["test_runner"]["path"],
+            contract["capture_suites"]["registration"]["suite"],
+            "--evidence-stage",
+            contract["capture_suites"]["registration"]["stage"],
+            "--capture-only",
         ],
     }
     markers = {
@@ -3288,7 +3991,49 @@ def _step7_v4_run_official_gates(
         "registration": "SITINA_REGISTRATION_GATE_JSON:",
     }
     results: dict[str, Any] = {}
+    captures: dict[str, Any] = {}
+    attempts: list[dict[str, str]] = []
+    _step7_v4_assert_official_gate_boundary(
+        deployment_root,
+        contract,
+        expected_inventory,
+    )
     for name, command in commands.items():
+        if (
+            _step7_v4_dir_identity(test_home_root)
+            != test_home_identity
+            or _step7_v4_inventory(test_home_root)
+            != test_home_inventory
+        ):
+            raise ValueError(
+                "official gate test home root pre-run drift"
+            )
+        if (
+            _step7_v4_dir_identity(gate_evidence_root)
+            != gate_evidence_identity
+        ):
+            raise ValueError("official gate evidence root identity drift")
+        _step7_v4_assert_official_gate_boundary(
+            deployment_root,
+            contract,
+            expected_inventory,
+        )
+        if (
+            _step7_v4_control_inventory_outside_backup(
+                control_root,
+                backup_root,
+            )
+            != control_inventory
+            or _step7_v4_inventory_outside_descendant(
+                backup_root,
+                gate_evidence_root,
+            )
+            != backup_inventory
+        ):
+            raise ValueError(
+                "official gate changed state outside its bound "
+                "evidence directory"
+            )
         completed = subprocess.run(
             command,
             cwd=deployment_root,
@@ -3296,18 +4041,109 @@ def _step7_v4_run_official_gates(
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=900,
+            timeout=contract["capture_suites"][name][
+                "outer_timeout_seconds"
+            ],
             check=False,
         )
-        summaries = [
-            line[len(markers[name]) :]
+        summaries = _step7_v4_parse_capture_marker(
+            completed.stdout,
+            markers[name],
+        )
+        captured = _step7_v4_parse_capture_marker(
+            completed.stdout,
+            "SITINA_BPLUS_CAPTURE_JSON:",
+        )
+        strict_marker_line_count = sum(
+            line.startswith(markers[name])
             for line in completed.stdout.splitlines()
-            if line.startswith(markers[name])
-        ]
-        if completed.returncode != 0 or len(summaries) != 1:
+        )
+        capture_marker_line_count = sum(
+            line.startswith("SITINA_BPLUS_CAPTURE_JSON:")
+            for line in completed.stdout.splitlines()
+        )
+        attempt_document = {
+            "schema": "SITINA_STEP7_OFFICIAL_GATE_ATTEMPT_V2",
+            "name": name,
+            "command": command,
+            "return_code": completed.returncode,
+            "stdout_bytes": len(completed.stdout.encode("utf-8")),
+            "stdout_sha256": _sha256_text(completed.stdout),
+            "stdout_tail": completed.stdout[-8192:],
+            "stderr_bytes": len(completed.stderr.encode("utf-8")),
+            "stderr_sha256": _sha256_text(completed.stderr),
+            "stderr_tail": completed.stderr[-8192:],
+            "strict_summary_count": len(summaries),
+            "strict_marker_line_count": strict_marker_line_count,
+            "strict_summary": summaries[0] if len(summaries) == 1 else None,
+            "capture_count": len(captured),
+            "capture_marker_line_count": capture_marker_line_count,
+            "capture": captured[0] if len(captured) == 1 else None,
+        }
+        attempt_path = gate_evidence_root / f"{name}.json"
+        _step7_v4_publish_json(attempt_path, attempt_document)
+        attempts.append(_step7_v4_reference(attempt_path))
+        if (
+            _step7_v4_dir_identity(test_home_root)
+            != test_home_identity
+            or _step7_v4_inventory(test_home_root)
+            != test_home_inventory
+        ):
+            raise ValueError(
+                "official gate test home root post-run drift"
+            )
+        _step7_v4_assert_official_gate_boundary(
+            deployment_root,
+            contract,
+            expected_inventory,
+        )
+        if (
+            _step7_v4_control_inventory_outside_backup(
+                control_root,
+                backup_root,
+            )
+            != control_inventory
+            or _step7_v4_inventory_outside_descendant(
+                backup_root,
+                gate_evidence_root,
+            )
+            != backup_inventory
+        ):
+            raise ValueError(
+                "official gate changed state outside its bound "
+                "evidence directory"
+            )
+        if (
+            completed.returncode != 0
+            or strict_marker_line_count != 1
+            or capture_marker_line_count != 1
+            or len(summaries) != 1
+            or len(captured) != 1
+        ):
             raise ValueError(f"official {name} gate did not return one PASS summary")
-        result = json.loads(summaries[0])
+        result = summaries[0]
+        capture = captured[0]
+        _step7_v4_validate_official_capture(
+            name=name,
+            capture=capture,
+            strict=result,
+            deployment_root=deployment_root,
+            contract=contract,
+        )
         results[name] = result
+        captures[name] = capture
+        expected_attempt_names = {
+            f"{value}.json"
+            for value in ("activation", "registration")
+            if value in results
+        }
+        observed_attempt_names = set(
+            _step7_v4_inventory(gate_evidence_root)
+        )
+        if observed_attempt_names != expected_attempt_names:
+            raise ValueError(
+                "official gate evidence attempt closure mismatch"
+            )
     activation = results["activation"]
     registration = results["registration"]
     common_zero = (
@@ -3396,11 +4232,60 @@ def _step7_v4_run_official_gates(
         )
     ):
         raise ValueError("official registration gate strict result mismatch")
+    evidence_manifest = {
+        "schema": "SITINA_STEP7_OFFICIAL_GATE_EVIDENCE_MANIFEST_V1",
+        "contract_sha256": _json_value_sha256(contract),
+        "root": str(gate_evidence_root),
+        "root_identity": gate_evidence_identity,
+        "attempts": attempts,
+        "attempts_sha256": _json_value_sha256(attempts),
+    }
+    evidence_manifest_path = gate_evidence_root / "manifest.json"
+    _step7_v4_publish_json(
+        evidence_manifest_path,
+        evidence_manifest,
+    )
+    if set(_step7_v4_inventory(gate_evidence_root)) != {
+        "activation.json",
+        "registration.json",
+        "manifest.json",
+    }:
+        raise ValueError("official gate evidence final closure mismatch")
+    if (
+        _step7_v4_control_inventory_outside_backup(
+            control_root,
+            backup_root,
+        )
+        != control_inventory
+        or _step7_v4_inventory_outside_descendant(
+            backup_root,
+            gate_evidence_root,
+        )
+        != backup_inventory
+    ):
+        raise ValueError(
+            "official gate changed state outside its bound evidence "
+            "directory"
+        )
+    if (
+        _step7_v4_dir_identity(test_home_root)
+        != test_home_identity
+        or _step7_v4_inventory(test_home_root)
+        != test_home_inventory
+    ):
+        raise ValueError(
+            "official gate test home root terminal drift"
+        )
     return {
-        "schema": "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V1",
+        "schema": "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V2",
         "contract_sha256": _json_value_sha256(contract),
         "activation": activation,
         "registration": registration,
+        "captures": captures,
+        "attempts": attempts,
+        "evidence_manifest": _step7_v4_reference(
+            evidence_manifest_path
+        ),
     }
 
 
@@ -3607,6 +4492,15 @@ def _step7_v4_load_manifest(
         "recovery_verification": str(
             backup_root / "recovery-verification.json"
         ),
+        "official_gate_evidence_root": str(
+            backup_root / "official-gates"
+        ),
+    }
+    expected_gate_evidence = {
+        "root": expected_paths["official_gate_evidence_root"],
+        "identity": _step7_v4_dir_identity(
+            Path(expected_paths["official_gate_evidence_root"])
+        ),
     }
     operations = manifest.get("operations")
     before_inventory = manifest.get("deployment_inventory_before")
@@ -3628,6 +4522,7 @@ def _step7_v4_load_manifest(
             "sentinels",
             "forbidden_boundaries",
             "gate_contract",
+            "official_gate_evidence",
             "paths",
             "deployment_inventory_before",
             "deployment_inventory_expected_after",
@@ -3645,6 +4540,8 @@ def _step7_v4_load_manifest(
         or manifest.get("forbidden_boundaries")
         != specification.get("forbidden_boundaries")
         or manifest.get("gate_contract") != specification.get("gate_contract")
+        or manifest.get("official_gate_evidence")
+        != expected_gate_evidence
         or manifest.get("paths") != expected_paths
         or not isinstance(before_inventory, Mapping)
         or not isinstance(expected_after_inventory, Mapping)
@@ -4035,6 +4932,8 @@ def _step7_v4_validate_auxiliary_checkpoints(
     binding: Mapping[str, Any],
     operations: Sequence[Mapping[str, Any]],
     rehearsal_entries: Sequence[Mapping[str, Any]],
+    *,
+    gate_contract: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     entries_by_index = {
         entry["index"]: entry
@@ -4059,14 +4958,32 @@ def _step7_v4_validate_auxiliary_checkpoints(
             raise ValueError(
                 f"rehearsal checkpoint {index} binding mismatch"
             )
+    attempt_closure = _step7_v4_official_gate_attempt_closure(
+        backup_root
+    )
     failure = _step7_v4_optional_json(
         backup_root / "checkpoints" / "failure.json"
     )
     if failure is not None and (
-        set(failure) != {"run_id", "error_type", "error"}
+        set(failure)
+        != {
+            "run_id",
+            "error_type",
+            "error",
+            "official_gate_attempt_references",
+            "official_gate_attempt_reference_set_sha256",
+        }
         or failure.get("run_id") != binding["run_id"]
         or not isinstance(failure.get("error_type"), str)
         or not isinstance(failure.get("error"), str)
+        or failure.get("official_gate_attempt_references")
+        != attempt_closure["official_gate_attempt_references"]
+        or failure.get(
+            "official_gate_attempt_reference_set_sha256"
+        )
+        != attempt_closure[
+            "official_gate_attempt_reference_set_sha256"
+        ]
     ):
         raise ValueError("failure checkpoint binding mismatch")
     deployed_gate = _step7_v4_optional_json(
@@ -4078,7 +4995,117 @@ def _step7_v4_validate_auxiliary_checkpoints(
         or not isinstance(deployed_gate.get("result"), Mapping)
     ):
         raise ValueError("deployed gate checkpoint binding mismatch")
+    if (
+        deployed_gate is not None
+        and deployed_gate["result"].get("schema")
+        == "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V2"
+    ):
+        _step7_v4_validate_official_gate_result(
+            backup_root,
+            deployed_gate["result"],
+            gate_contract=gate_contract,
+        )
     return deployed_gate
+
+
+def _step7_v4_official_gate_attempt_closure(
+    backup_root: Path,
+) -> dict[str, Any]:
+    evidence_root = backup_root / "official-gates"
+    identity = _step7_v4_dir_identity(evidence_root)
+    inventory = _step7_v4_inventory(evidence_root)
+    allowed = {
+        "activation.json",
+        "registration.json",
+        "manifest.json",
+    }
+    if not set(inventory).issubset(allowed) or any(
+        value.get("type") != "REGULAR_FILE"
+        for value in inventory.values()
+    ):
+        raise ValueError(
+            "official gate attempt evidence closure is not flat and exact"
+        )
+    references: list[dict[str, str]] = []
+    for name in ("activation", "registration"):
+        path = evidence_root / f"{name}.json"
+        if not path.exists():
+            continue
+        document = _step7_v4_load_json(path)
+        if (
+            document.get("schema")
+            != "SITINA_STEP7_OFFICIAL_GATE_ATTEMPT_V2"
+            or document.get("name") != name
+        ):
+            raise ValueError(
+                f"official {name} attempt evidence binding mismatch"
+            )
+        references.append(_step7_v4_reference(path))
+    if (
+        (evidence_root / "registration.json").exists()
+        and not (evidence_root / "activation.json").exists()
+    ):
+        raise ValueError(
+            "official gate attempt evidence order is not prefix-closed"
+        )
+    manifest_path = evidence_root / "manifest.json"
+    if manifest_path.exists():
+        manifest = _step7_v4_load_json(manifest_path)
+        if (
+            set(inventory) != allowed
+            or manifest
+            != {
+                "schema": (
+                    "SITINA_STEP7_OFFICIAL_GATE_EVIDENCE_MANIFEST_V1"
+                ),
+                "contract_sha256": manifest.get("contract_sha256"),
+                "root": str(evidence_root),
+                "root_identity": identity,
+                "attempts": references,
+                "attempts_sha256": _json_value_sha256(references),
+            }
+            or not _valid_sha256(manifest.get("contract_sha256"))
+        ):
+            raise ValueError(
+                "official gate evidence manifest binding mismatch"
+            )
+    return {
+        "official_gate_attempt_references": references,
+        "official_gate_attempt_reference_set_sha256": (
+            _json_value_sha256(references)
+        ),
+    }
+
+
+def _step7_v4_validate_official_gate_result(
+    backup_root: Path,
+    gate_result: Mapping[str, Any],
+    *,
+    gate_contract: Mapping[str, Any] | None = None,
+) -> None:
+    closure = _step7_v4_official_gate_attempt_closure(backup_root)
+    manifest_path = backup_root / "official-gates" / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError("official gate success evidence manifest is missing")
+    manifest = _step7_v4_load_json(manifest_path)
+    expected_contract_sha256 = (
+        _json_value_sha256(gate_contract)
+        if isinstance(gate_contract, Mapping)
+        else gate_result.get("contract_sha256")
+    )
+    if (
+        gate_result.get("schema")
+        != "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V2"
+        or gate_result.get("attempts")
+        != closure["official_gate_attempt_references"]
+        or gate_result.get("evidence_manifest")
+        != _step7_v4_reference(manifest_path)
+        or gate_result.get("contract_sha256")
+        != expected_contract_sha256
+        or manifest.get("contract_sha256")
+        != expected_contract_sha256
+    ):
+        raise ValueError("official gate success evidence binding mismatch")
 
 
 def _step7_v4_rollback_intent(
@@ -4100,6 +5127,9 @@ def _step7_v4_rollback_intent(
         "applied_indices": applied,
         "recovery_order": list(reversed(applied)),
         "terminal_inventory": "DEPLOYMENT_INVENTORY_BEFORE",
+        **_step7_v4_official_gate_attempt_closure(
+            manifest_path.parent
+        ),
         "delete_operation_count": 0,
         "unlink_operation_count": 0,
         "rmtree_operation_count": 0,
@@ -4200,6 +5230,9 @@ def _step7_v4_expected_recovery_result(
         ),
         "sentinels": list(sentinels),
         "gate_contract": dict(gate_contract),
+        **_step7_v4_official_gate_attempt_closure(
+            manifest_path.parent
+        ),
         "delete_operation_count": 0,
         "unlink_operation_count": 0,
         "rmtree_operation_count": 0,
@@ -4795,6 +5828,7 @@ def _step7_v4_build_preapply_terminal(
             binding,
             operations,
             rehearsal_document["entries"],
+            gate_contract=manifest["gate_contract"],
         )
         rehearsal_reference: dict[str, str] | None = (
             _step7_v4_reference(rehearsal_path)
@@ -4836,6 +5870,7 @@ def _step7_v4_build_preapply_terminal(
                 binding,
                 operations,
                 rehearsal_entries,
+                gate_contract=manifest["gate_contract"],
             )
             verification_reference = _step7_v4_reference(
                 verification_path
@@ -5045,6 +6080,7 @@ def recover_step7_v4_execution(
             binding,
             operations,
             rehearsal_entries,
+            gate_contract=manifest["gate_contract"],
         )
         reference_items = checkpoint_references["checkpoint_references"]
         intent_indices = {
@@ -5372,6 +6408,8 @@ def recover_step7_v4_execution(
                     "applied_indices",
                     "recovery_order",
                     "terminal_inventory",
+                    "official_gate_attempt_references",
+                    "official_gate_attempt_reference_set_sha256",
                     "delete_operation_count",
                     "unlink_operation_count",
                     "rmtree_operation_count",
@@ -5389,6 +6427,20 @@ def recover_step7_v4_execution(
                 != sorted(commit_indices)
                 or rollback_intent.get("terminal_inventory")
                 != "DEPLOYMENT_INVENTORY_BEFORE"
+                or rollback_intent.get(
+                    "official_gate_attempt_references"
+                )
+                != _step7_v4_official_gate_attempt_closure(
+                    backup_root
+                )["official_gate_attempt_references"]
+                or rollback_intent.get(
+                    "official_gate_attempt_reference_set_sha256"
+                )
+                != _step7_v4_official_gate_attempt_closure(
+                    backup_root
+                )[
+                    "official_gate_attempt_reference_set_sha256"
+                ]
                 or any(
                     rollback_intent.get(field) != 0
                     for field in (
@@ -5773,6 +6825,10 @@ def execute_step7_v4(
             quarantine, "created"
         )
         _step7_v4_mkdir_exclusive(backup_root, "checkpoints")
+        official_gate_evidence_root = _step7_v4_mkdir_exclusive(
+            backup_root,
+            "official-gates",
+        )
         for operation in operations:
             if operation["operation"] != "CREATE":
                 continue
@@ -5822,6 +6878,12 @@ def execute_step7_v4(
                 "forbidden_boundaries"
             ],
             "gate_contract": specification["gate_contract"],
+            "official_gate_evidence": {
+                "root": str(official_gate_evidence_root),
+                "identity": _step7_v4_dir_identity(
+                    official_gate_evidence_root
+                ),
+            },
             "paths": {
                 "manifest": str(manifest_path),
                 "rehearsal_result": str(rehearsal_result_path),
@@ -5833,6 +6895,9 @@ def execute_step7_v4(
                 ),
                 "recovery_verification": str(
                     backup_root / "recovery-verification.json"
+                ),
+                "official_gate_evidence_root": str(
+                    official_gate_evidence_root
                 ),
             },
             "deployment_inventory_before": before_inventory,
@@ -6169,7 +7234,14 @@ def execute_step7_v4(
             gate_result = callback_result
         else:
             gate_result = _step7_v4_run_official_gates(
-                deployment_root, specification["gate_contract"]
+                deployment_root,
+                specification["gate_contract"],
+                gate_evidence=reloaded_manifest[
+                    "official_gate_evidence"
+                ],
+                expected_inventory=reloaded_manifest[
+                    "deployment_inventory_expected_after"
+                ],
             )
             gate_result = {**gate_result, "accepted": True}
         if gate_result.get("accepted") is not True:
@@ -6267,6 +7339,9 @@ def execute_step7_v4(
                     "run_id": binding["run_id"],
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                    **_step7_v4_official_gate_attempt_closure(
+                        backup_root
+                    ),
                 },
             )
         except Exception as checkpoint_exc:
@@ -7081,6 +8156,8 @@ def _verify_gates(
             or not isinstance(test_home_root, str)
             or not Path(child_cwd).is_relative_to(Path(test_home_root))
             or child_cwd == production_home
+            or evidence.get("child_home_cleanup_succeeded") is not True
+            or evidence.get("child_home_cleanup_error") is not None
         ):
             errors.append(f"{stage} evidence child home is not isolated")
         if (
@@ -7092,6 +8169,11 @@ def _verify_gates(
             or evidence.get("production_attempt_records") != []
             or evidence.get("production_attempt_log_sha256")
             != hashlib.sha256(b"").hexdigest()
+            or evidence.get("readonly_attempt_count") != 0
+            or evidence.get("readonly_attempt_records") != []
+            or evidence.get("readonly_attempt_log_sha256")
+            != hashlib.sha256(b"").hexdigest()
+            or evidence.get("capture_only") is not False
             or evidence.get("production_guard_profile")
             != EXPECTED_PRODUCTION_GUARD_PROFILE
         ):
@@ -9642,6 +10724,476 @@ def _rejected_topology_revocation_is_valid(
     )
 
 
+def _failed_official_gate_revocation_is_valid(
+    revocation: Mapping[str, Any],
+    *,
+    source_root: Path,
+    deployment_root: Path,
+    source_state: Mapping[str, Any],
+    anchor_root: Path,
+) -> bool:
+    """Bind the consumed 5aef88e authorization to its recovered gate failure."""
+
+    del anchor_root
+    if (
+        set(revocation)
+        != {
+            "schema",
+            "revoked_at_utc",
+            "source_thread_id",
+            "decision",
+            "physical_classification",
+            "revoked_approval_id",
+            "revoked_run_id",
+            "revoked_source",
+            "revoked_artifacts",
+            "authorization_chain",
+            "execution_attempt",
+            "gate_failure",
+            "recovery",
+            "deployment_effects",
+            "production_state",
+            "reuse_policy",
+            "successor_requirement",
+            "step8_step9_not_entered",
+        }
+        or revocation.get("schema")
+        != FAILED_OFFICIAL_GATE_REVOCATION_SCHEMA
+        or not _valid_iso8601(revocation.get("revoked_at_utc"))
+        or revocation.get("source_thread_id") != STEP7_SOURCE_THREAD_ID
+        or revocation.get("decision")
+        != "REJECT_DEPLOY_REQUEST_REVOKE_CONSUMED_AUTHORIZATION"
+        or revocation.get("physical_classification")
+        != (
+            "AUTHORIZED_POSTAPPLY_OFFICIAL_GATE_FAILURE_"
+            "FULL_RECOVERY_RETAINED_BACKUP_ROOT"
+        )
+        or revocation.get("revoked_approval_id")
+        != FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID
+        or revocation.get("revoked_run_id")
+        != FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+        or revocation.get("revoked_source")
+        != {
+            "root": str(source_root),
+            **FAILED_OFFICIAL_GATE_REVOCATION_SOURCE,
+        }
+        or revocation.get("step8_step9_not_entered") is not True
+    ):
+        return False
+    try:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "merge-base",
+                    "--is-ancestor",
+                    FAILED_OFFICIAL_GATE_REVOCATION_SOURCE["head"],
+                    str(source_state.get("head")),
+                ],
+                cwd=source_root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            != 0
+        ):
+            return False
+    except OSError:
+        return False
+    if revocation.get("successor_requirement") != {
+        "source_root": str(source_root),
+        "head": source_state.get("head"),
+        "tree": source_state.get("tree"),
+        "scope": "OFFICIAL_DEPLOYED_GATE_CAPTURE_AND_RECOVERY_CLOSURE_V2",
+        "required_fixes": [
+            "GUARDED_CAPTURE_ONLY_TEST_RUNNER",
+            "DEPLOYMENT_WITHOUT_GIT_USES_BOUND_SOURCE_IDENTITY",
+            "CONTROLLED_PYTHONPATH_AND_DISPOSABLE_HOME",
+            "READONLY_SOURCE_DEPLOYMENT_AND_CONTROL_ROOTS",
+            "MANIFEST_BOUND_OFFICIAL_GATE_ATTEMPT_EVIDENCE",
+            "SUCCESS_AND_RECOVERY_DEREFERENCE_ATTEMPT_CLOSURE",
+            "MALFORMED_OR_DUPLICATE_MARKERS_FAIL_CLOSED",
+            "PROCESS_GROUP_TIMEOUT_AND_DISPOSABLE_HOME_CLEANUP",
+            "TEST_HOME_ROOT_IDENTITY_AND_INVENTORY_STABILITY",
+        ],
+    }:
+        return False
+    artifacts = revocation.get("revoked_artifacts")
+    if (
+        not isinstance(artifacts, Mapping)
+        or dict(artifacts)
+        != FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS
+    ):
+        return False
+    errors: list[str] = []
+    loaded: dict[str, Mapping[str, Any]] = {}
+    json_artifacts = {
+        "authorization_receipt",
+        "packet",
+        "review_candidate",
+        "evidence_bundle",
+        "preimage_capture",
+        "execution_specification",
+        "dry_run",
+        "execution_result",
+        "prior_exclusions",
+        "cleanup_review_receipt",
+        "full_review_receipt",
+    }
+    for name, reference in artifacts.items():
+        _, value = _verify_file_reference(
+            reference,
+            errors,
+            f"failed official gate revocation {name}",
+            require_json_object=name in json_artifacts,
+        )
+        if isinstance(value, Mapping):
+            loaded[name] = value
+    if errors:
+        return False
+    packet = loaded.get("packet")
+    candidate = loaded.get("review_candidate")
+    evidence = loaded.get("evidence_bundle")
+    receipt = loaded.get("authorization_receipt")
+    specification = loaded.get("execution_specification")
+    dry_run = loaded.get("dry_run")
+    result = loaded.get("execution_result")
+    packet_reference = FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS[
+        "packet"
+    ]
+    expected_binding = {
+        "source_head": FAILED_OFFICIAL_GATE_REVOCATION_SOURCE["head"],
+        "source_tree": FAILED_OFFICIAL_GATE_REVOCATION_SOURCE["tree"],
+        "run_id": FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID,
+        "packet_sha256": packet_reference["sha256"],
+        "candidate_sha256": (
+            FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS[
+                "review_candidate"
+            ]["sha256"]
+        ),
+        "authorization_source_sha256": (
+            "86ed6d9c3d4175aac140a5a067548323ca969dffc395fbcdaadbc883594c2fed"
+        ),
+        "authorization_wrapper_sha256": (
+            "26b66dd55e18274982b080ded7af216ff17e0cb17bf5564e16098106815e4ce7"
+        ),
+        "authorization_receipt_sha256": (
+            "cbe0fd9d182534797771e048eac74da6ef840ba3f5db721b0dc9d925d3c97c7d"
+        ),
+    }
+    if (
+        not isinstance(packet, Mapping)
+        or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
+        or packet.get("approval_id")
+        != FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID
+        or packet.get("source_binding")
+        != FAILED_OFFICIAL_GATE_REVOCATION_SOURCE
+        or packet.get("deployment_binding")
+        != {"root": str(deployment_root)}
+        or not isinstance(candidate, Mapping)
+        or candidate.get("schema") != DEPLOYMENT_REQUEST_CANDIDATE_SCHEMA
+        or candidate.get("approval_id")
+        != FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID
+        or candidate.get("approval_packet") != packet_reference
+        or not isinstance(evidence, Mapping)
+        or evidence.get("schema") != DEPLOYMENT_REQUEST_EVIDENCE_SCHEMA
+        or evidence.get("approval_id")
+        != FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID
+        or evidence.get("approval_packet") != packet_reference
+        or not isinstance(receipt, Mapping)
+        or receipt.get("schema")
+        != "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3"
+        or receipt.get("raw_record_sha256")
+        != expected_binding["authorization_wrapper_sha256"]
+        or receipt.get("source_authorization", {}).get(
+            "raw_record_sha256"
+        )
+        != expected_binding["authorization_source_sha256"]
+        or not isinstance(specification, Mapping)
+        or any(
+            specification.get(field) != value
+            for field, value in expected_binding.items()
+        )
+        or not isinstance(dry_run, Mapping)
+        or dry_run.get("schema") != "SITINA_STEP7_EXECUTION_RESULT_V1"
+        or dry_run.get("run_id") != FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+        or dry_run.get("status") != "DRY_RUN_VERIFIED"
+        or dry_run.get("side_effect_count") != 0
+        or not isinstance(result, Mapping)
+        or result.get("schema") != "SITINA_STEP7_RECOVERY_RESULT_V1"
+        or result.get("run_id") != FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+        or result.get("status") != "RECOVERED_AFTER_FAILURE"
+        or any(
+            result.get("binding", {}).get(field) != value
+            for field, value in expected_binding.items()
+        )
+    ):
+        return False
+    expected_authorization_chain = {
+        "source_record": {
+            "session_path": (
+                "/Users/moss/.codex/sessions/2026/07/20/"
+                "rollout-2026-07-20T14-42-51-"
+                "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+            ),
+            "line_number": 14699,
+            "record_id": "msg_019fa833-1028-7543-b2ec-ba058c1a29e6",
+            "raw_record_sha256": (
+                "86ed6d9c3d4175aac140a5a067548323ca969dffc395fbcdaadbc883594c2fed"
+            ),
+            "actual_content_sha256": (
+                "e493cdcfd66188d8997e0d2d0b0925cfa60a933b3153eae0c216010787372a98"
+            ),
+            "actual_content_length": 667,
+            "canonical_logical_sha256": (
+                "7344060e8e65a0ff33a06399dbef2b7c6143cb292a7891edc431a71a60f8d47b"
+            ),
+            "canonical_logical_length": 666,
+            "normalization_mode": "REMOVE_ONE_TERMINAL_LF",
+        },
+        "wrapper_record": {
+            "session_path": (
+                "/Users/moss/.codex/sessions/2026/07/27/"
+                "rollout-2026-07-27T01-36-47-"
+                "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+            ),
+            "line_number": 14808,
+            "record_id": "msg_019fa83a-05be-7430-924e-96b2f61aaaa6",
+            "raw_record_sha256": (
+                "26b66dd55e18274982b080ded7af216ff17e0cb17bf5564e16098106815e4ce7"
+            ),
+            "content_sha256": (
+                "ff12a9347a4b8f73505decb1fea9b4e777609e5ab6d5e2d90d0ccd8668b263d3"
+            ),
+        },
+        "receipt_physical_sha256": (
+            FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS[
+                "authorization_receipt"
+            ]["sha256"]
+        ),
+        "receipt_canonical_sha256": (
+            expected_binding["authorization_receipt_sha256"]
+        ),
+        "consumed": True,
+        "reusable": False,
+    }
+    if revocation.get("authorization_chain") != expected_authorization_chain:
+        return False
+    expected_execution_attempt = {
+        "run_id": FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID,
+        "backup_root": FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT,
+        "old_gate_contract_sha256": (
+            "00e7ea70251e517408bcbc615a95a6ee89353912e0b1bc4a2d38f2b2b3dbb0bf"
+        ),
+        "applied_indices": [0, 1, 2, 3, 4, 5],
+        "committed_indices": [0, 1, 2, 3, 4, 5],
+        "failure_phase": "DEPLOYED_OFFICIAL_ACTIVATION_GATE",
+        "failure_error": (
+            "official activation gate did not return one PASS summary"
+        ),
+        "failure_checkpoint_sha256": (
+            FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS[
+                "failure_checkpoint"
+            ]["sha256"]
+        ),
+        "formal_attempt_capture_persisted": False,
+        "terminal_status": "RECOVERED_AFTER_FAILURE",
+        "counted_as_pass": False,
+    }
+    if revocation.get("execution_attempt") != expected_execution_attempt:
+        return False
+    expected_gate_failure = {
+        "accepted": False,
+        "counted_as_pass": False,
+        "formal_attempt_capture_persisted": False,
+        "diagnostic_classification": "EXPLORATORY_EXCLUDED",
+        "collected": 144,
+        "executed": 144,
+        "passed": 133,
+        "failures": 2,
+        "errors": 24,
+        "skipped": 0,
+        "xfail": 0,
+        "xpass": 0,
+        "root_causes": [
+            "MISSING_CONTROLLED_PYTHONPATH_FOR_DEPLOYED_CORE",
+            "DEPLOYMENT_COPY_HAS_NO_GIT_METADATA",
+        ],
+        "diagnostic_artifacts": {
+            name: FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS[name]
+            for name in (
+                "diagnostic_stdout",
+                "diagnostic_stderr",
+                "diagnostic_exit",
+                "diagnostic_root_record",
+            )
+        },
+    }
+    if revocation.get("gate_failure") != expected_gate_failure:
+        return False
+    recovery_artifacts = revocation.get("recovery", {}).get("artifacts")
+    if recovery_artifacts != FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS:
+        return False
+    recovered: dict[str, Mapping[str, Any]] = {}
+    for name, reference in FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS.items():
+        _, value = _verify_file_reference(
+            reference,
+            errors,
+            f"failed official gate recovery {name}",
+        )
+        if isinstance(value, Mapping):
+            recovered[name] = value
+    if errors:
+        return False
+    manifest = recovered.get("manifest")
+    failure = recovered.get("failure_checkpoint")
+    rollback_intent = recovered.get("rollback_intent")
+    recovery_result = recovered.get("recovery_result")
+    if (
+        not isinstance(manifest, Mapping)
+        or manifest.get("schema") != "SITINA_STEP7_EXECUTION_MANIFEST_V1"
+        or manifest.get("run_id") != FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+        or manifest.get("status") != "VERIFIED_BEFORE_APPLY"
+        or not isinstance(failure, Mapping)
+        or failure.get("run_id") != FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+        or failure.get("error") != expected_execution_attempt["failure_error"]
+        or not isinstance(rollback_intent, Mapping)
+        or rollback_intent.get("schema") != "SITINA_STEP7_ROLLBACK_INTENT_V1"
+        or rollback_intent.get("applied_indices") != [0, 1, 2, 3, 4, 5]
+        or rollback_intent.get("recovery_order") != [5, 4, 3, 2, 1, 0]
+        or not isinstance(recovery_result, Mapping)
+        or recovery_result != result
+    ):
+        return False
+    expected_recovery = {
+        "artifacts": FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS,
+        "status": "RECOVERED_AFTER_FAILURE",
+        "backup_root_retained": True,
+        "backup_root_mode": "0o700",
+        "deployment_inventory_before_sha256": (
+            "b77e4098d675474bed191f7693716b9e5c6740254b51ec7aac49f29eafede112"
+        ),
+        "deployment_inventory_after_sha256": (
+            "b77e4098d675474bed191f7693716b9e5c6740254b51ec7aac49f29eafede112"
+        ),
+        "applied_indices": [0, 1, 2, 3, 4, 5],
+        "reverse_recovery_indices": [5, 4, 3, 2, 1, 0],
+        "checkpoint_references_sha256": (
+            "2a848e9e8a7c00ad5f4c48c9f7d402de68d684f0872831c1b8496c6f6c4d5e29"
+        ),
+        "checkpoint_reference_set_sha256": (
+            "92faece6f4712ee8f77a30eabbd962c0a62878c72774e3c1244b5ff24f08bfd0"
+        ),
+        "checkpoint_closure_sha256": (
+            "15b7c8d6469b3c42b708e3bdb367f17e3162ef5a5ac63d9a37076ef113fdb917"
+        ),
+        "delete_operation_count": 0,
+        "unlink_operation_count": 0,
+        "rmtree_operation_count": 0,
+    }
+    if revocation.get("recovery") != expected_recovery:
+        return False
+    backup_root = Path(FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT)
+    try:
+        backup_metadata = backup_root.lstat()
+    except OSError:
+        return False
+    if (
+        stat.S_ISLNK(backup_metadata.st_mode)
+        or not stat.S_ISDIR(backup_metadata.st_mode)
+        or stat.S_IMODE(backup_metadata.st_mode) != 0o700
+        or _json_value_sha256(_step7_v4_inventory(deployment_root))
+        != expected_recovery["deployment_inventory_after_sha256"]
+    ):
+        return False
+    operations = packet.get("exact_file_operations")
+    if not isinstance(operations, list) or len(operations) != 6:
+        return False
+    for operation in operations:
+        if (
+            not isinstance(operation, Mapping)
+            or _step7_v4_file_tuple(Path(str(operation["target_path"])))
+            != _step7_v4_expected_tuple(operation, postimage=False)
+        ):
+            return False
+    expected_effects = {
+        "transient_applied_operation_count": 6,
+        "terminal_deployment_change_count": 0,
+        "production_data_change_count": 0,
+        "baseline_change_count": 0,
+        "canary_run_count": 0,
+        "execution_switch_change_count": 0,
+        "external_change_count": 0,
+        "backup_root_created": True,
+        "backup_root_retained": True,
+        "permanent_delete_count": 0,
+        "step8_step9_entered": False,
+    }
+    if revocation.get("deployment_effects") != expected_effects:
+        return False
+    expected_switches = {field: False for field in SWITCHES}
+    try:
+        source_switches = {
+            field: _load_json(
+                source_root / "config/true_multi_agent_policy.json"
+            ).get(field)
+            for field in SWITCHES
+        }
+        deployment_switches = {
+            field: _load_json(
+                deployment_root / "config/true_multi_agent_policy.json"
+            ).get(field)
+            for field in SWITCHES
+        }
+        sentinels = _step7_v4_production_sentinels()
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    expected_production_state = {
+        "deployment_root": str(deployment_root),
+        "deployment_inventory_sha256": (
+            expected_recovery["deployment_inventory_after_sha256"]
+        ),
+        "sentinels": sentinels,
+        "source_switches": expected_switches,
+        "deployment_switches": expected_switches,
+    }
+    if (
+        source_switches != expected_switches
+        or deployment_switches != expected_switches
+        or revocation.get("production_state") != expected_production_state
+    ):
+        return False
+    reuse_fields = {
+        "may_execute",
+        "may_request_authorization",
+        "may_reuse_approval_id",
+        "may_reuse_run_id",
+        "may_reuse_packet",
+        "may_reuse_candidate",
+        "may_reuse_evidence",
+        "may_reuse_gate_results",
+        "may_reuse_real_sitina_reviews",
+        "may_reuse_authorization_request",
+        "may_reuse_source_record",
+        "may_reuse_wrapper_record",
+        "may_reuse_authorization_receipt",
+        "may_reuse_execution_specification",
+        "may_reuse_operations_sha256",
+        "may_reuse_plan_sha256",
+        "may_reuse_backup_root",
+        "may_reuse_manifest",
+        "may_reuse_recovery_artifacts",
+    }
+    reuse_policy = revocation.get("reuse_policy")
+    return bool(
+        isinstance(reuse_policy, Mapping)
+        and set(reuse_policy) == reuse_fields
+        and all(
+            reuse_policy.get(field) is False for field in reuse_fields
+        )
+    )
+
+
 def _verify_rollback_and_bound_evidence(
     candidate: Mapping[str, Any],
     source_root: Path,
@@ -10007,6 +11559,13 @@ def _verify_rollback_and_bound_evidence(
             anchor_root=anchor_root,
         )
         or _rejected_topology_revocation_is_valid(
+            revocation,
+            source_root=source_root,
+            deployment_root=deployment_root,
+            source_state=source_state,
+            anchor_root=anchor_root,
+        )
+        or _failed_official_gate_revocation_is_valid(
             revocation,
             source_root=source_root,
             deployment_root=deployment_root,

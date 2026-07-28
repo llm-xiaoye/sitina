@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import runpy
 import shutil
 import stat
 import subprocess
@@ -96,7 +98,30 @@ ENTRY_CANDIDATE = Path(
     "/Users/moss/Desktop/sitina/output/"
     "sitina-step7-entry-review-candidate-step56-45a36be.json"
 )
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+DEPLOYED_CONTENT_ROOT = Path(__file__).resolve().parents[2]
+_BOUND_SOURCE_ROOT = os.environ.get("SITINA_STEP7_SOURCE_ROOT")
+if _BOUND_SOURCE_ROOT is None:
+    REPOSITORY_ROOT = DEPLOYED_CONTENT_ROOT
+else:
+    _source_root = Path(_BOUND_SOURCE_ROOT)
+    if (
+        not _source_root.is_absolute()
+        or _source_root.resolve(strict=True) != _source_root
+    ):
+        raise RuntimeError(
+            "SITINA_STEP7_SOURCE_ROOT must be an absolute canonical path"
+        )
+    _git_top_level = subprocess.check_output(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=_source_root,
+        text=True,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    ).strip()
+    if Path(_git_top_level).resolve(strict=True) != _source_root:
+        raise RuntimeError(
+            "SITINA_STEP7_SOURCE_ROOT is not the bound git top-level"
+        )
+    REPOSITORY_ROOT = _source_root
 
 
 def sha256(path: Path) -> str:
@@ -1068,12 +1093,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "duration_seconds": 0.01,
             "stdout_sha256": "a" * 64,
             "child_cwd": f"{registry['test_home_root']}/step7-fixture-{stage}",
+            "child_home_cleanup_succeeded": True,
+            "child_home_cleanup_error": None,
             "warning_count": 0,
             "warning_lines": [],
             "external_attempt_count": 0,
             "production_attempt_count": 0,
             "production_attempt_records": [],
             "production_attempt_log_sha256": hashlib.sha256(b"").hexdigest(),
+            "readonly_attempt_count": 0,
+            "readonly_attempt_records": [],
+            "readonly_attempt_log_sha256": hashlib.sha256(b"").hexdigest(),
+            "capture_only": False,
             "production_guard_profile": EXPECTED_PRODUCTION_GUARD_PROFILE,
             "production_sentinel_baseline": BASE_SENTINEL_PATH,
             "production_sentinel_before": BASE_SENTINEL_REPORT_SHA256,
@@ -4232,6 +4263,26 @@ class Step7ReadinessGateTests(unittest.TestCase):
                             "sentinel drift\n", encoding="utf-8"
                         )
                         return {"accepted": True}
+                    attempt_path = (
+                        Path(str(spec["backup_root"]))
+                        / "official-gates"
+                        / "activation.json"
+                    )
+                    attempt_path.write_text(
+                        json.dumps(
+                            {
+                                "schema": (
+                                    "SITINA_STEP7_OFFICIAL_GATE_"
+                                    "ATTEMPT_V2"
+                                ),
+                                "name": "activation",
+                                "return_code": 1,
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
                     return {"accepted": False}
 
                 result = execute_step7_v4(
@@ -4267,6 +4318,49 @@ class Step7ReadinessGateTests(unittest.TestCase):
                         "old replace\n",
                     )
                     self.assertFalse((deployment / "create.txt").exists())
+                    attempts = result[
+                        "official_gate_attempt_references"
+                    ]
+                    self.assertEqual(len(attempts), 1)
+                    self.assertEqual(
+                        attempts[0]["path"],
+                        str(
+                            Path(str(spec["backup_root"]))
+                            / "official-gates"
+                            / "activation.json"
+                        ),
+                    )
+                    self.assertEqual(
+                        result[
+                            "official_gate_attempt_"
+                            "reference_set_sha256"
+                        ],
+                        _json_value_sha256(attempts),
+                    )
+                    for path in (
+                        Path(str(spec["backup_root"]))
+                        / "checkpoints"
+                        / "failure.json",
+                        Path(str(spec["backup_root"]))
+                        / "checkpoints"
+                        / "rollback-intent.json",
+                    ):
+                        document = json.loads(
+                            path.read_text(encoding="utf-8")
+                        )
+                        self.assertEqual(
+                            document[
+                                "official_gate_attempt_references"
+                            ],
+                            attempts,
+                        )
+                        self.assertEqual(
+                            document[
+                                "official_gate_attempt_"
+                                "reference_set_sha256"
+                            ],
+                            _json_value_sha256(attempts),
+                        )
 
     def test_v4_executor_defaults_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -4937,42 +5031,206 @@ class Step7ReadinessGateTests(unittest.TestCase):
         )
         self.assertTrue(any("binding mismatch" in error for error in errors))
 
+    @staticmethod
+    def _official_source_binding(root: Path) -> dict[str, object]:
+        return {
+            "root": str(root.resolve()),
+            "head": "a" * 40,
+            "tree": "b" * 40,
+            "clean": True,
+            "diff_check_clean": True,
+        }
+
+    def _write_official_gate_fixture(
+        self,
+        tree: Path,
+        *,
+        test_home_root: Path,
+        label: str,
+    ) -> dict[str, object]:
+        (tree / "scripts").mkdir(parents=True)
+        (tree / "tests/foundation").mkdir(parents=True)
+        (tree / "config").mkdir(parents=True)
+        (tree / "scripts/test-bplus.py").write_text(
+            f"{label} test runner\n",
+            encoding="utf-8",
+        )
+        (tree / "tests/foundation/activation_gate_runner.py").write_text(
+            f"{label} activation\n",
+            encoding="utf-8",
+        )
+        (
+            tree / "tests/foundation/registration_gate_runner.py"
+        ).write_text(
+            f"{label} registration\n",
+            encoding="utf-8",
+        )
+        shutil.copy2(
+            REPOSITORY_ROOT / "requirements-bplus.lock",
+            tree / "requirements-bplus.lock",
+        )
+        policy = {
+            "schema": "SITINA_TRUE_MULTI_AGENT_POLICY_V1",
+            **{field: False for field in step7_gate.SWITCHES},
+        }
+        (tree / "config/true_multi_agent_policy.json").write_text(
+            json.dumps(policy, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        registry = {
+            "schema": "BPLUS_TEST_SUITES_V1",
+            "approved_python": APPROVED_PYTHON_PATH,
+            "dependency_lock_sha256": sha256(
+                tree / "requirements-bplus.lock"
+            ),
+            "test_home_root": str(test_home_root),
+            "historical_skip_allowlist": [
+                {
+                    "test_id": test_id,
+                    "reason": HISTORICAL_SKIP_REASON,
+                }
+                for test_id in HISTORICAL_SKIP_IDS
+            ],
+            "suites": {
+                "execution_activation_gate": {
+                    "selectors": [
+                        "tests/test_execution_bridge.py"
+                    ],
+                    "timeout_seconds": 60,
+                },
+                "all_registered_unique": {
+                    "selectors": [],
+                    "timeout_seconds": 120,
+                },
+            },
+        }
+        (tree / "tests/test_suites.json").write_text(
+            json.dumps(registry, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return registry
+
+    def _official_capture(
+        self,
+        name: str,
+        *,
+        contract: dict[str, object],
+        deployment: Path,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        stage = (
+            "execution_activation"
+            if name == "activation"
+            else "all_registered_unique"
+        )
+        capture = copy.deepcopy(self._gate_evidence_document(stage))
+        strict_field = (
+            "activation_gate"
+            if name == "activation"
+            else "registration_gate"
+        )
+        strict = capture[strict_field]
+        assert isinstance(strict, dict)
+        selectors = list(
+            contract[
+                "activation_selectors"
+                if name == "activation"
+                else "registered_selectors"
+            ]
+        )
+        collected = strict["collected_test_count"]
+        quotient, remainder = divmod(collected, len(selectors))
+        strict["selector_counts"] = {
+            selector: quotient + (1 if index < remainder else 0)
+            for index, selector in enumerate(selectors)
+        }
+        if name == "registration":
+            strict["selector_count"] = len(selectors)
+        capture_contract = contract["capture_suites"][name]
+        capture["stage"] = capture_contract["stage"]
+        capture["suite"] = capture_contract["suite"]
+        capture["selectors"] = selectors
+        capture["command"] = (
+            [
+                APPROVED_PYTHON_PATH,
+                "-m",
+                "tests.foundation.activation_gate_runner",
+                *selectors,
+            ]
+            if name == "activation"
+            else [
+                APPROVED_PYTHON_PATH,
+                "-m",
+                "tests.foundation.registration_gate_runner",
+                "--registry",
+                contract["registry"]["path"],
+            ]
+        )
+        capture["child_cwd"] = str(
+            Path(contract["test_home_root"])
+            / f"official-{name}-already-cleaned"
+        )
+        capture["capture_only"] = True
+        locked_versions = step7_gate._locked_versions(
+            deployment / "requirements-bplus.lock"
+        )
+        dependency = capture["dependency_gate"]
+        dependency.update(
+            {
+                "expected_lock_sha256": contract[
+                    "dependency_lock_sha256"
+                ],
+                "lock_sha256": contract["dependency_lock_sha256"],
+                "lock_path": str(
+                    deployment / "requirements-bplus.lock"
+                ),
+                "locked_versions": locked_versions,
+                "installed_locked_versions": locked_versions,
+                "locked_distribution_count": len(locked_versions),
+            }
+        )
+        return capture, strict
+
     def test_v4_production_gate_contract_binds_physical_runner_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             deployment = Path(directory).resolve()
-            foundation = deployment / "tests/foundation"
-            foundation.mkdir(parents=True)
-            activation = foundation / "activation_gate_runner.py"
-            registration = foundation / "registration_gate_runner.py"
-            activation.write_text("activation\n", encoding="utf-8")
-            registration.write_text("registration\n", encoding="utf-8")
-            registry = {
-                "schema": "BPLUS_TEST_SUITES_V1",
-                "approved_python": (
-                    "/Users/moss/Desktop/sitina/bplus-test-runtime/"
-                    "cpython-3.12.13-lock-dbc3f95b77ed/bin/python"
-                ),
-                "historical_skip_allowlist": [
-                    {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
-                    for test_id in HISTORICAL_SKIP_IDS
-                ],
-                "suites": {
-                    "execution_activation_gate": {
-                        "selectors": ["tests/test_execution_bridge.py"]
-                    }
-                },
-            }
-            registry_path = deployment / "tests/test_suites.json"
-            registry_path.write_text(
-                json.dumps(registry, sort_keys=True) + "\n",
-                encoding="utf-8",
+            test_home_root = deployment / "test-homes"
+            test_home_root.mkdir()
+            self._write_official_gate_fixture(
+                deployment,
+                test_home_root=test_home_root,
+                label="deployment",
             )
-            first = _step7_v4_production_gate_contract(deployment)
+            source_binding = self._official_source_binding(deployment)
+            first = _step7_v4_production_gate_contract(
+                deployment,
+                source_binding=source_binding,
+            )
+            test_runner = deployment / "scripts/test-bplus.py"
+            activation = (
+                deployment
+                / "tests/foundation/activation_gate_runner.py"
+            )
+            self.assertEqual(
+                first["test_runner"]["sha256"], sha256(test_runner)
+            )
+            self.assertEqual(
+                first["source_root"], str(deployment)
+            )
+            self.assertEqual(
+                first["runner_mode"],
+                (
+                    "GUARDED_DISPOSABLE_HOME_CAPTURE_ONLY_"
+                    "NO_GLOBAL_EVIDENCE_V2"
+                ),
+            )
             self.assertEqual(
                 first["activation_runner"]["sha256"], sha256(activation)
             )
             activation.write_text("changed\n", encoding="utf-8")
-            second = _step7_v4_production_gate_contract(deployment)
+            second = _step7_v4_production_gate_contract(
+                deployment,
+                source_binding=source_binding,
+            )
             self.assertNotEqual(
                 first["activation_runner"]["sha256"],
                 second["activation_runner"]["sha256"],
@@ -4985,33 +5243,48 @@ class Step7ReadinessGateTests(unittest.TestCase):
             root = Path(directory).resolve()
             source = root / "source"
             deployment = root / "deployment"
-            for tree in (source, deployment):
-                (tree / "tests/foundation").mkdir(parents=True)
-                (tree / "tests/foundation/activation_gate_runner.py").write_text(
-                    f"{tree.name}-activation\n", encoding="utf-8"
-                )
-                (tree / "tests/foundation/registration_gate_runner.py").write_text(
-                    f"{tree.name}-registration\n", encoding="utf-8"
-                )
-                registry = {
-                    "schema": "BPLUS_TEST_SUITES_V1",
-                    "approved_python": APPROVED_PYTHON_PATH,
-                    "historical_skip_allowlist": [
-                        {"test_id": test_id, "reason": HISTORICAL_SKIP_REASON}
-                        for test_id in HISTORICAL_SKIP_IDS
-                    ],
-                    "suites": {
-                        "execution_activation_gate": {
-                            "selectors": ["tests/test_execution_bridge.py"]
-                        }
-                    },
-                }
-                (tree / "tests/test_suites.json").write_text(
-                    json.dumps(registry, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                )
+            test_home_root = root / "test-homes"
+            test_home_root.mkdir()
+            self._write_official_gate_fixture(
+                source,
+                test_home_root=test_home_root,
+                label="source",
+            )
+            self._write_official_gate_fixture(
+                deployment,
+                test_home_root=test_home_root,
+                label="deployment",
+            )
+            source_binding = self._official_source_binding(source)
             contract = _step7_v4_production_gate_contract(
-                deployment, content_root=source
+                deployment,
+                content_root=source,
+                source_root=source,
+                source_binding=source_binding,
+            )
+            self.assertEqual(contract["source_root"], str(source))
+            self.assertEqual(
+                contract["environment"],
+                {
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "PYTHONNOUSERSITE": "1",
+                    "SITINA_STEP7_OFFICIAL_GATE_CAPTURE": "1",
+                    "SITINA_STEP7_SOURCE_ROOT": str(source),
+                    "SITINA_STEP7_CAPTURE_READONLY_ROOTS_JSON": (
+                        json.dumps(
+                            contract["readonly_roots"],
+                            separators=(",", ":"),
+                        )
+                    ),
+                },
+            )
+            self.assertEqual(
+                contract["test_runner"]["path"],
+                str(deployment / "scripts/test-bplus.py"),
+            )
+            self.assertEqual(
+                contract["test_runner"]["sha256"],
+                sha256(source / "scripts/test-bplus.py"),
             )
             self.assertEqual(
                 contract["activation_runner"]["path"],
@@ -5031,6 +5304,853 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     / "tests/foundation/activation_gate_runner.py"
                 ),
             )
+            self.assertFalse((deployment / ".git").exists())
+
+    def test_v4_official_gate_uses_guarded_capture_only_runner(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            deployment = root / "deployment"
+            test_home_root = root / "test-homes"
+            test_home_root.mkdir()
+            self._write_official_gate_fixture(
+                source,
+                test_home_root=test_home_root,
+                label="postimage",
+            )
+            shutil.copytree(source, deployment)
+            source_binding = self._official_source_binding(source)
+            contract = _step7_v4_production_gate_contract(
+                deployment,
+                content_root=source,
+                source_root=source,
+                source_binding=source_binding,
+            )
+            activation_capture, activation = self._official_capture(
+                "activation",
+                contract=contract,
+                deployment=deployment,
+            )
+            registration_capture, registration = self._official_capture(
+                "registration",
+                contract=contract,
+                deployment=deployment,
+            )
+            completed = (
+                subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout=(
+                        "SITINA_ACTIVATION_GATE_JSON:"
+                        + json.dumps(activation, sort_keys=True)
+                        + "\n"
+                        + "SITINA_BPLUS_CAPTURE_JSON:"
+                        + json.dumps(
+                            activation_capture,
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    ),
+                    stderr="",
+                ),
+                subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout=(
+                        "SITINA_REGISTRATION_GATE_JSON:"
+                        + json.dumps(registration, sort_keys=True)
+                        + "\n"
+                        + "SITINA_BPLUS_CAPTURE_JSON:"
+                        + json.dumps(
+                            registration_capture,
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    ),
+                    stderr="",
+                ),
+            )
+            backup_root = root / "backup"
+            gate_evidence_root = backup_root / "official-gates"
+            gate_evidence_root.mkdir(parents=True)
+            gate_evidence = {
+                "root": str(gate_evidence_root),
+                "identity": step7_gate._step7_v4_dir_identity(
+                    gate_evidence_root
+                ),
+            }
+            with (
+                mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_git_state",
+                    return_value=source_binding,
+                ),
+                mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_control_inventory_outside_backup",
+                    return_value={},
+                ),
+                mock.patch.object(
+                    step7_gate.subprocess,
+                    "run",
+                    side_effect=completed,
+                ) as run,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "deployment inventory drift",
+                ):
+                    step7_gate._step7_v4_run_official_gates(
+                        deployment,
+                        contract,
+                        gate_evidence=gate_evidence,
+                        expected_inventory={},
+                    )
+                self.assertEqual(run.call_count, 0)
+                result = step7_gate._step7_v4_run_official_gates(
+                    deployment,
+                    contract,
+                    gate_evidence=gate_evidence,
+                    expected_inventory=step7_gate._step7_v4_inventory(
+                        deployment
+                    ),
+                )
+            self.assertEqual(
+                result["schema"],
+                "SITINA_STEP7_OFFICIAL_GATE_CAPTURE_V2",
+            )
+            self.assertEqual(run.call_count, 2)
+            for call in run.call_args_list:
+                command = call.args[0]
+                self.assertEqual(
+                    command[1],
+                    str(deployment / "scripts/test-bplus.py"),
+                )
+                self.assertIn("--capture-only", command)
+                self.assertEqual(
+                    call.kwargs["env"][
+                        "SITINA_STEP7_OFFICIAL_GATE_CAPTURE"
+                    ],
+                    "1",
+                )
+                self.assertEqual(
+                    call.kwargs["env"]["SITINA_STEP7_SOURCE_ROOT"],
+                    str(source),
+                )
+                self.assertNotIn("PYTHONPATH", call.kwargs["env"])
+            self.assertEqual(
+                set(step7_gate._step7_v4_inventory(gate_evidence_root)),
+                {
+                    "activation.json",
+                    "registration.json",
+                    "manifest.json",
+                },
+            )
+            manifest_reference = result["evidence_manifest"]
+            self.assertEqual(
+                manifest_reference["path"],
+                str(gate_evidence_root / "manifest.json"),
+            )
+            self.assertEqual(
+                contract["test_home_root_identity"],
+                step7_gate._step7_v4_dir_identity(test_home_root),
+            )
+            self.assertEqual(
+                step7_gate._step7_v4_inventory(test_home_root),
+                {},
+            )
+            step7_gate._step7_v4_validate_official_gate_result(
+                backup_root,
+                result,
+                gate_contract=contract,
+            )
+            manifest_path = gate_evidence_root / "manifest.json"
+            tampered_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            tampered_manifest["contract_sha256"] = "0" * 64
+            manifest_path.write_text(
+                json.dumps(tampered_manifest, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "success evidence binding mismatch",
+            ):
+                step7_gate._step7_v4_validate_official_gate_result(
+                    backup_root,
+                    result,
+                    gate_contract=contract,
+                )
+            drift_root = root / "drift-backup" / "official-gates"
+            drift_root.mkdir(parents=True)
+            drift_evidence = {
+                "root": str(drift_root),
+                "identity": step7_gate._step7_v4_dir_identity(
+                    drift_root
+                ),
+            }
+
+            def leave_test_home_residue(
+                *_args: object,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                (test_home_root / "unexpected-residue").write_text(
+                    "drift\n",
+                    encoding="utf-8",
+                )
+                return completed[0]
+
+            with (
+                mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_git_state",
+                    return_value=source_binding,
+                ),
+                mock.patch.object(
+                    step7_gate,
+                    "_step7_v4_control_inventory_outside_backup",
+                    return_value={},
+                ),
+                mock.patch.object(
+                    step7_gate.subprocess,
+                    "run",
+                    side_effect=leave_test_home_residue,
+                ),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "test home root post-run drift",
+                ),
+            ):
+                step7_gate._step7_v4_run_official_gates(
+                    deployment,
+                    contract,
+                    gate_evidence=drift_evidence,
+                    expected_inventory=step7_gate._step7_v4_inventory(
+                        deployment
+                    ),
+                )
+            (test_home_root / "unexpected-residue").unlink()
+
+    def test_v4_capture_only_publish_and_marker_contracts(self) -> None:
+        namespace = runpy.run_path(
+            str(REPOSITORY_ROOT / "scripts/test-bplus.py"),
+            run_name="step7_capture_publish_probe",
+        )
+        publish = namespace["_publish_result"]
+        marker = namespace["CAPTURE_MARKER"]
+        self.assertEqual(marker, "SITINA_BPLUS_CAPTURE_JSON:")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result_path = root / "aggregate.json"
+            suite_root = root / "suites"
+            result = {
+                "schema": "BPLUS_TEST_RESULT_V2",
+                "capture_only": True,
+            }
+            publish(
+                result_path=result_path,
+                suite_result_root=suite_root,
+                suite="execution_activation_gate",
+                result=result,
+                capture_only=True,
+            )
+            self.assertFalse(result_path.exists())
+            self.assertFalse(suite_root.exists())
+            publish(
+                result_path=result_path,
+                suite_result_root=suite_root,
+                suite="execution_activation_gate",
+                result=result,
+                capture_only=False,
+            )
+            self.assertEqual(
+                json.loads(result_path.read_text(encoding="utf-8")),
+                result,
+            )
+            self.assertEqual(
+                json.loads(
+                    (
+                        suite_root
+                        / "execution_activation_gate.json"
+                    ).read_text(encoding="utf-8")
+                ),
+                result,
+            )
+        payload = {"accepted": True}
+        encoded = json.dumps(payload, sort_keys=True)
+        self.assertEqual(
+            step7_gate._step7_v4_parse_capture_marker(
+                f"SITINA_BPLUS_CAPTURE_JSON:{encoded}\n",
+                "SITINA_BPLUS_CAPTURE_JSON:",
+            ),
+            [payload],
+        )
+        self.assertEqual(
+            len(
+                step7_gate._step7_v4_parse_capture_marker(
+                    (
+                        f"SITINA_BPLUS_CAPTURE_JSON:{encoded}\n"
+                        f"SITINA_BPLUS_CAPTURE_JSON:{encoded}\n"
+                    ),
+                    "SITINA_BPLUS_CAPTURE_JSON:",
+                )
+            ),
+            2,
+        )
+        self.assertEqual(
+            step7_gate._step7_v4_parse_capture_marker(
+                "SITINA_BPLUS_CAPTURE_JSON:{bad json}\n",
+                "SITINA_BPLUS_CAPTURE_JSON:",
+            ),
+            [],
+        )
+        for suffix in ("{bad json}", "[]"):
+            with self.subTest(invalid_suffix=suffix):
+                self.assertEqual(
+                    step7_gate._step7_v4_parse_capture_marker(
+                        (
+                            f"SITINA_BPLUS_CAPTURE_JSON:{encoded}\n"
+                            f"SITINA_BPLUS_CAPTURE_JSON:{suffix}\n"
+                        ),
+                        "SITINA_BPLUS_CAPTURE_JSON:",
+                    ),
+                    [],
+                )
+        for marker in (
+            "SITINA_ACTIVATION_GATE_JSON:",
+            "SITINA_REGISTRATION_GATE_JSON:",
+        ):
+            for suffix in ("{bad json}", "[]"):
+                with self.subTest(
+                    strict_marker=marker,
+                    invalid_suffix=suffix,
+                ):
+                    self.assertEqual(
+                        step7_gate._step7_v4_parse_capture_marker(
+                            (
+                                f"{marker}{encoded}\n"
+                                f"{marker}{suffix}\n"
+                            ),
+                            marker,
+                        ),
+                        [],
+                    )
+
+    def test_v4_capture_readonly_guard_directly_denies_mutation(
+        self,
+    ) -> None:
+        namespace = runpy.run_path(
+            str(REPOSITORY_ROOT / "scripts/test-bplus.py"),
+            run_name="step7_readonly_guard_probe",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            readonly_root = root / "readonly"
+            guard_root = root / "guard"
+            readonly_root.mkdir()
+            guard_root.mkdir()
+            target = readonly_root / "bound.txt"
+            target.write_text("before\n", encoding="utf-8")
+            (guard_root / "sitecustomize.py").write_text(
+                namespace["NETWORK_GUARD"],
+                encoding="utf-8",
+            )
+            readonly_log = root / "readonly-attempts.jsonl"
+            environment = {
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": str(guard_root),
+                "SITINA_EXTERNAL_ATTEMPT_LOG": str(
+                    root / "external.jsonl"
+                ),
+                "SITINA_PRODUCTION_ATTEMPT_LOG": str(
+                    root / "production.jsonl"
+                ),
+                "SITINA_READONLY_ATTEMPT_LOG": str(readonly_log),
+                "SITINA_READONLY_ROOTS_JSON": json.dumps(
+                    [str(readonly_root)],
+                    separators=(",", ":"),
+                ),
+                "SITINA_PRODUCTION_HOME": str(
+                    root / "unrelated-production"
+                ),
+            }
+            completed = subprocess.run(
+                [
+                    APPROVED_PYTHON_PATH,
+                    "-c",
+                    (
+                        "from pathlib import Path; "
+                        f"Path({str(target)!r}).write_text("
+                        "'after\\n', encoding='utf-8')"
+                    ),
+                ],
+                cwd=root,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                "read-only-root mutation",
+                completed.stderr,
+            )
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                "before\n",
+            )
+            records = readonly_log.read_text(
+                encoding="utf-8"
+            ).splitlines()
+            self.assertEqual(len(records), 1)
+
+    def test_v4_disposable_cleanup_runs_after_child_setup_exception(
+        self,
+    ) -> None:
+        namespace = runpy.run_path(
+            str(REPOSITORY_ROOT / "scripts/test-bplus.py"),
+            run_name="step7_cleanup_probe",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "child-home"
+            home.mkdir()
+
+            class DisposableProbe:
+                path = home
+
+                def cleanup(self) -> None:
+                    shutil.rmtree(self.path)
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "injected child setup failure",
+            ):
+                namespace["_execute_with_disposable_cleanup"](
+                    DisposableProbe(),
+                    lambda: (_ for _ in ()).throw(
+                        RuntimeError(
+                            "injected child setup failure"
+                        )
+                    ),
+                )
+            self.assertFalse(home.exists())
+
+    def test_v6_failed_official_gate_revocation_is_exact_and_fail_closed(
+        self,
+    ) -> None:
+        source_root = REPOSITORY_ROOT
+        deployment_root = Path("/Users/moss/SitinaHub")
+        source_state = {
+            "head": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{commit}"],
+                cwd=source_root,
+                text=True,
+            ).strip(),
+            "tree": subprocess.check_output(
+                ["git", "rev-parse", "HEAD^{tree}"],
+                cwd=source_root,
+                text=True,
+            ).strip(),
+        }
+        artifacts = copy.deepcopy(
+            step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS
+        )
+        recovery_artifacts = copy.deepcopy(
+            step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_RECOVERY_ARTIFACTS
+        )
+        recovery = {
+            "artifacts": recovery_artifacts,
+            "status": "RECOVERED_AFTER_FAILURE",
+            "backup_root_retained": True,
+            "backup_root_mode": "0o700",
+            "deployment_inventory_before_sha256": (
+                "b77e4098d675474bed191f7693716b9e5c6740254b51ec7aac49f29eafede112"
+            ),
+            "deployment_inventory_after_sha256": (
+                "b77e4098d675474bed191f7693716b9e5c6740254b51ec7aac49f29eafede112"
+            ),
+            "applied_indices": [0, 1, 2, 3, 4, 5],
+            "reverse_recovery_indices": [5, 4, 3, 2, 1, 0],
+            "checkpoint_references_sha256": (
+                "2a848e9e8a7c00ad5f4c48c9f7d402de68d684f0872831c1b8496c6f6c4d5e29"
+            ),
+            "checkpoint_reference_set_sha256": (
+                "92faece6f4712ee8f77a30eabbd962c0a62878c72774e3c1244b5ff24f08bfd0"
+            ),
+            "checkpoint_closure_sha256": (
+                "15b7c8d6469b3c42b708e3bdb367f17e3162ef5a5ac63d9a37076ef113fdb917"
+            ),
+            "delete_operation_count": 0,
+            "unlink_operation_count": 0,
+            "rmtree_operation_count": 0,
+        }
+        reuse_fields = {
+            "may_execute",
+            "may_request_authorization",
+            "may_reuse_approval_id",
+            "may_reuse_run_id",
+            "may_reuse_packet",
+            "may_reuse_candidate",
+            "may_reuse_evidence",
+            "may_reuse_gate_results",
+            "may_reuse_real_sitina_reviews",
+            "may_reuse_authorization_request",
+            "may_reuse_source_record",
+            "may_reuse_wrapper_record",
+            "may_reuse_authorization_receipt",
+            "may_reuse_execution_specification",
+            "may_reuse_operations_sha256",
+            "may_reuse_plan_sha256",
+            "may_reuse_backup_root",
+            "may_reuse_manifest",
+            "may_reuse_recovery_artifacts",
+        }
+        revocation = {
+            "schema": step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_SCHEMA,
+            "revoked_at_utc": "2026-07-28T11:30:00Z",
+            "source_thread_id": STEP7_SOURCE_THREAD_ID,
+            "decision": (
+                "REJECT_DEPLOY_REQUEST_REVOKE_CONSUMED_AUTHORIZATION"
+            ),
+            "physical_classification": (
+                "AUTHORIZED_POSTAPPLY_OFFICIAL_GATE_FAILURE_"
+                "FULL_RECOVERY_RETAINED_BACKUP_ROOT"
+            ),
+            "revoked_approval_id": (
+                step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_APPROVAL_ID
+            ),
+            "revoked_run_id": (
+                step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+            ),
+            "revoked_source": {
+                "root": str(source_root),
+                **step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_SOURCE,
+            },
+            "revoked_artifacts": artifacts,
+            "authorization_chain": {
+                "source_record": {
+                    "session_path": (
+                        "/Users/moss/.codex/sessions/2026/07/20/"
+                        "rollout-2026-07-20T14-42-51-"
+                        "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                    ),
+                    "line_number": 14699,
+                    "record_id": (
+                        "msg_019fa833-1028-7543-b2ec-ba058c1a29e6"
+                    ),
+                    "raw_record_sha256": (
+                        "86ed6d9c3d4175aac140a5a067548323"
+                        "ca969dffc395fbcdaadbc883594c2fed"
+                    ),
+                    "actual_content_sha256": (
+                        "e493cdcfd66188d8997e0d2d0b0925cf"
+                        "a60a933b3153eae0c216010787372a98"
+                    ),
+                    "actual_content_length": 667,
+                    "canonical_logical_sha256": (
+                        "7344060e8e65a0ff33a06399dbef2b7c"
+                        "6143cb292a7891edc431a71a60f8d47b"
+                    ),
+                    "canonical_logical_length": 666,
+                    "normalization_mode": "REMOVE_ONE_TERMINAL_LF",
+                },
+                "wrapper_record": {
+                    "session_path": (
+                        "/Users/moss/.codex/sessions/2026/07/27/"
+                        "rollout-2026-07-27T01-36-47-"
+                        "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+                    ),
+                    "line_number": 14808,
+                    "record_id": (
+                        "msg_019fa83a-05be-7430-924e-96b2f61aaaa6"
+                    ),
+                    "raw_record_sha256": (
+                        "26b66dd55e18274982b080ded7af216ff"
+                        "17e0cb17bf5564e16098106815e4ce7"
+                    ),
+                    "content_sha256": (
+                        "ff12a9347a4b8f73505decb1fea9b4e7"
+                        "77609e5ab6d5e2d90d0ccd8668b263d3"
+                    ),
+                },
+                "receipt_physical_sha256": (
+                    artifacts["authorization_receipt"]["sha256"]
+                ),
+                "receipt_canonical_sha256": (
+                    artifacts["authorization_receipt"][
+                        "canonical_sha256"
+                    ]
+                ),
+                "consumed": True,
+                "reusable": False,
+            },
+            "execution_attempt": {
+                "run_id": (
+                    step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_RUN_ID
+                ),
+                "backup_root": (
+                    step7_gate.FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT
+                ),
+                "old_gate_contract_sha256": (
+                    "00e7ea70251e517408bcbc615a95a6ee8"
+                    "9353912e0b1bc4a2d38f2b2b3dbb0bf"
+                ),
+                "applied_indices": [0, 1, 2, 3, 4, 5],
+                "committed_indices": [0, 1, 2, 3, 4, 5],
+                "failure_phase": "DEPLOYED_OFFICIAL_ACTIVATION_GATE",
+                "failure_error": (
+                    "official activation gate did not return one PASS "
+                    "summary"
+                ),
+                "failure_checkpoint_sha256": (
+                    recovery_artifacts["failure_checkpoint"]["sha256"]
+                ),
+                "formal_attempt_capture_persisted": False,
+                "terminal_status": "RECOVERED_AFTER_FAILURE",
+                "counted_as_pass": False,
+            },
+            "gate_failure": {
+                "accepted": False,
+                "counted_as_pass": False,
+                "formal_attempt_capture_persisted": False,
+                "diagnostic_classification": "EXPLORATORY_EXCLUDED",
+                "collected": 144,
+                "executed": 144,
+                "passed": 133,
+                "failures": 2,
+                "errors": 24,
+                "skipped": 0,
+                "xfail": 0,
+                "xpass": 0,
+                "root_causes": [
+                    "MISSING_CONTROLLED_PYTHONPATH_FOR_DEPLOYED_CORE",
+                    "DEPLOYMENT_COPY_HAS_NO_GIT_METADATA",
+                ],
+                "diagnostic_artifacts": {
+                    name: artifacts[name]
+                    for name in (
+                        "diagnostic_stdout",
+                        "diagnostic_stderr",
+                        "diagnostic_exit",
+                        "diagnostic_root_record",
+                    )
+                },
+            },
+            "recovery": recovery,
+            "deployment_effects": {
+                "transient_applied_operation_count": 6,
+                "terminal_deployment_change_count": 0,
+                "production_data_change_count": 0,
+                "baseline_change_count": 0,
+                "canary_run_count": 0,
+                "execution_switch_change_count": 0,
+                "external_change_count": 0,
+                "backup_root_created": True,
+                "backup_root_retained": True,
+                "permanent_delete_count": 0,
+                "step8_step9_entered": False,
+            },
+            "production_state": {
+                "deployment_root": str(deployment_root),
+                "deployment_inventory_sha256": (
+                    recovery["deployment_inventory_after_sha256"]
+                ),
+                "sentinels": step7_gate._step7_v4_production_sentinels(),
+                "source_switches": {
+                    field: False for field in step7_gate.SWITCHES
+                },
+                "deployment_switches": {
+                    field: False for field in step7_gate.SWITCHES
+                },
+            },
+            "reuse_policy": {
+                field: False for field in reuse_fields
+            },
+            "successor_requirement": {
+                "source_root": str(source_root),
+                "head": source_state["head"],
+                "tree": source_state["tree"],
+                "scope": (
+                    "OFFICIAL_DEPLOYED_GATE_CAPTURE_AND_"
+                    "RECOVERY_CLOSURE_V2"
+                ),
+                "required_fixes": [
+                    "GUARDED_CAPTURE_ONLY_TEST_RUNNER",
+                    "DEPLOYMENT_WITHOUT_GIT_USES_BOUND_SOURCE_IDENTITY",
+                    "CONTROLLED_PYTHONPATH_AND_DISPOSABLE_HOME",
+                    "READONLY_SOURCE_DEPLOYMENT_AND_CONTROL_ROOTS",
+                    "MANIFEST_BOUND_OFFICIAL_GATE_ATTEMPT_EVIDENCE",
+                    "SUCCESS_AND_RECOVERY_DEREFERENCE_ATTEMPT_CLOSURE",
+                    "MALFORMED_OR_DUPLICATE_MARKERS_FAIL_CLOSED",
+                    "PROCESS_GROUP_TIMEOUT_AND_DISPOSABLE_HOME_CLEANUP",
+                    "TEST_HOME_ROOT_IDENTITY_AND_INVENTORY_STABILITY",
+                ],
+            },
+            "step8_step9_not_entered": True,
+        }
+        self.assertTrue(
+            step7_gate._failed_official_gate_revocation_is_valid(
+                revocation,
+                source_root=source_root,
+                deployment_root=deployment_root,
+                source_state=source_state,
+                anchor_root=Path("/Users/moss/.codex/sessions"),
+            )
+        )
+        mutations = {
+            "approval": ("revoked_approval_id", "WRONG"),
+            "source record": (
+                "authorization_chain.source_record.raw_record_sha256",
+                "0" * 64,
+            ),
+            "gate counts": ("gate_failure.errors", 23),
+            "recovery": (
+                "recovery.checkpoint_closure_sha256",
+                "0" * 64,
+            ),
+            "production": (
+                "production_state.deployment_inventory_sha256",
+                "0" * 64,
+            ),
+            "reuse": ("reuse_policy.may_execute", True),
+        }
+        manifest_inventory = json.loads(
+            Path(
+                recovery_artifacts["manifest"]["path"]
+            ).read_text(encoding="utf-8")
+        )["deployment_inventory_before"]
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_inventory",
+            return_value=manifest_inventory,
+        ):
+            for label, (path, value) in mutations.items():
+                with self.subTest(label=label):
+                    malformed = copy.deepcopy(revocation)
+                    target = malformed
+                    parts = path.split(".")
+                    for part in parts[:-1]:
+                        target = target[part]
+                    target[parts[-1]] = value
+                    self.assertFalse(
+                        step7_gate._failed_official_gate_revocation_is_valid(
+                            malformed,
+                            source_root=source_root,
+                            deployment_root=deployment_root,
+                            source_state=source_state,
+                            anchor_root=Path(
+                                "/Users/moss/.codex/sessions"
+                            ),
+                        )
+                    )
+
+    def test_v4_guarded_capture_rejects_boundary_and_dependency_drift(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            deployment = root / "deployment"
+            test_home_root = root / "test-homes"
+            test_home_root.mkdir()
+            self._write_official_gate_fixture(
+                source,
+                test_home_root=test_home_root,
+                label="postimage",
+            )
+            shutil.copytree(source, deployment)
+            source_binding = self._official_source_binding(source)
+            contract = _step7_v4_production_gate_contract(
+                deployment,
+                content_root=source,
+                source_root=source,
+                source_binding=source_binding,
+            )
+            capture, strict = self._official_capture(
+                "activation",
+                contract=contract,
+                deployment=deployment,
+            )
+            step7_gate._step7_v4_validate_official_capture(
+                name="activation",
+                capture=capture,
+                strict=strict,
+                deployment_root=deployment,
+                contract=contract,
+            )
+            mutations = {
+                "network attempt": (
+                    "external_attempt_count",
+                    1,
+                ),
+                "production sentinel": (
+                    "production_sentinel_after",
+                    "0" * 64,
+                ),
+                "uncleaned child home": (
+                    "child_cwd",
+                    str(deployment),
+                ),
+                "capture mode": (
+                    "capture_only",
+                    False,
+                ),
+                "warning": (
+                    "warning_count",
+                    1,
+                ),
+            }
+            for label, (field, value) in mutations.items():
+                with self.subTest(label=label):
+                    malformed = copy.deepcopy(capture)
+                    malformed[field] = value
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "guarded capture mismatch",
+                    ):
+                        step7_gate._step7_v4_validate_official_capture(
+                            name="activation",
+                            capture=malformed,
+                            strict=strict,
+                            deployment_root=deployment,
+                            contract=contract,
+                        )
+            malformed = copy.deepcopy(capture)
+            malformed["dependency_gate"]["lock_sha256"] = "0" * 64
+            with self.assertRaisesRegex(
+                ValueError,
+                "guarded capture mismatch",
+            ):
+                step7_gate._step7_v4_validate_official_capture(
+                    name="activation",
+                    capture=malformed,
+                    strict=strict,
+                    deployment_root=deployment,
+                    contract=contract,
+                )
+
+    def test_deployed_import_root_is_independent_of_bound_git_root(
+        self,
+    ) -> None:
+        imported_gate = Path(step7_gate.__file__).resolve()
+        self.assertTrue(
+            imported_gate.is_relative_to(DEPLOYED_CONTENT_ROOT),
+            imported_gate,
+        )
+        self.assertEqual(
+            REPOSITORY_ROOT,
+            Path(
+                os.environ.get(
+                    "SITINA_STEP7_SOURCE_ROOT",
+                    str(DEPLOYED_CONTENT_ROOT),
+                )
+            ).resolve(strict=True),
+        )
 
     def _validate(self, candidate: dict[str, object] | None = None) -> dict[str, object]:
         return validate_step7_candidate(
