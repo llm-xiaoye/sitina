@@ -151,6 +151,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z",
     "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z",
     "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z",
+    "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -9639,7 +9640,10 @@ def _failed_preapply_revocation_is_valid(
     deployment_root: Path,
     source_state: Mapping[str, Any],
     anchor_root: Path,
+    live_target_expectation: str = "PREIMAGE",
 ) -> bool:
+    if live_target_expectation not in {"PREIMAGE", "NONE"}:
+        return False
     local_errors: list[str] = []
     expected_top_level = {
         "schema",
@@ -9900,6 +9904,15 @@ def _failed_preapply_revocation_is_valid(
         if not isinstance(operation, Mapping):
             return False
         target = Path(str(operation.get("target_path")))
+        relative_path = operation.get("relative_path")
+        if (
+            not isinstance(relative_path, str)
+            or target != deployment_root / relative_path
+            or operation.get("operation") not in {"CREATE", "REPLACE"}
+        ):
+            return False
+        if live_target_expectation == "NONE":
+            continue
         try:
             if operation.get("preimage_exists") is True:
                 target_stat = target.lstat()
@@ -10076,9 +10089,12 @@ def _interrupted_prebackup_revocation_is_valid(
     deployment_root: Path,
     source_state: Mapping[str, Any],
     anchor_root: Path,
+    live_target_expectation: str = "PREIMAGE",
 ) -> bool:
     """Bind the consumed 63671f9 authorization to its read-only abort."""
 
+    if live_target_expectation not in {"PREIMAGE", "NONE"}:
+        return False
     if (
         set(revocation)
         != {
@@ -10379,11 +10395,19 @@ def _interrupted_prebackup_revocation_is_valid(
             operation, postimage=False
         )
         target = Path(str(operation.get("target_path")))
-        try:
-            if _step7_v4_file_tuple(target) != expected_tuple:
-                return False
-        except (OSError, ValueError):
+        relative_path = operation.get("relative_path")
+        if (
+            not isinstance(relative_path, str)
+            or target != deployment_root / relative_path
+            or operation.get("operation") not in {"CREATE", "REPLACE"}
+        ):
             return False
+        if live_target_expectation == "PREIMAGE":
+            try:
+                if _step7_v4_file_tuple(target) != expected_tuple:
+                    return False
+            except (OSError, ValueError):
+                return False
         target_preimages.append(
             {
                 "relative_path": operation.get("relative_path"),

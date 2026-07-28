@@ -7959,8 +7959,66 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 deployment_root=Path("/Users/moss/SitinaHub"),
                 source_state=source_state,
                 anchor_root=Path("/Users/moss/.codex/sessions"),
+                live_target_expectation="NONE",
             )
         )
+
+    def test_failed_preapply_revocation_v3_historical_mode_does_not_read_live_targets(
+        self,
+    ) -> None:
+        document = self._failed_preapply_revocation_document()
+        source_state = {
+            "head": document["successor_fix"]["head"],
+            "tree": document["successor_fix"]["tree"],
+        }
+        deployment_root = Path("/Users/moss/SitinaHub")
+        targets = {
+            Path(operation["target_path"])
+            for operation in json.loads(
+                Path(
+                    step7_gate.FAILED_PREAPPLY_REVOCATION_REFERENCES[
+                        "revoked_packet"
+                    ]["path"]
+                ).read_text(encoding="utf-8")
+            )["exact_file_operations"]
+        }
+        original_lstat = Path.lstat
+
+        def reject_live_target_read(path: Path) -> os.stat_result:
+            if path in targets:
+                raise AssertionError("historical validation read a live target")
+            return original_lstat(path)
+
+        with mock.patch.object(Path, "lstat", reject_live_target_read):
+            self.assertTrue(
+                step7_gate._failed_preapply_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=deployment_root,
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    live_target_expectation="NONE",
+                )
+            )
+            self.assertFalse(
+                step7_gate._failed_preapply_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=deployment_root,
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    live_target_expectation="UNKNOWN",
+                )
+            )
+            with self.assertRaises(AssertionError):
+                step7_gate._failed_preapply_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=deployment_root,
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    live_target_expectation="PREIMAGE",
+                )
 
     def test_failed_preapply_revocation_v3_drift_fails_closed(self) -> None:
         mutations = (
@@ -8506,9 +8564,45 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 deployment_root=Path("/Users/moss/SitinaHub"),
                 source_state=source_state,
                 anchor_root=Path("/Users/moss/.codex/sessions"),
+                live_target_expectation="NONE",
             )
         )
         self.assertTrue(validate(document))
+        original_file_tuple = step7_gate._step7_v4_file_tuple
+        live_targets = {
+            Path(operation["target_path"])
+            for operation in packet["exact_file_operations"]
+        }
+
+        def reject_live_target_tuple(path: Path) -> dict[str, object]:
+            if path in live_targets:
+                raise AssertionError("historical validation read a live target")
+            return original_file_tuple(path)
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_file_tuple",
+            side_effect=reject_live_target_tuple,
+        ):
+            self.assertTrue(
+                step7_gate._interrupted_prebackup_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    live_target_expectation="NONE",
+                )
+            )
+            with self.assertRaises(AssertionError):
+                step7_gate._interrupted_prebackup_revocation_is_valid(
+                    document,
+                    source_root=REPOSITORY_ROOT,
+                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    live_target_expectation="PREIMAGE",
+                )
         mutations = (
             lambda value: value.__setitem__("unexpected", True),
             lambda value: value.__setitem__("schema", "WRONG"),
@@ -8527,6 +8621,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             lambda value: value["post_abort_physical_state"][
                 "target_preimages"
             ][0].__setitem__("exists", True),
+            lambda value: value["post_abort_physical_state"][
+                "target_preimages"
+            ][1].__setitem__("sha256", "0" * 64),
             lambda value: value["deployment_effects"].__setitem__(
                 "deployment_target_change_count", 1
             ),
