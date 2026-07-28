@@ -408,6 +408,7 @@ def _execute_disposable_child(
             ),
             "HOME": str(home),
             "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPYCACHEPREFIX": str(home / ".pycache"),
             "PYTHONPATH": os.pathsep.join(
                 (
                     str(guard_directory),

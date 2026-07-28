@@ -5740,6 +5740,66 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 )
             self.assertFalse(home.exists())
 
+    def test_v4_nested_python_bytecode_is_redirected_to_disposable_home(
+        self,
+    ) -> None:
+        runner_source = (
+            REPOSITORY_ROOT / "scripts/test-bplus.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '"PYTHONPYCACHEPREFIX": str(home / ".pycache")',
+            runner_source,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            core = root / "core"
+            package = core / "nested_probe"
+            disposable = root / "disposable"
+            package.mkdir(parents=True)
+            disposable.mkdir()
+            (package / "__init__.py").write_text(
+                "VALUE = 7\n",
+                encoding="utf-8",
+            )
+            environment = {
+                **os.environ,
+                "PYTHONPATH": str(core),
+                "PYTHONPYCACHEPREFIX": str(
+                    disposable / ".pycache"
+                ),
+            }
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            completed = subprocess.run(
+                [
+                    APPROVED_PYTHON_PATH,
+                    "-c",
+                    (
+                        "import nested_probe; "
+                        "assert nested_probe.VALUE == 7"
+                    ),
+                ],
+                cwd=root,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout + completed.stderr,
+            )
+            self.assertFalse((package / "__pycache__").exists())
+            self.assertTrue(
+                any(
+                    path.suffix == ".pyc"
+                    for path in (
+                        disposable / ".pycache"
+                    ).rglob("*.pyc")
+                )
+            )
+
     def test_v6_failed_official_gate_revocation_is_exact_and_fail_closed(
         self,
     ) -> None:
