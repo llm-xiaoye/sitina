@@ -2646,6 +2646,74 @@ class Step7ReadinessGateTests(unittest.TestCase):
             nested["preimage_sha256"],
         )
 
+    def test_v4_nested_preimage_copy_failure_is_preapply_and_not_reusable(
+        self,
+    ) -> None:
+        spec = self._step7_v4_execution_spec()
+        self._append_step7_v4_operation(
+            spec,
+            "nested/replace.txt",
+            "REPLACE",
+        )
+        deployment = Path(str(spec["deployment_root"]))
+        backup_root = Path(str(spec["backup_root"]))
+        before = self._step7_v4_tree_snapshot(deployment)
+        original_copy = step7_gate._step7_v4_copy_exclusive
+
+        def fail_nested_preimage(
+            source: Path,
+            destination: Path,
+            **kwargs: object,
+        ) -> None:
+            if (
+                "preimages" in destination.parts
+                and "nested" in destination.parts
+            ):
+                raise OSError("injected nested preimage copy failure")
+            original_copy(source, destination, **kwargs)
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_copy_exclusive",
+            side_effect=fail_nested_preimage,
+        ):
+            result = execute_step7_v4(
+                spec,
+                dry_run=False,
+                gate_callback=lambda _: {"accepted": True},
+                _test_capability=self._step7_v4_capability(spec),
+            )
+        self.assertEqual(result["status"], "MANUAL_RECOVERY_REQUIRED", result)
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            before,
+        )
+        self.assertTrue((backup_root / "preimages/nested").is_dir())
+        for relative in (
+            "backup-manifest.json",
+            "rehearsal-result.json",
+            "execution-result.json",
+            "recovery-result.json",
+            "checkpoints/intent-0000.json",
+        ):
+            self.assertFalse((backup_root / relative).exists(), relative)
+        repeated = execute_step7_v4(
+            spec,
+            dry_run=False,
+            gate_callback=lambda _: {"accepted": True},
+            _test_capability=self._step7_v4_capability(spec),
+        )
+        self.assertEqual(
+            repeated["status"],
+            "MANUAL_RECOVERY_REQUIRED",
+            repeated,
+        )
+        self.assertIn("preoccupied", repeated["failure_step"])
+        self.assertEqual(
+            self._step7_v4_tree_snapshot(deployment),
+            before,
+        )
+
     def test_v4_recovery_after_success_is_read_only_and_idempotent(self) -> None:
         spec = self._step7_v4_execution_spec()
         capability = self._step7_v4_capability(spec)
