@@ -5993,15 +5993,58 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
             "step8_step9_not_entered": True,
         }
-        self.assertTrue(
-            step7_gate._failed_official_gate_revocation_is_valid(
-                revocation,
-                source_root=source_root,
-                deployment_root=deployment_root,
-                source_state=source_state,
-                anchor_root=Path("/Users/moss/.codex/sessions"),
+        manifest_inventory = json.loads(
+            Path(
+                recovery_artifacts["manifest"]["path"]
+            ).read_text(encoding="utf-8")
+        )["deployment_inventory_before"]
+        packet_document = json.loads(
+            Path(artifacts["packet"]["path"]).read_text(
+                encoding="utf-8"
             )
         )
+        preimage_tuples = {
+            operation["target_path"]: {
+                "exists": (
+                    operation["operation"] == "REPLACE"
+                ),
+                "type": (
+                    "REGULAR_FILE"
+                    if operation["operation"] == "REPLACE"
+                    else None
+                ),
+                "sha256": operation["preimage_sha256"],
+                "size": operation["preimage_size"],
+                "mode": operation["preimage_mode"],
+            }
+            for operation in packet_document["exact_file_operations"]
+        }
+        original_inventory = step7_gate._step7_v4_inventory
+        original_file_tuple = step7_gate._step7_v4_file_tuple
+        original_load_json = step7_gate._load_json
+
+        def isolated_inventory(root: Path) -> dict[str, object]:
+            if Path(root) == deployment_root:
+                return copy.deepcopy(manifest_inventory)
+            return original_inventory(root)
+
+        def isolated_file_tuple(path: Path) -> dict[str, object]:
+            value = preimage_tuples.get(str(path))
+            if value is not None:
+                return copy.deepcopy(value)
+            return original_file_tuple(path)
+
+        def isolated_load_json(path: Path) -> object:
+            if Path(path) in {
+                source_root / "config/true_multi_agent_policy.json",
+                deployment_root
+                / "config/true_multi_agent_policy.json",
+            }:
+                return {
+                    field: False for field in step7_gate.SWITCHES
+                }
+            return original_load_json(path)
+
         mutations = {
             "approval": ("revoked_approval_id", "WRONG"),
             "source record": (
@@ -6019,16 +6062,32 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ),
             "reuse": ("reuse_policy.may_execute", True),
         }
-        manifest_inventory = json.loads(
-            Path(
-                recovery_artifacts["manifest"]["path"]
-            ).read_text(encoding="utf-8")
-        )["deployment_inventory_before"]
-        with mock.patch.object(
-            step7_gate,
-            "_step7_v4_inventory",
-            return_value=manifest_inventory,
+        with (
+            mock.patch.object(
+                step7_gate,
+                "_step7_v4_inventory",
+                side_effect=isolated_inventory,
+            ),
+            mock.patch.object(
+                step7_gate,
+                "_step7_v4_file_tuple",
+                side_effect=isolated_file_tuple,
+            ),
+            mock.patch.object(
+                step7_gate,
+                "_load_json",
+                side_effect=isolated_load_json,
+            ),
         ):
+            self.assertTrue(
+                step7_gate._failed_official_gate_revocation_is_valid(
+                    revocation,
+                    source_root=source_root,
+                    deployment_root=deployment_root,
+                    source_state=source_state,
+                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                )
+            )
             for label, (path, value) in mutations.items():
                 with self.subTest(label=label):
                     malformed = copy.deepcopy(revocation)
