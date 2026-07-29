@@ -7736,6 +7736,37 @@ def _verify_file_reference(
     return path, document
 
 
+def _verify_review_required_file(
+    reference: Any,
+    errors: list[str],
+    label: str,
+) -> tuple[str, str] | None:
+    if not isinstance(reference, Mapping) or (
+        set(reference) != {"path", "sha256", "media_type", "purpose"}
+        or reference.get("media_type")
+        not in ("json", "json_value", "jsonl", "text")
+        or not isinstance(reference.get("purpose"), str)
+        or not reference.get("purpose")
+    ):
+        errors.append(f"{label} is malformed")
+        return None
+    media_type = reference["media_type"]
+    path, _ = _verify_file_reference(
+        reference,
+        errors,
+        label,
+        require_json_object=media_type == "json",
+    )
+    if media_type == "json_value" and path is not None:
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            errors.append(
+                f"{label} is not valid JSON: {type(exc).__name__}"
+            )
+    return (str(reference.get("path")), str(reference.get("sha256")))
+
+
 def _git(source_root: Path, *arguments: str) -> str:
     return subprocess.check_output(
         _step7_git_command(*arguments),
@@ -8767,23 +8798,13 @@ def _verify_review(
         errors.append(f"{label} input schema or source binding mismatch")
         required_files = []
     for index, reference in enumerate(required_files):
-        if not isinstance(reference, Mapping) or (
-            set(reference) != {"path", "sha256", "media_type", "purpose"}
-            or reference.get("media_type") not in ("json", "jsonl", "text")
-            or not isinstance(reference.get("purpose"), str)
-            or not reference.get("purpose")
-        ):
-            errors.append(f"{label} input required file {index} is malformed")
-            continue
-        _verify_file_reference(
+        identity = _verify_review_required_file(
             reference,
             errors,
             f"{label} input required file {index}",
-            require_json_object=reference.get("media_type") == "json",
         )
-        input_reference_identities.append(
-            (str(reference.get("path")), str(reference.get("sha256")))
-        )
+        if identity is not None:
+            input_reference_identities.append(identity)
     if (
         len(input_reference_identities) != len(set(input_reference_identities))
         or set(input_reference_identities) != required_reference_identities

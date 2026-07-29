@@ -6874,6 +6874,74 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+    def test_review_operations_json_value_accepts_array_and_fails_closed(
+        self,
+    ) -> None:
+        operations = self.output / "review-operations.json"
+        operations.write_text(
+            json.dumps(
+                [
+                    {
+                        "operation": "REPLACE",
+                        "relative_path": "scripts/step7_readiness_gate.py",
+                    }
+                ],
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        entry = self._review_required_file(
+            operations,
+            "json_value",
+            "exact deployment operations",
+        )
+        errors: list[str] = []
+        identity = step7_gate._verify_review_required_file(
+            entry,
+            errors,
+            "Step7 Sitina review input required file operations",
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            identity,
+            (str(operations.resolve()), sha256(operations)),
+        )
+
+        operations.write_text("{invalid", encoding="utf-8")
+        invalid_entry = self._review_required_file(
+            operations,
+            "json_value",
+            "exact deployment operations",
+        )
+        errors = []
+        step7_gate._verify_review_required_file(
+            invalid_entry,
+            errors,
+            "Step7 Sitina review input required file operations",
+        )
+        self.assertTrue(
+            any("is not valid JSON: JSONDecodeError" in error for error in errors),
+            errors,
+        )
+
+        operations.write_text("[1, 2, 3]\n", encoding="utf-8")
+        object_entry = self._review_required_file(
+            operations,
+            "json",
+            "exact deployment operations",
+        )
+        errors = []
+        step7_gate._verify_review_required_file(
+            object_entry,
+            errors,
+            "Step7 Sitina review input required file operations",
+        )
+        self.assertTrue(
+            any("is not a JSON object: ValueError" in error for error in errors),
+            errors,
+        )
+
     def test_same_path_fresh_hash_noop_executor_is_rejected(self) -> None:
         executor_original = self.formal_executor.read_text(encoding="utf-8")
         static_original = self.general_evidence.read_text(encoding="utf-8")
