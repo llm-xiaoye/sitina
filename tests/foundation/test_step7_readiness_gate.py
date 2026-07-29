@@ -2837,6 +2837,14 @@ class Step7ReadinessGateTests(unittest.TestCase):
         }
         specification: dict[str, object] = {
             "run_id": f"step7-v4-{root.name}",
+            "approval_id": "SITINA_STEP7_DEPLOY_1111111_6F_20260729T000000Z",
+            "authorization_receipt_path": str(
+                output
+                / (
+                    "sitina-step7-authorization-receipt-"
+                    "1111111-20260729T000000Z.json"
+                )
+            ),
             "packet_sha256": "a" * 64,
             "plan_sha256": "b" * 64,
             "candidate_sha256": "c" * 64,
@@ -2881,6 +2889,54 @@ class Step7ReadinessGateTests(unittest.TestCase):
         }
         self._step7_v4_capabilities[str(specification["run_id"])] = capability
         return specification
+
+    def test_step7_v4_binding_preserves_authorization_receipt_identity(
+        self,
+    ) -> None:
+        specification = self._step7_v4_execution_spec()
+        binding = step7_gate._step7_v4_binding(specification)
+        self.assertEqual(
+            binding["approval_id"],
+            specification["approval_id"],
+        )
+        self.assertEqual(
+            binding["authorization_receipt_path"],
+            specification["authorization_receipt_path"],
+        )
+
+        missing = copy.deepcopy(specification)
+        missing.pop("approval_id")
+        missing["authorization_receipt_file"] = {
+            "path": str(specification["authorization_receipt_path"]),
+            "sha256": "a" * 64,
+        }
+        missing_binding = step7_gate._step7_v4_binding(missing)
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file path mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                missing,
+                missing_binding,
+            )
+
+        wrong = copy.deepcopy(specification)
+        wrong["authorization_receipt_path"] = (
+            str(wrong["authorization_receipt_path"]) + ".drift"
+        )
+        wrong["authorization_receipt_file"] = {
+            "path": str(wrong["authorization_receipt_path"]),
+            "sha256": "a" * 64,
+        }
+        wrong_binding = step7_gate._step7_v4_binding(wrong)
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file path mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                wrong,
+                wrong_binding,
+            )
 
     def _step7_v4_capability(self, spec: dict[str, object]) -> object:
         return self._step7_v4_capabilities[str(spec["run_id"])]
@@ -3462,7 +3518,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
     ) -> None:
         packet = {"approval_id": "SITINA_STEP7_DEPLOY_EXACT"}
         step7_gate._step7_v4_require_production_run_id(
-            {"run_id": "SITINA_STEP7_DEPLOY_EXACT_EXECUTION"},
+            {
+                "approval_id": "SITINA_STEP7_DEPLOY_EXACT",
+                "run_id": "SITINA_STEP7_DEPLOY_EXACT_EXECUTION",
+            },
             packet,
         )
         for run_id in (
@@ -3471,11 +3530,29 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "SITINA_STEP7_DEPLOY_EXACT_EXECUTION_EXTRA",
         ):
             with self.subTest(run_id=run_id), self.assertRaisesRegex(
-                ValueError, "run_id must equal approval_id"
+                ValueError, "binding/run_id must equal packet approval_id"
             ):
                 step7_gate._step7_v4_require_production_run_id(
-                    {"run_id": run_id}, packet
+                    {
+                        "approval_id": "SITINA_STEP7_DEPLOY_EXACT",
+                        "run_id": run_id,
+                    },
+                    packet,
                 )
+        with self.assertRaisesRegex(
+            ValueError,
+            "binding/run_id must equal packet approval_id",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {
+                    "approval_id": (
+                        "SITINA_STEP7_DEPLOY_1111111_6F_"
+                        "20260729T010000Z"
+                    ),
+                    "run_id": "SITINA_STEP7_DEPLOY_EXACT_EXECUTION",
+                },
+                packet,
+            )
 
     def test_v4_superseded_4de067a_approval_is_mechanically_revoked(
         self,

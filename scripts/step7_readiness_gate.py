@@ -3016,8 +3016,25 @@ def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
         or re.fullmatch(r"[0-9a-f]{40}", source_tree) is None
     ):
         raise ValueError("source HEAD/tree binding is required")
+    approval_id = specification.get("approval_id")
+    allowed_backup_parent = Path(
+        str(specification["allowed_backup_parent"])
+    )
+    authorization_receipt_path = specification.get(
+        "authorization_receipt_path"
+    )
     return {
         "run_id": run_id,
+        **(
+            {"approval_id": approval_id}
+            if isinstance(approval_id, str)
+            else {}
+        ),
+        **(
+            {"authorization_receipt_path": authorization_receipt_path}
+            if isinstance(authorization_receipt_path, str)
+            else {}
+        ),
         "packet_sha256": packet_sha256,
         "plan_sha256": plan_sha256,
         **{field: specification[field] for field in sha_fields},
@@ -3026,9 +3043,7 @@ def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
         "source_root": str(Path(str(specification["source_root"]))),
         "deployment_root": str(Path(str(specification["deployment_root"]))),
         "session_root": str(Path(str(specification["session_root"]))),
-        "allowed_backup_parent": str(
-            Path(str(specification["allowed_backup_parent"]))
-        ),
+        "allowed_backup_parent": str(allowed_backup_parent),
         "backup_root": str(Path(str(specification["backup_root"]))),
     }
 
@@ -3043,10 +3058,11 @@ def _step7_v4_require_production_run_id(
     if (
         not isinstance(approval_id, str)
         or not approval_id
+        or binding.get("approval_id") != approval_id
         or binding.get("run_id") != f"{approval_id}_EXECUTION"
     ):
         raise ValueError(
-            "production run_id must equal approval_id plus _EXECUTION"
+            "production binding/run_id must equal packet approval_id"
         )
 
 
