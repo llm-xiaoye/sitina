@@ -202,6 +202,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
             encoding="utf-8",
         )
         (self.source / "tests").mkdir()
+        (self.source / "core/sitina/security").mkdir(parents=True)
+        shutil.copy2(
+            REPOSITORY_ROOT / "core/sitina/security/redaction.py",
+            self.source / "core/sitina/security/redaction.py",
+        )
         shutil.copy2(
             REPOSITORY_ROOT / "tests/test_suites.json",
             self.source / "tests/test_suites.json",
@@ -1901,13 +1906,58 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "purpose": purpose,
         }
 
+    def _projected_review_required_file(
+        self,
+        source: Path,
+        *,
+        source_media_type: str,
+        purpose: str,
+        safe_root: Path,
+        review_stage: str,
+    ) -> dict[str, object]:
+        projection_root = safe_root / "projections"
+        projection_root.mkdir(mode=0o700, exist_ok=True)
+        source_head = self._git("rev-parse", "HEAD^{commit}")
+        source_tree = self._git("rev-parse", "HEAD^{tree}")
+        projection_text = (
+            step7_gate._step7_provider_visible_projection_text(
+                source.resolve(),
+                source_media_type=source_media_type,
+                purpose=purpose,
+                source_root=self.source.resolve(),
+                review_stage=review_stage,
+                source_head=source_head,
+                source_tree=source_tree,
+            )
+        )
+        projection = projection_root / (
+            f"{len(tuple(projection_root.iterdir())):02d}-projection.txt"
+        )
+        projection.write_text(projection_text, encoding="utf-8")
+        return {
+            "path": str(projection.resolve()),
+            "sha256": sha256(projection),
+            "size": projection.stat().st_size,
+            "media_type": "text",
+            "purpose": purpose,
+            "source_path": str(source.resolve()),
+            "source_sha256": sha256(source),
+            "source_size": source.stat().st_size,
+            "source_media_type": source_media_type,
+            "projection_schema": (
+                step7_gate.PROVIDER_VISIBLE_PROJECTION_SCHEMA
+            ),
+        }
+
     def _review_input_document(
         self,
         review_stage: str,
         required_files: list[dict[str, object]],
+        *,
+        schema: str = "SITINA_STEP7_REAL_REVIEW_INPUT_V1",
     ) -> dict[str, object]:
         return {
-            "schema": "SITINA_STEP7_REAL_REVIEW_INPUT_V1",
+            "schema": schema,
             "review_stage": review_stage,
             "source": {
                 "head": self._git("rev-parse", "HEAD^{commit}"),
@@ -1922,6 +1972,46 @@ class Step7ReadinessGateTests(unittest.TestCase):
             },
         }
 
+    def _provider_visible_review_files(
+        self,
+        required_files: list[dict[str, object]],
+        *,
+        review_stage: str,
+        input_path: Path,
+    ) -> tuple[list[dict[str, object]], str]:
+        redact = step7_gate._step7_projection_redaction_function(
+            self.source.resolve()
+        )
+        provider_files: list[dict[str, object]] = []
+        projected = False
+        for reference in required_files:
+            path = Path(str(reference["path"]))
+            text = path.read_text(encoding="utf-8")
+            if step7_gate._step7_projection_boundary_identity(
+                text,
+                redact=redact,
+            ):
+                provider_files.append(reference)
+                continue
+            projected = True
+            provider_files.append(
+                self._projected_review_required_file(
+                    path,
+                    source_media_type=str(reference["media_type"]),
+                    purpose=str(reference["purpose"]),
+                    safe_root=input_path.parent,
+                    review_stage=review_stage,
+                )
+            )
+        return (
+            provider_files,
+            (
+                "SITINA_STEP7_REAL_REVIEW_INPUT_V2"
+                if projected
+                else "SITINA_STEP7_REAL_REVIEW_INPUT_V1"
+            ),
+        )
+
     def _finalize_review_inputs_and_audits(self) -> None:
         cleanup_files = [
             self._review_required_file(
@@ -1931,9 +2021,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 self.cleanup_ledger, "json", "cleanup ledger"
             ),
         ]
+        cleanup_files, cleanup_schema = self._provider_visible_review_files(
+            cleanup_files,
+            review_stage="CLEANUP_CLOSURE",
+            input_path=self.cleanup_review_input,
+        )
         self.cleanup_review_input.write_text(
             json.dumps(
-                self._review_input_document("CLEANUP_CLOSURE", cleanup_files),
+                self._review_input_document(
+                    "CLEANUP_CLOSURE",
+                    cleanup_files,
+                    schema=cleanup_schema,
+                ),
                 sort_keys=True,
             )
             + "\n",
@@ -2032,9 +2131,18 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "current Step7 authority",
             ),
         ]
+        full_files, full_schema = self._provider_visible_review_files(
+            full_files,
+            review_stage="STEP7_FULL_REVIEW",
+            input_path=self.review_input,
+        )
         self.review_input.write_text(
             json.dumps(
-                self._review_input_document("STEP7_FULL_REVIEW", full_files),
+                self._review_input_document(
+                    "STEP7_FULL_REVIEW",
+                    full_files,
+                    schema=full_schema,
+                ),
                 sort_keys=True,
             )
             + "\n",
@@ -2174,9 +2282,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
             str(input_path.resolve()),
             *(str(reference["path"]) for reference in review_input["required_files"]),
         ]
-        return json.dumps(
-            {
-                "schema": "SITINA_STEP7_REAL_REVIEW_RESULT_V1",
+        result = {
+                "schema": (
+                    "SITINA_STEP7_REAL_REVIEW_RESULT_V2"
+                    if review_input["schema"]
+                    == "SITINA_STEP7_REAL_REVIEW_INPUT_V2"
+                    else "SITINA_STEP7_REAL_REVIEW_RESULT_V1"
+                ),
                 "review_stage": review_stage,
                 "source_head": self._git("rev-parse", "HEAD^{commit}"),
                 "source_tree": self._git("rev-parse", "HEAD^{tree}"),
@@ -2184,7 +2296,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "blockers": [],
                 "step8_step9_not_entered": True,
                 "files_read": files_read,
-            },
+            }
+        if review_input["schema"] == "SITINA_STEP7_REAL_REVIEW_INPUT_V2":
+            result["source_file_closure"] = [
+                {
+                    "path": reference.get("source_path", reference["path"]),
+                    "sha256": reference.get(
+                        "source_sha256", reference["sha256"]
+                    ),
+                }
+                for reference in review_input["required_files"]
+            ]
+        return json.dumps(
+            result,
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -2447,6 +2571,19 @@ class Step7ReadinessGateTests(unittest.TestCase):
     def _valid_candidate(self) -> dict[str, object]:
         counts = self._fixture_counts()
         _, _, registered_selectors = self._registry_and_selectors()
+        projection_evidence = [
+            {
+                "path": reference["path"],
+                "sha256": reference["sha256"],
+                "format": "text",
+            }
+            for input_path in (self.cleanup_review_input, self.review_input)
+            for reference in json.loads(
+                input_path.read_text(encoding="utf-8")
+            )["required_files"]
+            if set(reference)
+            == step7_gate.PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+        ]
         gates: list[dict[str, object]] = []
         for stage in REQUIRED_GATES:
             skipped = 5 if stage == "all_registered_unique" else 0
@@ -2524,6 +2661,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             {**self._reference(self.source / "created.txt"), "format": "text"},
             self._reference(self.general_evidence),
             {**self._reference(self.formal_executor), "format": "text"},
+            *projection_evidence,
         ]
         return {
             "schema": CANDIDATE_SCHEMA,
@@ -6976,6 +7114,56 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+    def test_full_review_projection_is_required_in_bound_evidence(self) -> None:
+        review_input = json.loads(
+            self.review_input.read_text(encoding="utf-8")
+        )
+        projected = next(
+            reference
+            for reference in review_input["required_files"]
+            if set(reference)
+            == step7_gate.PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["evidence"] = [
+            reference
+            for reference in candidate["evidence"]
+            if (
+                reference["path"],
+                reference["sha256"],
+            )
+            != (projected["path"], projected["sha256"])
+        ]
+        self.assertRejected(
+            candidate,
+            "candidate bound evidence list omits a required JSON artifact",
+        )
+
+    def test_cleanup_projection_is_required_in_bound_evidence(self) -> None:
+        review_input = json.loads(
+            self.cleanup_review_input.read_text(encoding="utf-8")
+        )
+        projected = next(
+            reference
+            for reference in review_input["required_files"]
+            if set(reference)
+            == step7_gate.PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+        )
+        candidate = copy.deepcopy(self.candidate)
+        candidate["evidence"] = [
+            reference
+            for reference in candidate["evidence"]
+            if (
+                reference["path"],
+                reference["sha256"],
+            )
+            != (projected["path"], projected["sha256"])
+        ]
+        self.assertRejected(
+            candidate,
+            "candidate bound evidence list omits a required JSON artifact",
+        )
+
     def test_review_operations_json_value_accepts_array_and_fails_closed(
         self,
     ) -> None:
@@ -7006,8 +7194,16 @@ class Step7ReadinessGateTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
         self.assertEqual(
-            identity,
-            (str(operations.resolve()), sha256(operations)),
+            (
+                identity["formal_path"],
+                identity["formal_sha256"],
+                identity["provider_path"],
+            ),
+            (
+                str(operations.resolve()),
+                sha256(operations),
+                str(operations.resolve()),
+            ),
         )
 
         operations.write_text("{invalid", encoding="utf-8")
@@ -7043,6 +7239,680 @@ class Step7ReadinessGateTests(unittest.TestCase):
             any("is not a JSON object: ValueError" in error for error in errors),
             errors,
         )
+
+    def test_provider_visible_projection_binds_original_identity_and_is_safe(
+        self,
+    ) -> None:
+        safe_root = self.output / "provider-visible-positive"
+        safe_root.mkdir()
+        source = self.output / "provider-visible-source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "schema": "SITINA_TEST_PROVIDER_VISIBLE_SOURCE_V1",
+                    "credential_note": "Bearer secret-token-value",
+                    "accepted": True,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        purpose = "provider-visible projection contract fixture"
+        reference = self._projected_review_required_file(
+            source,
+            source_media_type="json",
+            purpose=purpose,
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        projection = Path(str(reference["path"]))
+        errors: list[str] = []
+        identity = step7_gate._verify_review_required_file(
+            reference,
+            errors,
+            "Step7 provider-visible required file",
+            source_root=self.source.resolve(),
+            projection_root=(safe_root / "projections").resolve(),
+            review_stage="STEP7_FULL_REVIEW",
+            source_head=self._git("rev-parse", "HEAD^{commit}"),
+            source_tree=self._git("rev-parse", "HEAD^{tree}"),
+            allow_projection=True,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            (
+                identity["formal_path"],
+                identity["formal_sha256"],
+                identity["provider_path"],
+            ),
+            (
+                str(source.resolve()),
+                sha256(source),
+                str(projection.resolve()),
+            ),
+        )
+        redact = step7_gate._step7_projection_redaction_function(
+            self.source.resolve()
+        )
+        projection_text = projection.read_text(encoding="utf-8")
+        for boundary in ("handoff", "log"):
+            sanitized = redact(
+                projection_text,
+                boundary=boundary,
+                allowlist=(),
+            )
+            self.assertEqual(sanitized.redacted_paths, ())
+            self.assertEqual(sanitized.value, projection_text)
+        self.assertNotIn("secret-token-value", projection_text)
+
+    def test_provider_visible_projection_fails_closed_on_each_binding_drift(
+        self,
+    ) -> None:
+        safe_root = self.output / "provider-visible-negative"
+        safe_root.mkdir()
+        source = self.output / "projection-drift-source.txt"
+        original_source = "api_key=secret-token-value\nStep7 evidence\n"
+        source.write_text(original_source, encoding="utf-8")
+        purpose = "provider-visible projection drift fixture"
+        reference = self._projected_review_required_file(
+            source,
+            source_media_type="text",
+            purpose=purpose,
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        projection = Path(str(reference["path"]))
+        original_projection = projection.read_text(encoding="utf-8")
+
+        def verify(mutated: dict[str, object]) -> list[str]:
+            errors: list[str] = []
+            step7_gate._verify_review_required_file(
+                mutated,
+                errors,
+                "Step7 provider-visible required file",
+                source_root=self.source.resolve(),
+                projection_root=(safe_root / "projections").resolve(),
+                review_stage="STEP7_FULL_REVIEW",
+                source_head=self._git("rev-parse", "HEAD^{commit}"),
+                source_tree=self._git("rev-parse", "HEAD^{tree}"),
+                allow_projection=True,
+            )
+            return errors
+
+        mutations = (
+            ("source_sha256", "0" * 64),
+            ("source_size", source.stat().st_size + 1),
+            ("source_media_type", "json"),
+            ("projection_schema", "SITINA_WRONG_PROJECTION_V1"),
+            ("size", projection.stat().st_size + 1),
+            ("purpose", purpose + " changed"),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                mutated = dict(reference)
+                mutated[field] = value
+                errors = verify(mutated)
+                self.assertTrue(errors, field)
+
+        source.write_text(original_source + "drift\n", encoding="utf-8")
+        errors = verify(reference)
+        self.assertTrue(
+            any("projection closure mismatch" in error for error in errors),
+            errors,
+        )
+        source.write_text(original_source, encoding="utf-8")
+
+        projection.write_text(
+            original_projection.replace("Step7 evidence", "forged evidence"),
+            encoding="utf-8",
+        )
+        forged_reference = dict(reference)
+        forged_reference["sha256"] = sha256(projection)
+        forged_reference["size"] = projection.stat().st_size
+        errors = verify(forged_reference)
+        self.assertTrue(
+            any("projection closure mismatch" in error for error in errors),
+            errors,
+        )
+
+    def test_review_v2_mixed_projection_binds_provider_and_source_closures(
+        self,
+    ) -> None:
+        safe_root = self.output / "mixed-provider-review"
+        safe_root.mkdir()
+        direct = safe_root / "direct.txt"
+        direct.write_text("plain Step7 evidence\n", encoding="utf-8")
+        sensitive = safe_root / "sensitive.txt"
+        sensitive.write_text(
+            "api_key=secret-token-value\ncomplete Step7 evidence\n",
+            encoding="utf-8",
+        )
+        projected = self._projected_review_required_file(
+            sensitive,
+            source_media_type="text",
+            purpose="sensitive formal evidence",
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        required_files = [
+            self._review_required_file(
+                direct,
+                "text",
+                "direct provider-visible evidence",
+            ),
+            projected,
+        ]
+        review_input = safe_root / "input.json"
+        review_input.write_text(
+            json.dumps(
+                self._review_input_document(
+                    "STEP7_FULL_REVIEW",
+                    required_files,
+                    schema="SITINA_STEP7_REAL_REVIEW_INPUT_V2",
+                ),
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        audit = safe_root / "audit.jsonl"
+        audit.write_text(
+            self._audit_jsonl(
+                "STEP7_FULL_REVIEW",
+                review_input,
+                "agent-run-step7-mixed-projection-fixture",
+            ),
+            encoding="utf-8",
+        )
+        receipt = self._audit_receipt_file(
+            "mixed-projection-review-receipt.json",
+            "STEP7_FULL_REVIEW",
+            review_input,
+            audit,
+            "agent-run-step7-mixed-projection-fixture",
+        )
+        errors: list[str] = []
+        step7_gate._verify_review(
+            self._review(
+                "STEP7_FULL_REVIEW",
+                review_input,
+                audit,
+                receipt,
+                "agent-run-step7-mixed-projection-fixture",
+            ),
+            {
+                "head": self._git("rev-parse", "HEAD^{commit}"),
+                "tree": self._git("rev-parse", "HEAD^{tree}"),
+            },
+            self.source.resolve(),
+            self.deployment.resolve(),
+            "STEP7_FULL_REVIEW",
+            {
+                (str(direct.resolve()), sha256(direct)),
+                (str(sensitive.resolve()), sha256(sensitive)),
+            },
+            errors,
+            "Step7 Sitina review",
+            self.anchor_root.resolve(),
+        )
+        self.assertEqual(errors, [])
+        result = json.loads(
+            json.loads(audit.read_text(encoding="utf-8").splitlines()[-1])[
+                "response"
+            ]
+        )
+        self.assertEqual(
+            result["files_read"],
+            [
+                str(review_input.resolve()),
+                str(direct.resolve()),
+                str(projected["path"]),
+            ],
+        )
+        self.assertEqual(
+            result["source_file_closure"],
+            [
+                {"path": str(direct.resolve()), "sha256": sha256(direct)},
+                {
+                    "path": str(sensitive.resolve()),
+                    "sha256": sha256(sensitive),
+                },
+            ],
+        )
+        original_records = [
+            json.loads(line)
+            for line in audit.read_text(encoding="utf-8").splitlines()
+        ]
+        closure = copy.deepcopy(result["source_file_closure"])
+        variants = {
+            "missing": closure[:-1],
+            "extra": [*closure, copy.deepcopy(closure[0])],
+            "reordered": list(reversed(closure)),
+            "path": [
+                {**closure[0], "path": closure[0]["path"] + ".drift"},
+                closure[1],
+            ],
+            "sha": [
+                closure[0],
+                {**closure[1], "sha256": "0" * 64},
+            ],
+        }
+        for index, (name, mutated_closure) in enumerate(variants.items()):
+            with self.subTest(source_closure=name):
+                records = copy.deepcopy(original_records)
+                mutated_result = copy.deepcopy(result)
+                mutated_result["source_file_closure"] = mutated_closure
+                response = json.dumps(
+                    mutated_result,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                final_turn = next(
+                    record
+                    for record in reversed(records)
+                    if record["event"] == "model_turn_completed"
+                )
+                final_turn["text"] = response
+                final_turn["metadata"]["output_hash"] = (
+                    "sha256:"
+                    + hashlib.sha256(response.encode("utf-8")).hexdigest()
+                )
+                records[-1]["response"] = response
+                audit.write_text(
+                    "".join(
+                        json.dumps(record, sort_keys=True) + "\n"
+                        for record in records
+                    ),
+                    encoding="utf-8",
+                )
+                mutated_receipt = self._audit_receipt_file(
+                    f"mixed-projection-closure-{index}-receipt.json",
+                    "STEP7_FULL_REVIEW",
+                    review_input,
+                    audit,
+                    "agent-run-step7-mixed-projection-fixture",
+                )
+                review = self._review(
+                    "STEP7_FULL_REVIEW",
+                    review_input,
+                    audit,
+                    mutated_receipt,
+                    "agent-run-step7-mixed-projection-fixture",
+                )
+                review["output_sha256"] = hashlib.sha256(
+                    response.encode("utf-8")
+                ).hexdigest()
+                errors = []
+                step7_gate._verify_review(
+                    review,
+                    {
+                        "head": self._git("rev-parse", "HEAD^{commit}"),
+                        "tree": self._git("rev-parse", "HEAD^{tree}"),
+                    },
+                    self.source.resolve(),
+                    self.deployment.resolve(),
+                    "STEP7_FULL_REVIEW",
+                    {
+                        (str(direct.resolve()), sha256(direct)),
+                        (str(sensitive.resolve()), sha256(sensitive)),
+                    },
+                    errors,
+                    "Step7 Sitina review",
+                    self.anchor_root.resolve(),
+                )
+                self.assertTrue(
+                    any(
+                        "no bound terminal PASS verdict" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_redaction_prone_direct_and_v1_projection_fail_closed(self) -> None:
+        safe_root = self.output / "projection-version-negative"
+        safe_root.mkdir()
+        source = safe_root / "sensitive.txt"
+        source.write_text("api_key=secret-token-value\n", encoding="utf-8")
+        direct = self._review_required_file(
+            source,
+            "text",
+            "redaction-prone direct fixture",
+        )
+        errors: list[str] = []
+        step7_gate._verify_review_required_file(
+            direct,
+            errors,
+            "Step7 direct required file",
+            source_root=self.source.resolve(),
+        )
+        self.assertTrue(
+            any("not boundary identity" in error for error in errors),
+            errors,
+        )
+
+        projected = self._projected_review_required_file(
+            source,
+            source_media_type="text",
+            purpose="redaction-prone projected fixture",
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        errors = []
+        step7_gate._verify_review_required_file(
+            projected,
+            errors,
+            "Step7 V1 projected required file",
+            source_root=self.source.resolve(),
+            projection_root=(safe_root / "projections").resolve(),
+            review_stage="STEP7_FULL_REVIEW",
+            source_head=self._git("rev-parse", "HEAD^{commit}"),
+            source_tree=self._git("rev-parse", "HEAD^{tree}"),
+            allow_projection=False,
+        )
+        self.assertTrue(
+            any("projection binding mismatch" in error for error in errors),
+            errors,
+        )
+        with mock.patch.object(
+            step7_gate,
+            "_step7_projection_redaction_function",
+            side_effect=RuntimeError("redactor unavailable"),
+        ):
+            errors = []
+            step7_gate._verify_review_required_file(
+                direct,
+                errors,
+                "Step7 exception-safe direct required file",
+                source_root=self.source.resolve(),
+            )
+        self.assertTrue(
+            any("redaction source is unsafe: RuntimeError" in error for error in errors),
+            errors,
+        )
+
+    def test_projection_wrong_root_and_symlink_fail_closed(self) -> None:
+        safe_root = self.output / "projection-path-negative"
+        safe_root.mkdir()
+        source = safe_root / "sensitive.txt"
+        source.write_text("api_key=secret-token-value\n", encoding="utf-8")
+        reference = self._projected_review_required_file(
+            source,
+            source_media_type="text",
+            purpose="projection path safety fixture",
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        projection = Path(str(reference["path"]))
+
+        def verify(value: dict[str, object]) -> list[str]:
+            errors: list[str] = []
+            step7_gate._verify_review_required_file(
+                value,
+                errors,
+                "Step7 path-safe projected required file",
+                source_root=self.source.resolve(),
+                projection_root=(safe_root / "projections").resolve(),
+                review_stage="STEP7_FULL_REVIEW",
+                source_head=self._git("rev-parse", "HEAD^{commit}"),
+                source_tree=self._git("rev-parse", "HEAD^{tree}"),
+                allow_projection=True,
+            )
+            return errors
+
+        other_root = safe_root / "other"
+        other_root.mkdir()
+        outside = other_root / "projection.txt"
+        shutil.copy2(projection, outside)
+        outside_reference = dict(reference)
+        outside_reference["path"] = str(outside.resolve())
+        outside_reference["sha256"] = sha256(outside)
+        outside_reference["size"] = outside.stat().st_size
+        self.assertTrue(
+            any("projection root mismatch" in error for error in verify(outside_reference))
+        )
+
+        link = safe_root / "projections" / "symlink.txt"
+        link.symlink_to(projection)
+        symlink_reference = dict(reference)
+        symlink_reference["path"] = str(link)
+        self.assertTrue(
+            any(
+                "regular non-symlink" in error
+                for error in verify(symlink_reference)
+            )
+        )
+
+    def test_projection_and_direct_validation_use_one_stable_capture(self) -> None:
+        safe_root = self.output / "projection-single-capture"
+        safe_root.mkdir()
+        source = safe_root / "sensitive.txt"
+        source.write_text("api_key=secret-token-value\n", encoding="utf-8")
+        projected = self._projected_review_required_file(
+            source,
+            source_media_type="text",
+            purpose="single-capture projection fixture",
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        real_capture = step7_gate._step7_provider_visible_source_text
+        with mock.patch.object(
+            step7_gate,
+            "_step7_provider_visible_source_text",
+            wraps=real_capture,
+        ) as capture:
+            errors: list[str] = []
+            step7_gate._verify_review_required_file(
+                projected,
+                errors,
+                "Step7 single-capture projected required file",
+                source_root=self.source.resolve(),
+                projection_root=(safe_root / "projections").resolve(),
+                review_stage="STEP7_FULL_REVIEW",
+                source_head=self._git("rev-parse", "HEAD^{commit}"),
+                source_tree=self._git("rev-parse", "HEAD^{tree}"),
+                allow_projection=True,
+            )
+        self.assertEqual(errors, [])
+        self.assertEqual(capture.call_count, 1)
+
+        direct_source = safe_root / "direct.txt"
+        direct_source.write_text("plain Step7 evidence\n", encoding="utf-8")
+        direct = self._review_required_file(
+            direct_source,
+            "text",
+            "single-capture direct fixture",
+        )
+        with mock.patch.object(
+            step7_gate,
+            "_step7_provider_visible_source_text",
+            wraps=real_capture,
+        ) as capture:
+            errors = []
+            step7_gate._verify_review_required_file(
+                direct,
+                errors,
+                "Step7 single-capture direct required file",
+                source_root=self.source.resolve(),
+            )
+        self.assertEqual(errors, [])
+        self.assertEqual(capture.call_count, 1)
+
+    def test_projection_redactor_load_uses_nofollow_source_snapshot(self) -> None:
+        source_root = (self.output / "redactor-race-source").resolve()
+        module_path = source_root / "core/sitina/security/redaction.py"
+        module_path.parent.mkdir(parents=True)
+        shutil.copy2(
+            REPOSITORY_ROOT / "core/sitina/security/redaction.py",
+            module_path,
+        )
+        external = self.output / "swapped-external-redaction.py"
+        external.write_text(
+            "def redact_boundary_value(value, *, boundary, allowlist=()):\n"
+            "    raise RuntimeError('SWAPPED_EXTERNAL')\n",
+            encoding="utf-8",
+        )
+        real_read = step7_gate._step7_v4_read_regular
+
+        def capture_then_swap(path: Path) -> tuple[bytes, os.stat_result]:
+            raw, metadata = real_read(path)
+            if path == module_path:
+                path.unlink()
+                path.symlink_to(external)
+            return raw, metadata
+
+        with mock.patch.object(
+            step7_gate,
+            "_step7_v4_read_regular",
+            side_effect=capture_then_swap,
+        ):
+            redact = step7_gate._step7_projection_redaction_function(
+                source_root
+            )
+        result = redact(
+            "api_key=secret-token-value",
+            boundary="handoff",
+            allowlist=(),
+        )
+        self.assertTrue(module_path.is_symlink())
+        self.assertNotEqual(result.value, "SWAPPED_EXTERNAL")
+        self.assertTrue(result.redacted_paths)
+
+        unsafe_root = (self.output / "redactor-preexisting-symlink").resolve()
+        unsafe_module = unsafe_root / "core/sitina/security/redaction.py"
+        unsafe_module.parent.mkdir(parents=True)
+        unsafe_module.symlink_to(external)
+        with self.assertRaises((OSError, ValueError)):
+            step7_gate._step7_projection_redaction_function(unsafe_root)
+
+    def test_projection_missing_or_symlink_root_fails_closed(self) -> None:
+        safe_root = self.output / "projection-root-negative"
+        safe_root.mkdir()
+        source = safe_root / "sensitive.txt"
+        source.write_text("api_key=secret-token-value\n", encoding="utf-8")
+        source_head = self._git("rev-parse", "HEAD^{commit}")
+        source_tree = self._git("rev-parse", "HEAD^{tree}")
+        projection_text = step7_gate._step7_provider_visible_projection_text(
+            source.resolve(),
+            source_media_type="text",
+            purpose="projection root safety fixture",
+            source_root=self.source.resolve(),
+            review_stage="STEP7_FULL_REVIEW",
+            source_head=source_head,
+            source_tree=source_tree,
+        )
+        physical_root = safe_root / "physical-projections"
+        physical_root.mkdir()
+        projection = physical_root / "projection.txt"
+        projection.write_text(projection_text, encoding="utf-8")
+        reference = {
+            "path": str(projection.resolve()),
+            "sha256": sha256(projection),
+            "size": projection.stat().st_size,
+            "media_type": "text",
+            "purpose": "projection root safety fixture",
+            "source_path": str(source.resolve()),
+            "source_sha256": sha256(source),
+            "source_size": source.stat().st_size,
+            "source_media_type": "text",
+            "projection_schema": (
+                step7_gate.PROVIDER_VISIBLE_PROJECTION_SCHEMA
+            ),
+        }
+
+        for expected_root in (
+            safe_root / "missing-projections",
+            safe_root / "projections",
+        ):
+            if expected_root.name == "projections":
+                expected_root.symlink_to(physical_root, target_is_directory=True)
+            with self.subTest(root=expected_root.name):
+                errors: list[str] = []
+                step7_gate._verify_review_required_file(
+                    reference,
+                    errors,
+                    "Step7 root-safe projected required file",
+                    source_root=self.source.resolve(),
+                    projection_root=expected_root,
+                    review_stage="STEP7_FULL_REVIEW",
+                    source_head=source_head,
+                    source_tree=source_tree,
+                    allow_projection=True,
+                )
+                self.assertTrue(
+                    any("projection root is unsafe" in error for error in errors),
+                    errors,
+                )
+
+    def test_review_v2_exact_33_12_21_provider_closure_counts(self) -> None:
+        safe_root = self.output / "projection-exact-counts"
+        safe_root.mkdir()
+        references: list[dict[str, object]] = []
+        for index in range(12):
+            direct = safe_root / f"direct-{index}.txt"
+            direct.write_text(
+                f"plain Step7 evidence item {index}\n",
+                encoding="utf-8",
+            )
+            references.append(
+                self._review_required_file(
+                    direct,
+                    "text",
+                    f"direct evidence item {index}",
+                )
+            )
+        for index in range(21):
+            sensitive = safe_root / f"sensitive-{index}.txt"
+            sensitive.write_text(
+                f"api_key=secret-value-{index}\nStep7 evidence\n",
+                encoding="utf-8",
+            )
+            references.append(
+                self._projected_review_required_file(
+                    sensitive,
+                    source_media_type="text",
+                    purpose=f"projected evidence item {index}",
+                    safe_root=safe_root,
+                    review_stage="STEP7_FULL_REVIEW",
+                )
+            )
+        bindings: list[dict[str, object]] = []
+        errors: list[str] = []
+        for index, reference in enumerate(references):
+            binding = step7_gate._verify_review_required_file(
+                reference,
+                errors,
+                f"Step7 exact-count required file {index}",
+                source_root=self.source.resolve(),
+                projection_root=(safe_root / "projections").resolve(),
+                review_stage="STEP7_FULL_REVIEW",
+                source_head=self._git("rev-parse", "HEAD^{commit}"),
+                source_tree=self._git("rev-parse", "HEAD^{tree}"),
+                allow_projection=True,
+            )
+            self.assertIsNotNone(binding)
+            bindings.append(binding)
+        self.assertEqual(errors, [])
+        formal = {
+            (binding["formal_path"], binding["formal_sha256"])
+            for binding in bindings
+        }
+        provider = {
+            (binding["provider_path"], binding["provider_sha256"])
+            for binding in bindings
+        }
+        self.assertEqual(len(bindings), 33)
+        self.assertEqual(len(formal), 33)
+        self.assertEqual(len(provider), 33)
+        self.assertEqual(
+            sum(binding["projected"] is False for binding in bindings),
+            12,
+        )
+        self.assertEqual(
+            sum(binding["projected"] is True for binding in bindings),
+            21,
+        )
+        self.assertEqual(1 + len(provider), 34)
 
     def test_same_path_fresh_hash_noop_executor_is_rejected(self) -> None:
         executor_original = self.formal_executor.read_text(encoding="utf-8")

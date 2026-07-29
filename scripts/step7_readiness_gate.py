@@ -20,6 +20,8 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
+import types
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -115,6 +117,28 @@ REGISTRATION_RESULT_SCHEMA = "SITINA_REGISTERED_TEST_GATE_RESULT_V1"
 DEPENDENCY_RESULT_SCHEMA = "SITINA_BPLUS_DEPENDENCY_GATE_V1"
 AUTONOMOUS_AUDIT_SCHEMA = "SITINA_AUTONOMOUS_RUN_EVENT_V1"
 REAL_REVIEW_RECEIPT_SCHEMA = "SITINA_STEP7_REAL_REVIEW_CAPTURE_RECEIPT_V1"
+PROVIDER_VISIBLE_PROJECTION_SCHEMA = (
+    "SITINA_STEP7_PROVIDER_VISIBLE_BOUND_PROJECTION_V1"
+)
+PROVIDER_VISIBLE_PROJECTION_ALGORITHM = (
+    "SITINA_REDACTION_FIXED_POINT_HANDOFF_EMPTY_ALLOWLIST_V1"
+)
+REAL_REVIEW_INPUT_V1_SCHEMA = "SITINA_STEP7_REAL_REVIEW_INPUT_V1"
+REAL_REVIEW_INPUT_V2_SCHEMA = "SITINA_STEP7_REAL_REVIEW_INPUT_V2"
+REAL_REVIEW_RESULT_V1_SCHEMA = "SITINA_STEP7_REAL_REVIEW_RESULT_V1"
+REAL_REVIEW_RESULT_V2_SCHEMA = "SITINA_STEP7_REAL_REVIEW_RESULT_V2"
+PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS = {
+    "path",
+    "sha256",
+    "size",
+    "media_type",
+    "purpose",
+    "source_path",
+    "source_sha256",
+    "source_size",
+    "source_media_type",
+    "projection_schema",
+}
 CODEX_CAPTURE_ANCHOR_SCHEMA = "SITINA_CODEX_APPEND_ONLY_CAPTURE_ANCHOR_V1"
 CODEX_USER_AUTHORIZATION_SCHEMA = "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3"
 CODEX_SOURCE_USER_AUTHORIZATION_SCHEMA = (
@@ -7775,13 +7799,248 @@ def _verify_file_reference(
     return path, document
 
 
+def _step7_review_reference_capture(
+    value: Any,
+    errors: list[str],
+    label: str,
+    *,
+    parse_json_object: bool,
+) -> tuple[Path | None, dict[str, Any] | None, str | None]:
+    if not isinstance(value, Mapping):
+        errors.append(f"{label} reference must be an object")
+        return None, None, None
+    path = _safe_regular_file(value.get("path"), errors, label)
+    expected = value.get("sha256")
+    if not _valid_sha256(expected):
+        errors.append(f"{label} reference requires a SHA-256")
+    if path is None:
+        return None, None, None
+    try:
+        raw, _metadata = _step7_v4_read_regular(path)
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeError, ValueError) as exc:
+        errors.append(f"{label} is unsafe: {type(exc).__name__}")
+        return path, None, None
+    if hashlib.sha256(raw).hexdigest() != expected:
+        errors.append(f"{label} SHA-256 mismatch")
+    if not parse_json_object:
+        return path, None, text
+    try:
+        document = json.loads(text)
+        if not isinstance(document, Mapping):
+            raise ValueError("expected a JSON object")
+    except (json.JSONDecodeError, ValueError) as exc:
+        errors.append(f"{label} is not a JSON object: {type(exc).__name__}")
+        document = None
+    return path, document, text
+
+
+_PROJECTION_REDACTION_FUNCTIONS: dict[Path, Any] = {}
+
+
+def _step7_projection_redaction_function(source_root: Path) -> Any:
+    resolved_root = source_root.resolve(strict=True)
+    if source_root != resolved_root:
+        raise ValueError("provider-visible projection source root is not canonical")
+    cached = _PROJECTION_REDACTION_FUNCTIONS.get(resolved_root)
+    if cached is not None:
+        return cached
+    module_path = (
+        resolved_root / "core" / "sitina" / "security" / "redaction.py"
+    )
+    raw, _metadata = _step7_v4_read_regular(module_path)
+    module_name = (
+        "_sitina_step7_projection_redaction_"
+        + hashlib.sha256(str(resolved_root).encode("utf-8")).hexdigest()
+    )
+    module = types.ModuleType(module_name)
+    module.__file__ = str(module_path)
+    module.__package__ = ""
+    sys.modules[module_name] = module
+    try:
+        code = compile(raw, str(module_path), "exec", dont_inherit=True)
+        exec(code, module.__dict__)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    function = getattr(module, "redact_boundary_value", None)
+    if not callable(function):
+        raise ValueError("provider-visible projection redaction is unavailable")
+    _PROJECTION_REDACTION_FUNCTIONS[resolved_root] = function
+    return function
+
+
+def _step7_provider_visible_source_text(
+    source_path: Path,
+    *,
+    source_media_type: str,
+) -> tuple[bytes, str, os.stat_result]:
+    if source_media_type not in ("json", "json_value", "jsonl", "text"):
+        raise ValueError("provider-visible projection source media type is invalid")
+    canonical = source_path.resolve(strict=True)
+    if source_path != canonical:
+        raise ValueError("provider-visible projection source path is not canonical")
+    raw, metadata = _step7_v4_read_regular(canonical)
+    text = raw.decode("utf-8")
+    if source_media_type in {"json", "json_value"}:
+        parsed = json.loads(text)
+        if source_media_type == "json" and not isinstance(parsed, Mapping):
+            raise ValueError("provider-visible projection source is not a JSON object")
+    elif source_media_type == "jsonl":
+        lines = text.splitlines()
+        if not lines:
+            raise ValueError("provider-visible projection source JSONL is empty")
+        for line in lines:
+            if not isinstance(json.loads(line), Mapping):
+                raise ValueError(
+                    "provider-visible projection source JSONL record is not an object"
+                )
+    return raw, text, metadata
+
+
+def _step7_projection_boundary_identity(
+    text: str,
+    *,
+    redact: Any,
+) -> bool:
+    return all(
+        (
+            not result.redacted_paths
+            and result.value == text
+        )
+        for result in (
+            redact(text, boundary="handoff", allowlist=()),
+            redact(text, boundary="log", allowlist=()),
+        )
+    )
+
+
+def _step7_review_physical_text(path: Path) -> str:
+    raw, _metadata = _step7_v4_read_regular(path)
+    return raw.decode("utf-8", errors="replace")
+
+
+def _step7_provider_visible_projection_text(
+    source_path: Path,
+    *,
+    source_media_type: str,
+    purpose: str,
+    source_root: Path,
+    review_stage: str,
+    source_head: str,
+    source_tree: str,
+) -> str:
+    source = Path(source_path)
+    raw, text, source_metadata = _step7_provider_visible_source_text(
+        source,
+        source_media_type=source_media_type,
+    )
+    return _step7_provider_visible_projection_from_capture(
+        source,
+        source_media_type=source_media_type,
+        purpose=purpose,
+        source_root=source_root,
+        review_stage=review_stage,
+        source_head=source_head,
+        source_tree=source_tree,
+        raw=raw,
+        text=text,
+        source_metadata=source_metadata,
+    )
+
+
+def _step7_provider_visible_projection_from_capture(
+    source: Path,
+    *,
+    source_media_type: str,
+    purpose: str,
+    source_root: Path,
+    review_stage: str,
+    source_head: str,
+    source_tree: str,
+    raw: bytes,
+    text: str,
+    source_metadata: os.stat_result,
+) -> str:
+    if not isinstance(purpose, str) or not purpose:
+        raise ValueError("provider-visible projection purpose is invalid")
+    if not isinstance(review_stage, str) or not review_stage:
+        raise ValueError("provider-visible projection review stage is invalid")
+    if (
+        not isinstance(source_head, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_head) is None
+        or not isinstance(source_tree, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_tree) is None
+    ):
+        raise ValueError("provider-visible projection source state is invalid")
+    redact = _step7_projection_redaction_function(source_root)
+    first = redact(text, boundary="handoff", allowlist=())
+    if not first.redacted_paths or first.value == text:
+        raise ValueError("provider-visible projection source is already boundary safe")
+    sanitized = first.value
+    pass_count = 1
+    while pass_count < 4:
+        stable = redact(sanitized, boundary="handoff", allowlist=())
+        pass_count += 1
+        if not stable.redacted_paths and stable.value == sanitized:
+            break
+        sanitized = stable.value
+    else:
+        raise ValueError("provider-visible projection sanitization did not converge")
+    if not _step7_projection_boundary_identity(sanitized, redact=redact):
+        raise ValueError("provider-visible projection payload is not boundary safe")
+    payload = sanitized.encode("utf-8")
+    header = {
+        "schema": PROVIDER_VISIBLE_PROJECTION_SCHEMA,
+        "review_stage": review_stage,
+        "source": {"head": source_head, "tree": source_tree},
+        "original": {
+            "path": str(source),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "size": source_metadata.st_size,
+            "media_type": source_media_type,
+        },
+        "purpose": purpose,
+        "transform": {
+            "algorithm": PROVIDER_VISIBLE_PROJECTION_ALGORITHM,
+            "boundary": "handoff",
+            "allowlist": [],
+            "redacted_paths": list(first.redacted_paths),
+            "pass_count": pass_count,
+        },
+        "payload": {
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "utf8_bytes": len(payload),
+        },
+    }
+    serialized_header = json.dumps(
+        header,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    projection = serialized_header + "\n" + sanitized
+    if not _step7_projection_boundary_identity(projection, redact=redact):
+        raise ValueError("provider-visible projection document is not boundary safe")
+    return projection
+
+
 def _verify_review_required_file(
     reference: Any,
     errors: list[str],
     label: str,
-) -> tuple[str, str] | None:
+    *,
+    source_root: Path | None = None,
+    projection_root: Path | None = None,
+    review_stage: str | None = None,
+    source_head: str | None = None,
+    source_tree: str | None = None,
+    allow_projection: bool = False,
+) -> dict[str, Any] | None:
+    direct_fields = {"path", "sha256", "media_type", "purpose"}
     if not isinstance(reference, Mapping) or (
-        set(reference) != {"path", "sha256", "media_type", "purpose"}
+        set(reference)
+        not in (direct_fields, PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS)
         or reference.get("media_type")
         not in ("json", "json_value", "jsonl", "text")
         or not isinstance(reference.get("purpose"), str)
@@ -7789,21 +8048,195 @@ def _verify_review_required_file(
     ):
         errors.append(f"{label} is malformed")
         return None
+    projection = set(reference) == PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+    if projection:
+        if (
+            not allow_projection
+            or source_root is None
+            or projection_root is None
+            or not _valid_sha256(reference.get("sha256"))
+            or reference.get("media_type") != "text"
+            or reference.get("projection_schema")
+            != PROVIDER_VISIBLE_PROJECTION_SCHEMA
+            or reference.get("source_media_type")
+            not in ("json", "json_value", "jsonl", "text")
+            or not isinstance(reference.get("source_path"), str)
+            or not _valid_sha256(reference.get("source_sha256"))
+            or not _integer(reference.get("source_size"))
+            or not _integer(reference.get("size"))
+        ):
+            errors.append(f"{label} provider-visible projection binding mismatch")
+            return None
+        source_path = _safe_regular_file(
+            reference.get("source_path"),
+            errors,
+            f"{label} provider-visible source",
+        )
+        if source_path is None:
+            return None
+        try:
+            source_raw, _source_text, source_metadata = (
+                _step7_provider_visible_source_text(
+                    source_path,
+                    source_media_type=str(reference["source_media_type"]),
+                )
+            )
+            expected_projection = _step7_provider_visible_projection_from_capture(
+                source_path,
+                source_media_type=str(reference["source_media_type"]),
+                purpose=str(reference["purpose"]),
+                source_root=source_root,
+                review_stage=str(review_stage),
+                source_head=str(source_head),
+                source_tree=str(source_tree),
+                raw=source_raw,
+                text=_source_text,
+                source_metadata=source_metadata,
+            )
+        except Exception as exc:
+            errors.append(
+                f"{label} provider-visible projection cannot be recomputed: "
+                f"{type(exc).__name__}"
+            )
+            return None
+        projection_path = _safe_regular_file(
+            reference.get("path"),
+            errors,
+            label,
+        )
+        projection_raw: bytes | None = None
+        projection_metadata: os.stat_result | None = None
+        projection_root_valid = False
+        try:
+            resolved_projection_root = projection_root.resolve(strict=True)
+            if projection_root != resolved_projection_root:
+                raise ValueError("provider-visible projection root is not canonical")
+            projection_root_descriptor = _step7_v4_open_dir_nofollow(
+                projection_root
+            )
+            os.close(projection_root_descriptor)
+            projection_root_valid = True
+        except Exception as exc:
+            errors.append(
+                f"{label} provider-visible projection root is unsafe: "
+                f"{type(exc).__name__}"
+            )
+        if projection_path is not None:
+            if (
+                not projection_root_valid
+                or projection_path.parent != projection_root
+                or projection_path == source_path
+            ):
+                errors.append(f"{label} provider-visible projection root mismatch")
+            try:
+                projection_raw, projection_metadata = _step7_v4_read_regular(
+                    projection_path
+                )
+            except (OSError, ValueError) as exc:
+                errors.append(
+                    f"{label} provider-visible projection is unsafe: "
+                    f"{type(exc).__name__}"
+                )
+        if (
+            projection_path is None
+            or projection_raw is None
+            or projection_metadata is None
+            or not projection_root_valid
+            or projection_raw != expected_projection.encode("utf-8")
+            or hashlib.sha256(source_raw).hexdigest()
+            != reference.get("source_sha256")
+            or source_metadata.st_size != reference.get("source_size")
+            or hashlib.sha256(projection_raw).hexdigest()
+            != reference.get("sha256")
+            or projection_metadata.st_size != reference.get("size")
+            or (
+                source_metadata.st_dev,
+                source_metadata.st_ino,
+            )
+            == (
+                projection_metadata.st_dev,
+                projection_metadata.st_ino,
+            )
+        ):
+            errors.append(f"{label} provider-visible projection closure mismatch")
+        return {
+            "formal_path": str(reference.get("source_path")),
+            "formal_sha256": str(reference.get("source_sha256")),
+            "provider_path": str(reference.get("path")),
+            "provider_sha256": str(reference.get("sha256")),
+            "provider_size": reference.get("size"),
+            "provider_text": (
+                projection_raw.decode("utf-8", errors="replace")
+                if projection_raw is not None
+                else None
+            ),
+            "projected": True,
+        }
     media_type = reference["media_type"]
-    path, _ = _verify_file_reference(
-        reference,
+    path = _safe_regular_file(
+        reference.get("path"),
         errors,
         label,
-        require_json_object=media_type == "json",
     )
-    if media_type == "json_value" and path is not None:
+    if not _valid_sha256(reference.get("sha256")):
+        errors.append(f"{label} reference requires a SHA-256")
+    metadata: os.stat_result | None = None
+    raw: bytes | None = None
+    text: str | None = None
+    if path is not None:
         try:
-            json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            errors.append(
-                f"{label} is not valid JSON: {type(exc).__name__}"
+            raw, text, metadata = _step7_provider_visible_source_text(
+                path,
+                source_media_type=str(media_type),
             )
-    return (str(reference.get("path")), str(reference.get("sha256")))
+        except json.JSONDecodeError as exc:
+            errors.append(
+                (
+                    f"{label} is not valid JSON: {type(exc).__name__}"
+                    if media_type == "json_value"
+                    else f"{label} is not a JSON object: {type(exc).__name__}"
+                )
+            )
+        except Exception as exc:
+            if (
+                media_type == "json"
+                and isinstance(exc, ValueError)
+                and "not a JSON object" in str(exc)
+            ):
+                errors.append(
+                    f"{label} is not a JSON object: {type(exc).__name__}"
+                )
+            else:
+                errors.append(
+                    f"{label} direct provider-visible source is unsafe: "
+                    f"{type(exc).__name__}"
+                )
+    if (
+        raw is not None
+        and hashlib.sha256(raw).hexdigest() != reference.get("sha256")
+    ):
+        errors.append(f"{label} SHA-256 mismatch")
+    if text is not None and source_root is not None:
+        try:
+            redact = _step7_projection_redaction_function(source_root)
+            if not _step7_projection_boundary_identity(text, redact=redact):
+                errors.append(
+                    f"{label} direct provider-visible source is not boundary identity"
+                )
+        except Exception as exc:
+            errors.append(
+                f"{label} direct provider-visible redaction source is unsafe: "
+                f"{type(exc).__name__}"
+            )
+    return {
+        "formal_path": str(reference.get("path")),
+        "formal_sha256": str(reference.get("sha256")),
+        "provider_path": str(reference.get("path")),
+        "provider_sha256": str(reference.get("sha256")),
+        "provider_size": metadata.st_size if metadata is not None else None,
+        "provider_text": text,
+        "projected": False,
+    }
 
 
 def _git(source_root: Path, *arguments: str) -> str:
@@ -8806,21 +9239,28 @@ def _verify_review(
         errors.append(f"{label} candidate field set mismatch")
     if value.get("review_stage") != expected_stage:
         errors.append(f"{label} review stage mismatch")
-    input_path, review_input = _verify_file_reference(
+    input_path, review_input, review_input_text = _step7_review_reference_capture(
         value.get("input"),
         errors,
         f"{label} input",
+        parse_json_object=True,
     )
     required_files = (
         review_input.get("required_files")
         if isinstance(review_input, Mapping)
         else None
     )
-    input_reference_identities: list[tuple[str, str]] = []
+    input_reference_bindings: list[dict[str, Any]] = []
+    review_input_schema = (
+        review_input.get("schema")
+        if isinstance(review_input, Mapping)
+        else None
+    )
     if not isinstance(review_input, Mapping) or (
         set(review_input)
         != {"schema", "review_stage", "source", "required_files", "rules"}
-        or review_input.get("schema") != "SITINA_STEP7_REAL_REVIEW_INPUT_V1"
+        or review_input_schema
+        not in (REAL_REVIEW_INPUT_V1_SCHEMA, REAL_REVIEW_INPUT_V2_SCHEMA)
         or review_input.get("review_stage") != expected_stage
         or review_input.get("source")
         != {"head": source_state.get("head"), "tree": source_state.get("tree")}
@@ -8836,35 +9276,102 @@ def _verify_review(
     ):
         errors.append(f"{label} input schema or source binding mismatch")
         required_files = []
+    if input_path is not None:
+        try:
+            review_redact = _step7_projection_redaction_function(source_root)
+            if not _step7_projection_boundary_identity(
+                str(review_input_text),
+                redact=review_redact,
+            ):
+                errors.append(f"{label} input is not provider-visible identity")
+        except Exception as exc:
+            errors.append(f"{label} input is unsafe: {type(exc).__name__}")
     for index, reference in enumerate(required_files):
         identity = _verify_review_required_file(
             reference,
             errors,
             f"{label} input required file {index}",
+            source_root=source_root,
+            projection_root=(
+                input_path.parent / "projections"
+                if input_path is not None
+                else None
+            ),
+            review_stage=expected_stage,
+            source_head=str(source_state.get("head")),
+            source_tree=str(source_state.get("tree")),
+            allow_projection=review_input_schema == REAL_REVIEW_INPUT_V2_SCHEMA,
         )
         if identity is not None:
-            input_reference_identities.append(identity)
+            input_reference_bindings.append(identity)
+    input_reference_identities = [
+        (binding["formal_path"], binding["formal_sha256"])
+        for binding in input_reference_bindings
+    ]
+    provider_reference_identities = [
+        (binding["provider_path"], binding["provider_sha256"])
+        for binding in input_reference_bindings
+    ]
+    provider_text_by_path = {
+        binding["provider_path"]: binding.get("provider_text")
+        for binding in input_reference_bindings
+    }
+    if input_path is not None:
+        provider_text_by_path[str(input_path)] = review_input_text
     if (
         len(input_reference_identities) != len(set(input_reference_identities))
         or set(input_reference_identities) != required_reference_identities
     ):
         errors.append(f"{label} input required-file closure mismatch")
-    audit_path, _ = _verify_file_reference(
+    if (
+        len(provider_reference_identities)
+        != len(set(provider_reference_identities))
+        or len(provider_reference_identities) != len(input_reference_identities)
+    ):
+        errors.append(f"{label} provider-visible required-file closure mismatch")
+    projected_reference_count = sum(
+        binding.get("projected") is True
+        for binding in input_reference_bindings
+    )
+    if (
+        review_input_schema == REAL_REVIEW_INPUT_V2_SCHEMA
+        and projected_reference_count == 0
+    ):
+        errors.append(f"{label} V2 input contains no provider-visible projection")
+    audit_path, _audit_document, audit_text = _step7_review_reference_capture(
         value.get("audit"),
         errors,
         f"{label} audit",
-        require_json_object=False,
+        parse_json_object=False,
     )
     if audit_path is None:
         return {}
-    receipt_path, receipt = _verify_file_reference(
+    receipt_path, receipt, _receipt_text = _step7_review_reference_capture(
         value.get("receipt"),
         errors,
         f"{label} capture receipt",
+        parse_json_object=True,
+    )
+    input_capture_sha256 = (
+        hashlib.sha256(review_input_text.encode("utf-8")).hexdigest()
+        if isinstance(review_input_text, str)
+        else None
+    )
+    audit_capture_sha256 = (
+        hashlib.sha256(audit_text.encode("utf-8")).hexdigest()
+        if isinstance(audit_text, str)
+        else None
     )
     try:
-        records = _load_json_lines(audit_path)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        if not isinstance(audit_text, str) or not audit_text.splitlines():
+            raise ValueError("empty audit")
+        records = [
+            json.loads(line)
+            for line in audit_text.splitlines()
+        ]
+        if not all(isinstance(record, Mapping) for record in records):
+            raise ValueError("audit record is not an object")
+    except (json.JSONDecodeError, ValueError) as exc:
         errors.append(f"{label} audit is not valid JSONL: {type(exc).__name__}")
         return {}
     run_ids = {record.get("run_id") for record in records}
@@ -9070,7 +9577,7 @@ def _verify_review(
                         ),
                         *{
                             Path(path).resolve(strict=True)
-                            for path, _digest in input_reference_identities
+                            for path, _digest in provider_reference_identities
                         },
                     }
                     if resolved_read_path not in fixed_allowed_paths and not any(
@@ -9103,7 +9610,10 @@ def _verify_review(
     ):
         errors.append(f"{label} audit tool event closure mismatch")
     expected_read_paths = (
-        [str(input_path), *(path for path, _digest in input_reference_identities)]
+        [
+            str(input_path),
+            *(path for path, _digest in provider_reference_identities),
+        ]
         if input_path is not None
         else []
     )
@@ -9209,14 +9719,11 @@ def _verify_review(
             and isinstance(call.get("arguments"), Mapping)
             else None
         )
-        try:
-            physical_result = (
-                Path(path).read_text(encoding="utf-8", errors="replace")
-                if isinstance(path, str)
-                else None
-            )
-        except OSError:
-            physical_result = None
+        physical_result = (
+            provider_text_by_path.get(path)
+            if isinstance(path, str)
+            else None
+        )
         encoded_result = (
             json.dumps(
                 physical_result,
@@ -9349,11 +9856,12 @@ def _verify_review(
                     f"{label} audit provider received a malformed or redacted tool result"
                 )
                 continue
-            try:
-                physical_result = Path(path).read_text(
-                    encoding="utf-8", errors="replace"
-                )
-            except OSError:
+            physical_result = (
+                provider_text_by_path.get(path)
+                if isinstance(path, str)
+                else None
+            )
+            if physical_result is None:
                 errors.append(
                     f"{label} audit provider tool result physical file is unreadable"
                 )
@@ -9383,14 +9891,11 @@ def _verify_review(
                 envelope = json.loads(message.get("content", ""))
             except (TypeError, json.JSONDecodeError):
                 envelope = None
-            try:
-                physical_result = (
-                    Path(path).read_text(encoding="utf-8", errors="replace")
-                    if isinstance(path, str)
-                    else None
-                )
-            except OSError:
-                physical_result = None
+            physical_result = (
+                provider_text_by_path.get(path)
+                if isinstance(path, str)
+                else None
+            )
             if (
                 not isinstance(envelope, Mapping)
                 or envelope.get("redacted_paths") != []
@@ -9414,19 +9919,26 @@ def _verify_review(
         review_result = json.loads(response) if isinstance(response, str) else None
     except json.JSONDecodeError:
         review_result = None
+    expected_result_schema = (
+        REAL_REVIEW_RESULT_V2_SCHEMA
+        if review_input_schema == REAL_REVIEW_INPUT_V2_SCHEMA
+        else REAL_REVIEW_RESULT_V1_SCHEMA
+    )
+    expected_result_fields = {
+        "schema",
+        "review_stage",
+        "source_head",
+        "source_tree",
+        "verdict",
+        "blockers",
+        "step8_step9_not_entered",
+        "files_read",
+    }
+    if expected_result_schema == REAL_REVIEW_RESULT_V2_SCHEMA:
+        expected_result_fields.add("source_file_closure")
     if not isinstance(review_result, Mapping) or (
-        set(review_result)
-        != {
-            "schema",
-            "review_stage",
-            "source_head",
-            "source_tree",
-            "verdict",
-            "blockers",
-            "step8_step9_not_entered",
-            "files_read",
-        }
-        or review_result.get("schema") != "SITINA_STEP7_REAL_REVIEW_RESULT_V1"
+        set(review_result) != expected_result_fields
+        or review_result.get("schema") != expected_result_schema
         or review_result.get("review_stage") != value.get("review_stage")
         or review_result.get("source_head") != source_state.get("head")
         or review_result.get("source_tree") != source_state.get("tree")
@@ -9436,6 +9948,14 @@ def _verify_review(
         or not isinstance(review_result.get("files_read"), list)
         or review_result.get("files_read")
         != list(dict.fromkeys(model_read_paths))
+        or (
+            expected_result_schema == REAL_REVIEW_RESULT_V2_SCHEMA
+            and review_result.get("source_file_closure")
+            != [
+                {"path": path, "sha256": digest}
+                for path, digest in input_reference_identities
+            ]
+        )
     ):
         errors.append(f"{label} audit has no bound terminal PASS verdict")
 
@@ -9454,7 +9974,7 @@ def _verify_review(
             if isinstance(review_result, Mapping)
             else None
         ),
-        "input_sha256": _sha256(input_path) if input_path is not None else None,
+        "input_sha256": input_capture_sha256,
         "output_sha256": _sha256_text(response) if isinstance(response, str) else None,
         "tool_call_count": len(model_call_ids),
         "tool_call_types": ["sitina_read_file"],
@@ -9474,8 +9994,8 @@ def _verify_review(
     receipt_anchor_payload = {
         "review_stage": expected_stage,
         "run_id": run_id,
-        "input_sha256": _sha256(input_path) if input_path is not None else None,
-        "audit_sha256": _sha256(audit_path),
+        "input_sha256": input_capture_sha256,
+        "audit_sha256": audit_capture_sha256,
         "event_chain_sha256": _audit_event_chain_sha256(records),
         "provider_request_ids": provider_request_ids,
         "usage": expected_receipt_usage,
@@ -9489,12 +10009,12 @@ def _verify_review(
         or receipt.get("input")
         != {
             "path": str(input_path) if input_path is not None else None,
-            "sha256": _sha256(input_path) if input_path is not None else None,
+            "sha256": input_capture_sha256,
         }
         or receipt.get("audit")
         != {
             "path": str(audit_path),
-            "sha256": _sha256(audit_path),
+            "sha256": audit_capture_sha256,
             "format": "jsonl",
         }
         or receipt.get("event_count") != len(records)
@@ -14322,11 +14842,67 @@ def _verify_rollback_and_bound_evidence(
                         cleanup_review.get("receipt"),
                     )
                 )
+                (
+                    _cleanup_input_path,
+                    cleanup_input_document,
+                    _cleanup_input_text,
+                ) = _step7_review_reference_capture(
+                    cleanup_review.get("input"),
+                    errors,
+                    "Step7 cleanup review input bound-evidence closure",
+                    parse_json_object=True,
+                )
+                if (
+                    isinstance(cleanup_input_document, Mapping)
+                    and cleanup_input_document.get("schema")
+                    == REAL_REVIEW_INPUT_V2_SCHEMA
+                ):
+                    required_references.extend(
+                        {
+                            "path": reference.get("path"),
+                            "sha256": reference.get("sha256"),
+                            "format": "text",
+                        }
+                        for reference in cleanup_input_document.get(
+                            "required_files", []
+                        )
+                        if isinstance(reference, Mapping)
+                        and set(reference)
+                        == PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+                    )
         review = candidate.get("real_sitina_review")
         if isinstance(review, Mapping):
             required_references.extend(
                 (review.get("input"), review.get("audit"), review.get("receipt"))
             )
+            (
+                _full_input_path,
+                full_input_document,
+                _full_input_text,
+            ) = _step7_review_reference_capture(
+                review.get("input"),
+                errors,
+                "Step7 full review input bound-evidence closure",
+                parse_json_object=True,
+            )
+            if (
+                isinstance(full_input_document, Mapping)
+                and full_input_document.get("schema")
+                == REAL_REVIEW_INPUT_V2_SCHEMA
+            ):
+                required_references.extend(
+                    {
+                        "path": reference.get("path"),
+                        "sha256": reference.get("sha256"),
+                        "format": "text",
+                    }
+                    for reference in full_input_document.get(
+                        "required_files", []
+                    )
+                    if isinstance(reference, Mapping)
+                    and set(reference)
+                    == PROVIDER_VISIBLE_PROJECTION_REFERENCE_FIELDS
+                )
         sentinel = candidate.get("production_sentinel")
         if isinstance(sentinel, Mapping):
             required_references.extend(
