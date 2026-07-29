@@ -3310,6 +3310,23 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 {"approval_id": approval_id},
             )
 
+    def test_v4_superseded_c327e63_approval_is_mechanically_revoked(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_C327E63_6F_20260729T053000Z"
+        self.assertIn(
+            approval_id,
+            step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "production approval_id is revoked",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {"run_id": f"{approval_id}_EXECUTION"},
+                {"approval_id": approval_id},
+            )
+
     def test_v4_manifest_is_reloaded_exactly_before_rehearsal_or_apply(
         self,
     ) -> None:
