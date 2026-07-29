@@ -121,7 +121,7 @@ PROVIDER_VISIBLE_PROJECTION_SCHEMA = (
     "SITINA_STEP7_PROVIDER_VISIBLE_BOUND_PROJECTION_V1"
 )
 PROVIDER_VISIBLE_PROJECTION_ALGORITHM = (
-    "SITINA_REDACTION_FIXED_POINT_HANDOFF_EMPTY_ALLOWLIST_V1"
+    "SITINA_REDACTION_FIXED_POINT_HANDOFF_EMPTY_ALLOWLIST_TOOL_ENVELOPE_V2"
 )
 REAL_REVIEW_INPUT_V1_SCHEMA = "SITINA_STEP7_REAL_REVIEW_INPUT_V1"
 REAL_REVIEW_INPUT_V2_SCHEMA = "SITINA_STEP7_REAL_REVIEW_INPUT_V2"
@@ -7903,16 +7903,63 @@ def _step7_projection_boundary_identity(
     *,
     redact: Any,
 ) -> bool:
-    return all(
+    tool_envelope = json.dumps(
+        {
+            "schema": "SITINA_UNTRUSTED_TOOL_DATA_V1",
+            "source": "tool",
+            "trust": "untrusted-data",
+            "can_grant_permissions": False,
+            "can_override_instructions": False,
+            "status": "ok",
+            "tool": "sitina_read_file",
+            "result": text,
+            "redacted_paths": [],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    identity = all(
         (
             not result.redacted_paths
-            and result.value == text
+            and result.value == value
         )
+        for value in (text, tool_envelope)
         for result in (
-            redact(text, boundary="handoff", allowlist=()),
-            redact(text, boundary="log", allowlist=()),
+            redact(value, boundary="handoff", allowlist=()),
+            redact(value, boundary="log", allowlist=()),
         )
     )
+    if not identity:
+        return False
+    try:
+        decoded = json.loads(tool_envelope)
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(decoded, Mapping)
+        and decoded.get("result") == text
+        and decoded.get("redacted_paths") == []
+    )
+
+
+def _step7_projection_neutralize_redacted_value_boundaries(
+    text: str,
+) -> tuple[str, int]:
+    """Keep an already-redacted payload stable inside a serialized envelope.
+
+    The boundary redactor intentionally treats ``token=value`` as sensitive.
+    When the safe placeholder is immediately followed by any non-whitespace,
+    applying the same redactor to the serialized tool envelope can consume
+    punctuation or JSON escape bytes.  A single visible ASCII spacer preserves
+    meaning for review and makes handoff and log redaction byte-identical.
+    """
+
+    pattern = re.compile(
+        r"(<redacted(?:-[^>\r\n]+)?>)(?![ \t])",
+        flags=re.IGNORECASE,
+    )
+    return pattern.subn(r"\1 ", text)
 
 
 def _step7_review_physical_text(path: Path) -> str:
@@ -7987,6 +8034,9 @@ def _step7_provider_visible_projection_from_capture(
         sanitized = stable.value
     else:
         raise ValueError("provider-visible projection sanitization did not converge")
+    sanitized, value_neutralization_count = (
+        _step7_projection_neutralize_redacted_value_boundaries(sanitized)
+    )
     if not _step7_projection_boundary_identity(sanitized, redact=redact):
         raise ValueError("provider-visible projection payload is not boundary safe")
     payload = sanitized.encode("utf-8")
@@ -8007,6 +8057,9 @@ def _step7_provider_visible_projection_from_capture(
             "allowlist": [],
             "redacted_paths": list(first.redacted_paths),
             "pass_count": pass_count,
+            "tool_envelope_value_neutralization_count": (
+                value_neutralization_count
+            ),
         },
         "payload": {
             "sha256": hashlib.sha256(payload).hexdigest(),

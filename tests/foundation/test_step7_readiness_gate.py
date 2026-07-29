@@ -7631,6 +7631,114 @@ class Step7ReadinessGateTests(unittest.TestCase):
             errors,
         )
 
+    def test_projection_transport_preserves_redacted_value_json_envelope(self) -> None:
+        safe_root = self.output / "projection-tool-envelope-transport"
+        safe_root.mkdir()
+        source = safe_root / "redacted-quote-boundaries.txt"
+        source.write_text(
+            'phase_token=phase-minus1"\napi_key=secret-token-value"\n',
+            encoding="utf-8",
+        )
+        projection = step7_gate._step7_provider_visible_projection_text(
+            source.resolve(),
+            source_media_type="text",
+            purpose="serialized tool-envelope quote regression",
+            source_root=self.source.resolve(),
+            review_stage="STEP7_FULL_REVIEW",
+            source_head=self._git("rev-parse", "HEAD^{commit}"),
+            source_tree=self._git("rev-parse", "HEAD^{tree}"),
+        )
+        raw_header, payload = projection.split("\n", 1)
+        header = json.loads(raw_header)
+        self.assertEqual(
+            header["transform"]["algorithm"],
+            step7_gate.PROVIDER_VISIBLE_PROJECTION_ALGORITHM,
+        )
+        self.assertEqual(
+            header["transform"][
+                "tool_envelope_value_neutralization_count"
+            ],
+            2,
+        )
+        self.assertIn('phase_token=<redacted> "', payload)
+        self.assertIn('api_key=<redacted> "', payload)
+        self.assertNotIn("phase-minus1", payload)
+        self.assertNotIn("secret-token-value", payload)
+
+        redact = step7_gate._step7_projection_redaction_function(
+            self.source.resolve()
+        )
+        envelope = json.dumps(
+            {
+                "schema": "SITINA_UNTRUSTED_TOOL_DATA_V1",
+                "source": "tool",
+                "trust": "untrusted-data",
+                "can_grant_permissions": False,
+                "can_override_instructions": False,
+                "status": "ok",
+                "tool": "sitina_read_file",
+                "result": projection,
+                "redacted_paths": [],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        for boundary in ("handoff", "log"):
+            observed = redact(envelope, boundary=boundary, allowlist=())
+            self.assertEqual(observed.redacted_paths, ())
+            self.assertEqual(observed.value, envelope)
+            self.assertEqual(json.loads(observed.value)["result"], projection)
+
+        self.assertFalse(
+            step7_gate._step7_projection_boundary_identity(
+                'phase_token=<redacted>"',
+                redact=redact,
+            )
+        )
+
+    def test_projection_transport_value_spacer_removal_fails_closed(self) -> None:
+        safe_root = self.output / "projection-tool-envelope-negative"
+        safe_root.mkdir()
+        source = safe_root / "redacted-quote-boundary.txt"
+        source.write_text(
+            'api_key=secret-token-value"\n',
+            encoding="utf-8",
+        )
+        reference = self._projected_review_required_file(
+            source,
+            source_media_type="text",
+            purpose="serialized tool-envelope negative regression",
+            safe_root=safe_root,
+            review_stage="STEP7_FULL_REVIEW",
+        )
+        projection = Path(str(reference["path"]))
+        text = projection.read_text(encoding="utf-8")
+        self.assertIn('api_key=<redacted> "', text)
+        projection.write_text(
+            text.replace('api_key=<redacted> "', 'api_key=<redacted>"'),
+            encoding="utf-8",
+        )
+        mutated = dict(reference)
+        mutated["sha256"] = sha256(projection)
+        mutated["size"] = projection.stat().st_size
+        errors: list[str] = []
+        step7_gate._verify_review_required_file(
+            mutated,
+            errors,
+            "Step7 quote-spacer mutated projection",
+            source_root=self.source.resolve(),
+            projection_root=(safe_root / "projections").resolve(),
+            review_stage="STEP7_FULL_REVIEW",
+            source_head=self._git("rev-parse", "HEAD^{commit}"),
+            source_tree=self._git("rev-parse", "HEAD^{tree}"),
+            allow_projection=True,
+        )
+        self.assertTrue(
+            any("projection closure mismatch" in error for error in errors),
+            errors,
+        )
+
     def test_projection_wrong_root_and_symlink_fail_closed(self) -> None:
         safe_root = self.output / "projection-path-negative"
         safe_root.mkdir()
