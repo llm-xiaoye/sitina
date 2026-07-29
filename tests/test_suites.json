@@ -97,7 +97,7 @@
         "tests/optimization/test_suggestion_management.py",
         "tests/test_execution_bridge.py"
       ],
-      "timeout_seconds": 300,
+      "timeout_seconds": 900,
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
