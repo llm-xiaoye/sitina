@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import json
@@ -3291,6 +3292,23 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 step7_gate._step7_v4_require_production_run_id(
                     {"run_id": run_id}, packet
                 )
+
+    def test_v4_superseded_4de067a_approval_is_mechanically_revoked(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_4DE067A_6F_20260728T173000Z"
+        self.assertIn(
+            approval_id,
+            step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "production approval_id is revoked",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {"run_id": f"{approval_id}_EXECUTION"},
+                {"approval_id": approval_id},
+            )
 
     def test_v4_manifest_is_reloaded_exactly_before_rehearsal_or_apply(
         self,
@@ -6998,6 +7016,242 @@ class Step7ReadinessGateTests(unittest.TestCase):
             shadow.unlink(missing_ok=True)
             marker.unlink(missing_ok=True)
             symlink.unlink(missing_ok=True)
+
+    def test_formal_executor_receipt_contract_keeps_inline_receipt_and_fails_closed(
+        self,
+    ) -> None:
+        source = self.formal_executor.read_text(encoding="utf-8")
+        receipt_load = source.index(
+            "receipt, _, receipt_sha256 = read_json(receipt_path)"
+        )
+        receipt_verification = source.index(
+            "    verify_authorization_receipt_contract(\n"
+            "        specification,",
+            receipt_load,
+        )
+        execution = source.index(
+            "gate.execute_step7_v4(specification, dry_run=False)"
+        )
+        self.assertLess(receipt_load, receipt_verification)
+        self.assertLess(receipt_verification, execution)
+        self.assertIn(
+            'specification.get("authorization_receipt_file", {}).get("path")',
+            source,
+        )
+        self.assertNotIn(
+            'specification.get("authorization_receipt", {}).get("path")',
+            source,
+        )
+        parsed = ast.parse(source, filename=str(self.formal_executor))
+        selected = [
+            node
+            for node in parsed.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            or (
+                isinstance(node, ast.FunctionDef)
+                and node.name
+                in {
+                    "value_sha256",
+                    "require",
+                    "verify_authorization_receipt_contract",
+                }
+            )
+        ]
+        namespace: dict[str, object] = {}
+        exec(
+            compile(
+                ast.Module(body=selected, type_ignores=[]),
+                str(self.formal_executor),
+                "exec",
+            ),
+            namespace,
+        )
+        verify = namespace["verify_authorization_receipt_contract"]
+        receipt_path = Path(
+            self.formal_executor_binding["authorization_receipt_path"]
+        )
+        receipt = {
+            "schema": "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3",
+            "author": "user",
+            "marker": DEPLOYMENT_DELEGATION_MARKER,
+        }
+        physical_sha256 = "1" * 64
+        specification = {
+            "authorization_receipt": copy.deepcopy(receipt),
+            "authorization_receipt_file": {
+                "path": str(receipt_path),
+                "sha256": physical_sha256,
+            },
+            "authorization_receipt_sha256": _json_value_sha256(receipt),
+        }
+
+        verify(
+            specification,
+            receipt,
+            receipt_path,
+            physical_sha256,
+        )
+
+        old_contradictory_specification = copy.deepcopy(specification)
+        old_contradictory_specification["authorization_receipt"] = (
+            old_contradictory_specification.pop("authorization_receipt_file")
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "authorization receipt file binding drift",
+        ):
+            verify(
+                old_contradictory_specification,
+                receipt,
+                receipt_path,
+                physical_sha256,
+            )
+
+        tampered_specifications = []
+        tampered_file_path = copy.deepcopy(specification)
+        tampered_file_path["authorization_receipt_file"]["path"] += ".drift"
+        tampered_specifications.append(
+            (tampered_file_path, "authorization receipt file binding drift")
+        )
+        tampered_file_sha = copy.deepcopy(specification)
+        tampered_file_sha["authorization_receipt_file"]["sha256"] = "2" * 64
+        tampered_specifications.append(
+            (tampered_file_sha, "authorization receipt file binding drift")
+        )
+        tampered_inline = copy.deepcopy(specification)
+        tampered_inline["authorization_receipt"]["author"] = "assistant"
+        tampered_specifications.append(
+            (tampered_inline, "authorization receipt inline binding drift")
+        )
+        tampered_canonical = copy.deepcopy(specification)
+        tampered_canonical["authorization_receipt_sha256"] = "3" * 64
+        tampered_specifications.append(
+            (
+                tampered_canonical,
+                "authorization receipt canonical binding drift",
+            )
+        )
+        for tampered, error in tampered_specifications:
+            with self.subTest(error=error), self.assertRaisesRegex(
+                RuntimeError,
+                error,
+            ):
+                verify(
+                    tampered,
+                    receipt,
+                    receipt_path,
+                    physical_sha256,
+                )
+
+    def test_v4_production_receipt_file_is_exact_and_fails_closed(
+        self,
+    ) -> None:
+        receipt = {
+            "schema": "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3",
+            "author": "user",
+            "marker": DEPLOYMENT_DELEGATION_MARKER,
+        }
+        source_head = "a" * 40
+        receipt_path = (
+            self.output
+            / "sitina-step7-authorization-receipt-aaaaaaa.json"
+        ).resolve()
+        receipt_path.write_text(
+            json.dumps(receipt, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        reference = self._reference(receipt_path)
+        binding = {
+            "allowed_backup_parent": str(self.output.resolve()),
+            "source_head": source_head,
+            "authorization_receipt_sha256": _json_value_sha256(receipt),
+        }
+        specification = {
+            "authorization_receipt": copy.deepcopy(receipt),
+            "authorization_receipt_file": reference,
+        }
+        self.assertEqual(
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                specification,
+                binding,
+            ),
+            receipt,
+        )
+
+        malformed_cases = (
+            {},
+            {
+                "authorization_receipt_file": {
+                    "path": str(receipt_path),
+                },
+            },
+        )
+        for malformed in malformed_cases:
+            with self.subTest(malformed=malformed), self.assertRaisesRegex(
+                ValueError,
+                "authorization receipt file reference is malformed",
+            ):
+                step7_gate._step7_v4_verify_authorization_receipt_file(
+                    malformed,
+                    binding,
+                )
+
+        wrong_path = copy.deepcopy(specification)
+        wrong_path["authorization_receipt_file"]["path"] += ".drift"
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file path mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                wrong_path,
+                binding,
+            )
+
+        wrong_physical_sha = copy.deepcopy(specification)
+        wrong_physical_sha["authorization_receipt_file"]["sha256"] = "b" * 64
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file reference SHA-256 mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                wrong_physical_sha,
+                binding,
+            )
+
+        wrong_inline = copy.deepcopy(specification)
+        wrong_inline["authorization_receipt"]["author"] = "assistant"
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt inline binding mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                wrong_inline,
+                binding,
+            )
+
+        wrong_canonical_binding = copy.deepcopy(binding)
+        wrong_canonical_binding["authorization_receipt_sha256"] = "c" * 64
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt canonical binding mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                specification,
+                wrong_canonical_binding,
+            )
+
+        symlink_target = self.output / "receipt-symlink-target.json"
+        receipt_path.replace(symlink_target)
+        receipt_path.symlink_to(symlink_target)
+        symlink_specification = copy.deepcopy(specification)
+        symlink_specification["authorization_receipt_file"]["sha256"] = (
+            sha256(symlink_target)
+        )
+        with self.assertRaises((OSError, ValueError)):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                symlink_specification,
+                binding,
+            )
 
     def test_formal_executor_rejects_path_shadowed_git(self) -> None:
         fake_bin = self.output / "fake-bin"

@@ -157,6 +157,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z",
     "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z",
     "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z",
+    "SITINA_STEP7_DEPLOY_4DE067A_6F_20260728T173000Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -2475,6 +2476,43 @@ def _step7_v4_verify_json_reference(
     return path, value
 
 
+def _step7_v4_verify_authorization_receipt_file(
+    specification: Mapping[str, Any],
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    reference = specification.get("authorization_receipt_file")
+    if (
+        not isinstance(reference, Mapping)
+        or set(reference) != {"path", "sha256"}
+        or not isinstance(reference.get("path"), str)
+        or not _valid_sha256(reference.get("sha256"))
+    ):
+        raise ValueError("authorization receipt file reference is malformed")
+    expected_path = (
+        Path(str(binding["allowed_backup_parent"]))
+        / (
+            "sitina-step7-authorization-receipt-"
+            f"{str(binding['source_head'])[:7]}.json"
+        )
+    )
+    if reference.get("path") != str(expected_path):
+        raise ValueError("authorization receipt file path mismatch")
+    path, receipt = _step7_v4_verify_json_reference(
+        reference,
+        label="authorization receipt file",
+    )
+    if path != expected_path:
+        raise ValueError("authorization receipt file path mismatch")
+    if specification.get("authorization_receipt") != receipt:
+        raise ValueError("authorization receipt inline binding mismatch")
+    if (
+        _json_value_sha256(receipt)
+        != binding["authorization_receipt_sha256"]
+    ):
+        raise ValueError("authorization receipt canonical binding mismatch")
+    return receipt
+
+
 def _step7_v4_dir_identity(path: Path) -> dict[str, int]:
     descriptor = _step7_v4_open_dir_nofollow(path)
     try:
@@ -2937,6 +2975,8 @@ def _step7_v4_require_production_run_id(
     packet: Mapping[str, Any],
 ) -> None:
     approval_id = packet.get("approval_id")
+    if approval_id in REVOKED_DEPLOYMENT_APPROVAL_IDS:
+        raise ValueError("production approval_id is revoked")
     if (
         not isinstance(approval_id, str)
         or not approval_id
@@ -3370,7 +3410,10 @@ def _step7_v4_require_authority(
         raise ValueError("production gate contract physical binding mismatch")
     packet_ref = specification.get("packet")
     candidate_ref = specification.get("candidate")
-    receipt = specification.get("authorization_receipt")
+    receipt = _step7_v4_verify_authorization_receipt_file(
+        specification,
+        binding,
+    )
     _, packet = _step7_v4_verify_json_reference(
         packet_ref, label="execution approval packet"
     )
@@ -12457,6 +12500,39 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def verify_authorization_receipt_contract(
+    specification: object,
+    receipt: object,
+    receipt_path: Path,
+    receipt_physical_sha256: str,
+) -> None:
+    require(
+        isinstance(specification, dict),
+        "formal execution specification is not an object",
+    )
+    receipt_file = specification.get("authorization_receipt_file")
+    require(
+        receipt_file
+        == {{
+            "path": str(receipt_path),
+            "sha256": receipt_physical_sha256,
+        }},
+        "authorization receipt file binding drift",
+    )
+    require(
+        isinstance(receipt, dict)
+        and receipt.get("schema")
+        == "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3"
+        and specification.get("authorization_receipt") == receipt,
+        "authorization receipt inline binding drift",
+    )
+    require(
+        specification.get("authorization_receipt_sha256")
+        == value_sha256(receipt),
+        "authorization receipt canonical binding drift",
+    )
+
+
 def main() -> int:
     require(len(sys.argv) == 1, "formal executor accepts no arguments")
     self_path = Path(__file__).resolve(strict=True)
@@ -12639,7 +12715,7 @@ def main() -> int:
         and specification.get("packet") == BINDING["packet"]
         and specification.get("candidate", {{}}).get("path")
         == str(candidate_path)
-        and specification.get("authorization_receipt", {{}}).get("path")
+        and specification.get("authorization_receipt_file", {{}}).get("path")
         == str(receipt_path)
         and specification.get("operations_sha256")
         == BINDING["operations_sha256"]
@@ -12651,10 +12727,11 @@ def main() -> int:
         "review candidate drift",
     )
     receipt, _, receipt_sha256 = read_json(receipt_path)
-    require(
-        receipt_sha256 == specification["authorization_receipt"]["sha256"]
-        and receipt.get("schema") == "SITINA_CODEX_USER_AUTHORIZATION_RECEIPT_V3",
-        "authorization receipt drift",
+    verify_authorization_receipt_contract(
+        specification,
+        receipt,
+        receipt_path,
+        receipt_sha256,
     )
     gate_source = source_dependency_bytes.get(str(gate_path))
     require(gate_source is not None, "bound Step7 gate bytes are missing")
