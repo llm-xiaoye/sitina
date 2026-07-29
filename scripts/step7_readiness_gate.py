@@ -186,6 +186,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_A5650D1_6F_20260729T070000Z",
     "SITINA_STEP7_DEPLOY_F2DEEC0_6F_20260729T073500Z",
     "SITINA_STEP7_DEPLOY_F2DEEC0_6F_20260729T083000Z",
+    "SITINA_STEP7_DEPLOY_E8E21DD_6F_20260729T164534Z",
 }
 DEPLOYMENT_APPROVAL_ID_PATTERN = re.compile(
     r"^SITINA_STEP7_DEPLOY_(?P<source>[A-F0-9]{7})_6F_"
@@ -3048,18 +3049,29 @@ def _step7_v4_binding(specification: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _step7_v4_production_run_id(approval_id: Any) -> str:
+    if not isinstance(approval_id, str) or not approval_id:
+        raise ValueError("production approval_id is required")
+    return f"{approval_id}_EXECUTION"
+
+
 def _step7_v4_require_production_run_id(
     binding: Mapping[str, Any],
     packet: Mapping[str, Any],
 ) -> None:
     approval_id = packet.get("approval_id")
-    if approval_id in REVOKED_DEPLOYMENT_APPROVAL_IDS:
+    try:
+        expected_run_id = _step7_v4_production_run_id(approval_id)
+    except ValueError:
+        expected_run_id = None
+    if expected_run_id is not None and (
+        approval_id in REVOKED_DEPLOYMENT_APPROVAL_IDS
+    ):
         raise ValueError("production approval_id is revoked")
     if (
-        not isinstance(approval_id, str)
-        or not approval_id
+        expected_run_id is None
         or binding.get("approval_id") != approval_id
-        or binding.get("run_id") != f"{approval_id}_EXECUTION"
+        or binding.get("run_id") != expected_run_id
     ):
         raise ValueError(
             "production binding/run_id must equal packet approval_id"
@@ -3521,6 +3533,8 @@ def _step7_v4_require_authority(
         or packet.get("deployment_binding")
         != {"root": binding["deployment_root"]}
         or candidate.get("approval_id") != packet.get("approval_id")
+        or not isinstance(packet.get("approval_id"), str)
+        or not packet.get("approval_id")
         or packet.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
         or packet.get("requires_exact_user_authorization") is not True
         or packet.get("self_authorizes_execution") is not False
@@ -13246,6 +13260,16 @@ def _failed_ca61797_revocation_v7_is_valid(
 def _step7_formal_executor_source(binding: Mapping[str, Any]) -> str:
     """Render the only accepted production executor source for one binding."""
 
+    approval_id = binding.get("approval_id")
+    try:
+        _step7_v4_require_production_run_id(
+            binding,
+            {"approval_id": approval_id},
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"formal executor binding is invalid: {exc}"
+        ) from exc
     encoded = json.dumps(
         dict(binding),
         ensure_ascii=False,
@@ -13672,9 +13696,9 @@ def _verify_rollback_and_bound_evidence(
     if not isinstance(packet, Mapping) or (
         set(packet) != DEPLOYMENT_PACKET_FIELDS
         or packet.get("schema") != DEPLOYMENT_PACKET_SCHEMA
-        or packet.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
         or not isinstance(packet.get("approval_id"), str)
         or not packet.get("approval_id")
+        or packet.get("approval_id") in REVOKED_DEPLOYMENT_APPROVAL_IDS
         or not _valid_iso8601(packet.get("created_at_utc"))
         or packet.get("source_binding")
         != {
@@ -13930,6 +13954,12 @@ def _verify_rollback_and_bound_evidence(
         if isinstance(packet, Mapping)
         else None
     )
+    try:
+        expected_production_run_id = _step7_v4_production_run_id(
+            approval_id
+        )
+    except ValueError:
+        expected_production_run_id = None
     artifact_version = _step7_approval_artifact_version(
         approval_id,
         source_state.get("head"),
@@ -13957,11 +13987,7 @@ def _verify_rollback_and_bound_evidence(
         "approval_id": packet.get("approval_id")
         if isinstance(packet, Mapping)
         else None,
-        "run_id": (
-            f"{packet.get('approval_id')}_EXECUTION"
-            if isinstance(packet, Mapping)
-            else None
-        ),
+        "run_id": expected_production_run_id,
         "source_root": str(source_root),
         "source_head": source_state.get("head"),
         "source_tree": source_state.get("tree"),
@@ -14035,6 +14061,15 @@ def _verify_rollback_and_bound_evidence(
             executor_text = executor_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             executor_errors.append("formal executor cannot be read as UTF-8")
+    expected_executor_text: str | None = None
+    try:
+        expected_executor_text = _step7_formal_executor_source(
+            expected_executor_binding
+        )
+    except ValueError as exc:
+        executor_errors.append(
+            f"formal executor binding rejected: {exc}"
+        )
     if (
         not isinstance(static_formal_executor, Mapping)
         or set(static_formal_executor)
@@ -14081,7 +14116,7 @@ def _verify_rollback_and_bound_evidence(
         or executor_path != expected_executor_path
         or executor_path.suffix != ".py"
         or executor_text
-        != _step7_formal_executor_source(expected_executor_binding)
+        != expected_executor_text
         or executor_errors
     ):
         errors.append("deployment request formal executor binding mismatch")

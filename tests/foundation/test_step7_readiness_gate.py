@@ -3553,6 +3553,149 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 },
                 packet,
             )
+        for invalid_approval_id in ([], {}, None, ""):
+            with self.subTest(
+                invalid_approval_id=repr(invalid_approval_id)
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "production approval_id is required",
+                ):
+                    step7_gate._step7_v4_production_run_id(
+                        invalid_approval_id
+                    )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "binding/run_id must equal packet approval_id",
+                ):
+                    step7_gate._step7_v4_require_production_run_id(
+                        {
+                            "approval_id": invalid_approval_id,
+                            "run_id": None,
+                        },
+                        {"approval_id": invalid_approval_id},
+                    )
+                invalid_binding = copy.deepcopy(
+                    self.formal_executor_binding
+                )
+                invalid_binding["approval_id"] = invalid_approval_id
+                invalid_binding["run_id"] = None
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "formal executor binding is invalid",
+                ):
+                    step7_gate._step7_formal_executor_source(
+                        invalid_binding
+                    )
+
+    def test_formal_executor_binding_uses_production_run_id_contract(
+        self,
+    ) -> None:
+        binding = copy.deepcopy(self.formal_executor_binding)
+        approval_id = binding["approval_id"]
+        packet = {"approval_id": approval_id}
+        binding["run_id"] = f"{approval_id}_EXECUTION_V2"
+        with self.assertRaisesRegex(
+            ValueError,
+            "formal executor binding is invalid",
+        ):
+            step7_gate._step7_formal_executor_source(binding)
+
+        binding["run_id"] = step7_gate._step7_v4_production_run_id(
+            approval_id
+        )
+        source = step7_gate._step7_formal_executor_source(binding)
+        parsed = ast.parse(source, filename="formal-executor-fixture.py")
+        binding_assignments = [
+            node
+            for node in parsed.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "BINDING"
+                for target in node.targets
+            )
+        ]
+        self.assertEqual(len(binding_assignments), 1)
+        binding_call = binding_assignments[0].value
+        self.assertIsInstance(binding_call, ast.Call)
+        self.assertEqual(
+            ast.unparse(binding_call.func),
+            "json.loads",
+        )
+        self.assertEqual(len(binding_call.args), 1)
+        rendered_binding = json.loads(
+            ast.literal_eval(binding_call.args[0])
+        )
+        self.assertEqual(rendered_binding, binding)
+        step7_gate._step7_v4_require_production_run_id(
+            rendered_binding,
+            packet,
+        )
+
+        mismatched_packet = copy.deepcopy(packet)
+        mismatched_packet["approval_id"] = f"{approval_id}_OTHER"
+        with self.assertRaisesRegex(
+            ValueError,
+            "binding/run_id must equal packet approval_id",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                rendered_binding,
+                mismatched_packet,
+            )
+
+    def test_formal_executor_rejects_revoked_approval_and_candidate(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_E8E21DD_6F_20260729T164534Z"
+        binding = copy.deepcopy(self.formal_executor_binding)
+        binding["approval_id"] = approval_id
+        binding["run_id"] = step7_gate._step7_v4_production_run_id(
+            approval_id
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "formal executor binding is invalid: production approval_id "
+            "is revoked",
+        ):
+            step7_gate._step7_formal_executor_source(binding)
+
+        original_packet = json.loads(
+            self.rollback_packet.read_text(encoding="utf-8")
+        )
+        for invalid_approval_id in ([], {}, None, ""):
+            with self.subTest(
+                invalid_candidate_approval_id=repr(
+                    invalid_approval_id
+                )
+            ):
+                packet = copy.deepcopy(original_packet)
+                packet["approval_id"] = invalid_approval_id
+                self.rollback_packet.write_text(
+                    json.dumps(packet, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                candidate = copy.deepcopy(self.candidate)
+                self._refresh_bound_reference(
+                    candidate,
+                    self.rollback_packet,
+                )
+                result = self._validate(candidate)
+                self.assertFalse(result["accepted"])
+
+        packet = copy.deepcopy(original_packet)
+        packet["approval_id"] = approval_id
+        self.rollback_packet.write_text(
+            json.dumps(packet, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        candidate = copy.deepcopy(self.candidate)
+        self._refresh_bound_reference(candidate, self.rollback_packet)
+        result = self._validate(candidate)
+        self.assertFalse(result["accepted"])
+        self.assertIn(
+            "deployment request formal executor binding mismatch",
+            result["errors"],
+        )
 
     def test_v4_superseded_4de067a_approval_is_mechanically_revoked(
         self,
@@ -3626,6 +3769,26 @@ class Step7ReadinessGateTests(unittest.TestCase):
                         {"run_id": f"{approval_id}_EXECUTION"},
                         {"approval_id": approval_id},
                     )
+
+    def test_v4_superseded_e8e21dd_approval_is_mechanically_revoked(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_E8E21DD_6F_20260729T164534Z"
+        self.assertIn(
+            approval_id,
+            step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "production approval_id is revoked",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {
+                    "approval_id": approval_id,
+                    "run_id": f"{approval_id}_EXECUTION",
+                },
+                {"approval_id": approval_id},
+            )
 
     def test_v4_manifest_is_reloaded_exactly_before_rehearsal_or_apply(
         self,
