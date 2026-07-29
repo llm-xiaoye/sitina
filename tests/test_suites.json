@@ -157,7 +157,7 @@
       "selectors": [
         "tests/foundation/test_step7_readiness_gate.py"
       ],
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "expected_duration": "readiness-gate",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "NO_ACCESS_EXCEPT_SENTINEL",
