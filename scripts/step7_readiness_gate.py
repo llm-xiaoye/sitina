@@ -160,7 +160,13 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_4DE067A_6F_20260728T173000Z",
     "SITINA_STEP7_DEPLOY_C327E63_6F_20260729T053000Z",
     "SITINA_STEP7_DEPLOY_A5650D1_6F_20260729T070000Z",
+    "SITINA_STEP7_DEPLOY_F2DEEC0_6F_20260729T073500Z",
+    "SITINA_STEP7_DEPLOY_F2DEEC0_6F_20260729T083000Z",
 }
+DEPLOYMENT_APPROVAL_ID_PATTERN = re.compile(
+    r"^SITINA_STEP7_DEPLOY_(?P<source>[A-F0-9]{7})_6F_"
+    r"(?P<version>[0-9]{8}T[0-9]{6}Z)$"
+)
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
 )
@@ -2456,6 +2462,23 @@ def _step7_v4_load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _step7_approval_artifact_version(
+    approval_id: Any,
+    source_head: Any,
+) -> str | None:
+    if not isinstance(approval_id, str) or not isinstance(source_head, str):
+        return None
+    match = DEPLOYMENT_APPROVAL_ID_PATTERN.fullmatch(approval_id)
+    if (
+        match is None
+        or len(source_head) != 40
+        or not re.fullmatch(r"[0-9a-f]{40}", source_head)
+        or match.group("source").lower() != source_head[:7]
+    ):
+        return None
+    return match.group("version")
+
+
 def _step7_v4_verify_json_reference(
     reference: Any,
     *,
@@ -2490,13 +2513,27 @@ def _step7_v4_verify_authorization_receipt_file(
         or not _valid_sha256(reference.get("sha256"))
     ):
         raise ValueError("authorization receipt file reference is malformed")
+    allowed_parent = Path(str(binding.get("allowed_backup_parent", "")))
+    artifact_version = _step7_approval_artifact_version(
+        binding.get("approval_id"),
+        binding.get("source_head"),
+    )
     expected_path = (
-        Path(str(binding["allowed_backup_parent"]))
+        allowed_parent
         / (
             "sitina-step7-authorization-receipt-"
-            f"{str(binding['source_head'])[:7]}.json"
+            f"{str(binding.get('source_head', ''))[:7]}-"
+            f"{artifact_version}.json"
         )
+        if artifact_version is not None
+        else None
     )
+    if (
+        expected_path is None
+        or binding.get("authorization_receipt_path") != str(expected_path)
+        or expected_path.parent != allowed_parent
+    ):
+        raise ValueError("authorization receipt file path mismatch")
     if reference.get("path") != str(expected_path):
         raise ValueError("authorization receipt file path mismatch")
     path, receipt = _step7_v4_verify_json_reference(
@@ -13299,9 +13336,26 @@ def _verify_rollback_and_bound_evidence(
     expected_executor_parent = source_root.parent / "output"
     expected_executor_dependencies = changed_source_references
     source_short = str(source_state.get("head", ""))[:7]
+    approval_id = (
+        packet.get("approval_id")
+        if isinstance(packet, Mapping)
+        else None
+    )
+    artifact_version = _step7_approval_artifact_version(
+        approval_id,
+        source_state.get("head"),
+    )
+    if artifact_version is None:
+        executor_errors.append(
+            "formal executor approval identity does not bind source/version"
+        )
+        artifact_version = "INVALID_APPROVAL_VERSION"
     expected_executor_path = (
         expected_executor_parent
-        / f"step7-{source_short}-authorized-execution.py"
+        / (
+            f"step7-{source_short}-authorized-execution-"
+            f"{artifact_version}.py"
+        )
     )
     expected_executor_binding = {
         "schema": "SITINA_STEP7_FORMAL_EXECUTOR_RUNTIME_BINDING_V1",
@@ -13356,11 +13410,17 @@ def _verify_rollback_and_bound_evidence(
         "plan_sha256": plan_sha256,
         "authorization_receipt_path": str(
             expected_executor_parent
-            / f"sitina-step7-authorization-receipt-{source_short}.json"
+            / (
+                f"sitina-step7-authorization-receipt-{source_short}-"
+                f"{artifact_version}.json"
+            )
         ),
         "execution_specification_path": str(
             expected_executor_parent
-            / f"sitina-step7-authorized-execution-spec-{source_short}.json"
+            / (
+                f"sitina-step7-authorized-execution-spec-{source_short}-"
+                f"{artifact_version}.json"
+            )
         ),
         "gate_path": str(
             source_root

@@ -348,7 +348,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 "step8_step9_entered": False,
             },
         )
-        self.rollback_approval_id = "SITINA_STEP7_DEPLOY_TEST_FIXTURE"
+        source_head = self._git("rev-parse", "HEAD^{commit}")
+        source_short = source_head[:7]
+        self.rollback_artifact_version = "20260724T000000Z"
+        self.rollback_approval_id = (
+            "SITINA_STEP7_DEPLOY_"
+            f"{source_short.upper()}_6F_{self.rollback_artifact_version}"
+        )
         self.rollback_root = (
             self.output.resolve()
             / f"sitina-step7-deploy-v4-{self.rollback_approval_id}"
@@ -383,11 +389,13 @@ class Step7ReadinessGateTests(unittest.TestCase):
         packet_document = json.loads(
             self.rollback_packet.read_text(encoding="utf-8")
         )
-        source_head = self._git("rev-parse", "HEAD^{commit}")
         source_tree = self._git("rev-parse", "HEAD^{tree}")
-        source_short = source_head[:7]
         self.formal_executor = (
-            self.output / f"step7-{source_short}-authorized-execution.py"
+            self.output
+            / (
+                f"step7-{source_short}-authorized-execution-"
+                f"{self.rollback_artifact_version}.py"
+            )
         )
         formal_executor_binding = {
             "schema": "SITINA_STEP7_FORMAL_EXECUTOR_RUNTIME_BINDING_V1",
@@ -426,11 +434,17 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ],
             "authorization_receipt_path": str(
                 self.output.resolve()
-                / f"sitina-step7-authorization-receipt-{source_short}.json"
+                / (
+                    f"sitina-step7-authorization-receipt-{source_short}-"
+                    f"{self.rollback_artifact_version}.json"
+                )
             ),
             "execution_specification_path": str(
                 self.output.resolve()
-                / f"sitina-step7-authorized-execution-spec-{source_short}.json"
+                / (
+                    f"sitina-step7-authorized-execution-spec-{source_short}-"
+                    f"{self.rollback_artifact_version}.json"
+                )
             ),
             "gate_path": str(self.source.resolve() / "tracked.txt"),
             "source_dependencies": [
@@ -7286,9 +7300,16 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "marker": DEPLOYMENT_DELEGATION_MARKER,
         }
         source_head = "a" * 40
+        artifact_version = "20260724T000000Z"
+        approval_id = (
+            f"SITINA_STEP7_DEPLOY_AAAAAAA_6F_{artifact_version}"
+        )
         receipt_path = (
             self.output
-            / "sitina-step7-authorization-receipt-aaaaaaa.json"
+            / (
+                "sitina-step7-authorization-receipt-aaaaaaa-"
+                f"{artifact_version}.json"
+            )
         ).resolve()
         receipt_path.write_text(
             json.dumps(receipt, sort_keys=True) + "\n",
@@ -7298,6 +7319,8 @@ class Step7ReadinessGateTests(unittest.TestCase):
         binding = {
             "allowed_backup_parent": str(self.output.resolve()),
             "source_head": source_head,
+            "approval_id": approval_id,
+            "authorization_receipt_path": str(receipt_path),
             "authorization_receipt_sha256": _json_value_sha256(receipt),
         }
         specification = {
@@ -7339,6 +7362,33 @@ class Step7ReadinessGateTests(unittest.TestCase):
             step7_gate._step7_v4_verify_authorization_receipt_file(
                 wrong_path,
                 binding,
+            )
+
+        unversioned_path = copy.deepcopy(specification)
+        unversioned_path["authorization_receipt_file"]["path"] = str(
+            self.output.resolve()
+            / "sitina-step7-authorization-receipt-aaaaaaa.json"
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file path mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                unversioned_path,
+                binding,
+            )
+
+        wrong_approval = copy.deepcopy(binding)
+        wrong_approval["approval_id"] = (
+            "SITINA_STEP7_DEPLOY_BBBBBBB_6F_20260724T000000Z"
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "authorization receipt file path mismatch",
+        ):
+            step7_gate._step7_v4_verify_authorization_receipt_file(
+                specification,
+                wrong_approval,
             )
 
         wrong_physical_sha = copy.deepcopy(specification)
@@ -7386,6 +7436,65 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 symlink_specification,
                 binding,
             )
+
+    def test_formal_executor_artifact_version_binds_approval_and_source(
+        self,
+    ) -> None:
+        source_head = self.formal_executor_binding["source_head"]
+        approval_id = self.formal_executor_binding["approval_id"]
+        expected_version = self.rollback_artifact_version
+        self.assertEqual(
+            step7_gate._step7_approval_artifact_version(
+                approval_id,
+                source_head,
+            ),
+            expected_version,
+        )
+        self.assertEqual(
+            self.formal_executor.name,
+            (
+                f"step7-{source_head[:7]}-authorized-execution-"
+                f"{expected_version}.py"
+            ),
+        )
+        self.assertTrue(
+            self.formal_executor_binding[
+                "authorization_receipt_path"
+            ].endswith(
+                f"-{source_head[:7]}-{expected_version}.json"
+            )
+        )
+        self.assertTrue(
+            self.formal_executor_binding[
+                "execution_specification_path"
+            ].endswith(
+                f"-{source_head[:7]}-{expected_version}.json"
+            )
+        )
+        invalid = (
+            ("SITINA_STEP7_DEPLOY_TEST_FIXTURE", source_head),
+            (
+                "SITINA_STEP7_DEPLOY_BBBBBBB_6F_20260724T000000Z",
+                source_head,
+            ),
+            (approval_id, "b" * 40),
+            (
+                f"SITINA_STEP7_DEPLOY_{source_head[:7].upper()}_6F_"
+                "20260724T000000",
+                source_head,
+            ),
+        )
+        for candidate_approval, candidate_head in invalid:
+            with self.subTest(
+                approval_id=candidate_approval,
+                source_head=candidate_head,
+            ):
+                self.assertIsNone(
+                    step7_gate._step7_approval_artifact_version(
+                        candidate_approval,
+                        candidate_head,
+                    )
+                )
 
     def test_formal_executor_rejects_path_shadowed_git(self) -> None:
         fake_bin = self.output / "fake-bin"
