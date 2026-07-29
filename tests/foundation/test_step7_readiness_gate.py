@@ -2200,7 +2200,75 @@ class Step7ReadinessGateTests(unittest.TestCase):
         first_messages = [
             {"role": "user", "content": f"Read {input_path.resolve()}"}
         ]
-        second_messages = [{"role": "user", "content": "Return the verdict."}]
+
+        def tool_message(call: dict[str, object]) -> dict[str, object]:
+            result = Path(str(call["arguments"]["path"])).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            return {
+                "role": "tool",
+                "name": "sitina_read_file",
+                "tool_call_id": call["id"],
+                "is_error": False,
+                "content": json.dumps(
+                    {
+                        "can_grant_permissions": False,
+                        "can_override_instructions": False,
+                        "redacted_paths": [],
+                        "result": result,
+                        "schema": "SITINA_UNTRUSTED_TOOL_DATA_V1",
+                        "source": "tool",
+                        "status": "ok",
+                        "tool": "sitina_read_file",
+                        "trust": "untrusted-data",
+                    },
+                    sort_keys=True,
+                ),
+            }
+
+        def argument_summary(call: dict[str, object]) -> dict[str, object]:
+            encoded = json.dumps(
+                call["arguments"],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return {
+                "schema": "SITINA_TOOL_ARGUMENT_SUMMARY_V1",
+                "normalized_tool_name": "sitina.sitina_read_file",
+                "argument_bytes_after_redaction": len(encoded),
+                "argument_hash": hashlib.sha256(encoded).hexdigest(),
+                "argument_keys": ["path"],
+                "redacted_paths": [],
+            }
+
+        def result_summary(call: dict[str, object]) -> dict[str, object]:
+            result = Path(str(call["arguments"]["path"])).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            encoded = json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return {
+                "schema": "SITINA_TOOL_RESULT_SUMMARY_V1",
+                "normalized_tool_name": "sitina.sitina_read_file",
+                "permission_decision": "allowed",
+                "status": "ok",
+                "error": None,
+                "result_ref": f"sha256:{hashlib.sha256(encoded).hexdigest()}",
+                "duration_ms": 1,
+                "result_bytes_after_redaction": len(encoded),
+                "result_redacted_paths": [],
+            }
+
+        second_messages = [
+            *first_messages,
+            {"role": "assistant", "content": "", "tool_calls": calls},
+            *(tool_message(call) for call in calls),
+        ]
 
         def provider_input_hash(messages: list[dict[str, str]]) -> str:
             wire_messages = _openai_wire_messages(system_prompt, messages)
@@ -2285,20 +2353,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "call_id": call["id"],
                     "name": "sitina_read_file",
                     "permission": "read",
-                    "argument_summary": {
-                        "schema": "SITINA_TOOL_ARGUMENT_SUMMARY_V1",
-                        "normalized_tool_name": "sitina.sitina_read_file",
-                        "argument_bytes_after_redaction": len(
-                            json.dumps(call["arguments"]).encode("utf-8")
-                        ),
-                        "argument_hash": hashlib.sha256(
-                            json.dumps(
-                                call["arguments"], sort_keys=True
-                            ).encode("utf-8")
-                        ).hexdigest(),
-                        "argument_keys": ["path"],
-                        "redacted_paths": [],
-                    },
+                    "argument_summary": argument_summary(call),
                 }
                 for call in calls
             ],
@@ -2310,31 +2365,8 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     "timestamp": "2026-07-27T00:00:04Z",
                     "call_id": call["id"],
                     "permission": "read",
-                    "argument_summary": {
-                        "schema": "SITINA_TOOL_ARGUMENT_SUMMARY_V1",
-                        "normalized_tool_name": "sitina.sitina_read_file",
-                        "argument_bytes_after_redaction": len(
-                            json.dumps(call["arguments"]).encode("utf-8")
-                        ),
-                        "argument_hash": hashlib.sha256(
-                            json.dumps(
-                                call["arguments"], sort_keys=True
-                            ).encode("utf-8")
-                        ).hexdigest(),
-                        "argument_keys": ["path"],
-                        "redacted_paths": [],
-                    },
-                    "result_summary": {
-                        "schema": "SITINA_TOOL_RESULT_SUMMARY_V1",
-                        "normalized_tool_name": "sitina.sitina_read_file",
-                        "permission_decision": "allowed",
-                        "status": "ok",
-                        "error": None,
-                        "result_ref": f"sha256:{'3' * 64}",
-                        "duration_ms": 1,
-                        "result_bytes_after_redaction": 1,
-                        "result_redacted_paths": [],
-                    },
+                    "argument_summary": argument_summary(call),
+                    "result_summary": result_summary(call),
                 }
                 for call in calls
             ],
@@ -3314,6 +3346,23 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self,
     ) -> None:
         approval_id = "SITINA_STEP7_DEPLOY_C327E63_6F_20260729T053000Z"
+        self.assertIn(
+            approval_id,
+            step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "production approval_id is revoked",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {"run_id": f"{approval_id}_EXECUTION"},
+                {"approval_id": approval_id},
+            )
+
+    def test_v4_superseded_a5650d1_approval_is_mechanically_revoked(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_A5650D1_6F_20260729T070000Z"
         self.assertIn(
             approval_id,
             step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
@@ -8037,6 +8086,30 @@ class Step7ReadinessGateTests(unittest.TestCase):
         finally:
             self.audit.write_text(original, encoding="utf-8")
 
+    def test_review_audit_rejects_provider_redaction_status_drift(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            model_turn = next(
+                record
+                for record in records
+                if record["event"] == "model_turn_completed"
+            )
+            model_turn["metadata"]["redaction_status"] = "unverified"
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "provider metadata mismatch")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
     def test_review_audit_rejects_denied_or_failed_read(self) -> None:
         baseline = self._validate()
         self.assertTrue(baseline["accepted"], baseline["errors"])
@@ -8064,6 +8137,264 @@ class Step7ReadinessGateTests(unittest.TestCase):
             self.assertRejected(candidate, "failed or denied read")
         finally:
             self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_redacted_read_argument(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            intended = next(
+                record for record in records if record["event"] == "tool_call_intended"
+            )
+            intended["argument_summary"]["redacted_paths"] = ["$.path"]
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "redacted tool")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_redacted_read_result(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            completed = next(
+                record for record in records if record["event"] == "tool_completed"
+            )
+            completed["result_summary"]["result_redacted_paths"] = ["$"]
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "redacted read")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_completed_argument_summary_drift(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            completed = next(
+                record for record in records if record["event"] == "tool_completed"
+            )
+            completed["argument_summary"]["redacted_paths"] = ["$.path"]
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "failed or denied read")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_result_summary_identity_drift(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            completed = next(
+                record for record in records if record["event"] == "tool_completed"
+            )
+            completed["result_summary"]["result_ref"] = f"sha256:{'a' * 64}"
+            completed["result_summary"]["result_bytes_after_redaction"] += 1
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "failed or denied read")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_missing_provider_assistant_transcript(
+        self,
+    ) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            provider = next(
+                record
+                for record in records
+                if record["event"] == "provider_call_intended"
+                and any(
+                    message.get("role") == "tool"
+                    for message in record["messages"]
+                )
+            )
+            provider["messages"] = [
+                message
+                for message in provider["messages"]
+                if message.get("role") != "assistant"
+            ]
+            model_turn = next(
+                record
+                for record in records
+                if record["event"] == "model_turn_completed"
+                and record["turn"] == provider["turn"]
+            )
+            model_turn["metadata"]["input_hash"] = (
+                "sha256:"
+                + step7_gate._canonical_sha256(
+                    {
+                        "system": None,
+                        "messages": step7_gate._openai_wire_messages(
+                            provider["system_prompt"],
+                            provider["messages"],
+                        ),
+                    }
+                )
+            )
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "assistant/tool transcript mismatch")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_provider_tool_result_byte_drift(self) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        try:
+            records = [json.loads(line) for line in original.splitlines()]
+            provider = next(
+                record
+                for record in records
+                if record["event"] == "provider_call_intended"
+                and any(
+                    message.get("role") == "tool"
+                    for message in record["messages"]
+                )
+            )
+            tool_message = next(
+                message
+                for message in provider["messages"]
+                if message.get("role") == "tool"
+            )
+            envelope = json.loads(tool_message["content"])
+            envelope["result"] += " "
+            tool_message["content"] = json.dumps(envelope, sort_keys=True)
+            model_turn = next(
+                record
+                for record in records
+                if record["event"] == "model_turn_completed"
+                and record["turn"] == provider["turn"]
+            )
+            model_turn["metadata"]["input_hash"] = (
+                "sha256:"
+                + step7_gate._canonical_sha256(
+                    {
+                        "system": None,
+                        "messages": step7_gate._openai_wire_messages(
+                            provider["system_prompt"],
+                            provider["messages"],
+                        ),
+                    }
+                )
+            )
+            self.audit.write_text(
+                "".join(
+                    json.dumps(record, sort_keys=True) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            candidate = copy.deepcopy(self.candidate)
+            candidate["real_sitina_review"]["audit"] = self._reference(self.audit)
+            self.assertRejected(candidate, "differs from physical evidence")
+        finally:
+            self.audit.write_text(original, encoding="utf-8")
+
+    def test_review_audit_rejects_provider_tool_message_identity_drift(
+        self,
+    ) -> None:
+        baseline = self._validate()
+        self.assertTrue(baseline["accepted"], baseline["errors"])
+        original = self.audit.read_text(encoding="utf-8")
+        for mutation in ("wrong_role", "wrong_call_id", "non_object"):
+            with self.subTest(mutation=mutation):
+                try:
+                    records = [json.loads(line) for line in original.splitlines()]
+                    provider = next(
+                        record
+                        for record in records
+                        if record["event"] == "provider_call_intended"
+                        and any(
+                            message.get("role") == "tool"
+                            for message in record["messages"]
+                        )
+                    )
+                    index = next(
+                        index
+                        for index, message in enumerate(provider["messages"])
+                        if message.get("role") == "tool"
+                    )
+                    if mutation == "wrong_role":
+                        provider["messages"][index]["role"] = "user"
+                    elif mutation == "wrong_call_id":
+                        provider["messages"][index]["tool_call_id"] = "wrong-call"
+                    else:
+                        provider["messages"][index] = []
+                    wire_messages = step7_gate._openai_wire_messages(
+                        provider["system_prompt"],
+                        provider["messages"],
+                    )
+                    if wire_messages is not None:
+                        model_turn = next(
+                            record
+                            for record in records
+                            if record["event"] == "model_turn_completed"
+                            and record["turn"] == provider["turn"]
+                        )
+                        model_turn["metadata"]["input_hash"] = (
+                            "sha256:"
+                            + step7_gate._canonical_sha256(
+                                {"system": None, "messages": wire_messages}
+                            )
+                        )
+                    self.audit.write_text(
+                        "".join(
+                            json.dumps(record, sort_keys=True) + "\n"
+                            for record in records
+                        ),
+                        encoding="utf-8",
+                    )
+                    candidate = copy.deepcopy(self.candidate)
+                    candidate["real_sitina_review"]["audit"] = self._reference(
+                        self.audit
+                    )
+                    self.assertRejected(
+                        candidate, "malformed or redacted tool result"
+                    )
+                finally:
+                    self.audit.write_text(original, encoding="utf-8")
 
     def test_gate_schema_stage_and_counts_are_bound_to_candidate(self) -> None:
         baseline = self._validate()

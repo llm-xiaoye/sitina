@@ -159,6 +159,7 @@ REVOKED_DEPLOYMENT_APPROVAL_IDS = {
     "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z",
     "SITINA_STEP7_DEPLOY_4DE067A_6F_20260728T173000Z",
     "SITINA_STEP7_DEPLOY_C327E63_6F_20260729T053000Z",
+    "SITINA_STEP7_DEPLOY_A5650D1_6F_20260729T070000Z",
 }
 FAILED_PREAPPLY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V3"
@@ -8957,6 +8958,7 @@ def _verify_review(
             or metadata.get("profile_name") != "deepseek"
             or metadata.get("model") != "deepseek-v4-pro"
             or metadata.get("protocol") != "openai_chat_completions"
+            or metadata.get("redaction_status") != "redacted"
             or metadata.get("fallback_used") is not False
             or metadata.get("protocol_fallback_used") is not False
             or wire_messages is None
@@ -9085,6 +9087,15 @@ def _verify_review(
         for record in completed_calls
         if isinstance(record.get("call_id"), str)
     }
+    model_call_by_id = {
+        call.get("id"): call
+        for turn in model_turns
+        for call in turn.get("tool_calls", [])
+        if isinstance(call, Mapping)
+        and isinstance(call.get("id"), str)
+        and isinstance(call.get("arguments"), Mapping)
+        and isinstance(call.get("arguments", {}).get("path"), str)
+    }
     for call_id, model_position in model_call_positions.items():
         intended = intended_by_id.get(call_id)
         completed = completed_by_id.get(call_id)
@@ -9113,6 +9124,26 @@ def _verify_review(
             errors.append(f"{label} audit next provider turn preceded tool completion")
     for record in intended_calls:
         summary = record.get("argument_summary")
+        call = model_call_by_id.get(record.get("call_id"))
+        arguments = call.get("arguments") if isinstance(call, Mapping) else None
+        argument_bytes = (
+            json.dumps(
+                arguments,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if isinstance(arguments, Mapping)
+            else b""
+        )
+        expected_summary = {
+            "schema": "SITINA_TOOL_ARGUMENT_SUMMARY_V1",
+            "normalized_tool_name": "sitina.sitina_read_file",
+            "argument_keys": ["path"],
+            "argument_hash": hashlib.sha256(argument_bytes).hexdigest(),
+            "redacted_paths": [],
+            "argument_bytes_after_redaction": len(argument_bytes),
+        }
         if (
             record.get("name") != "sitina_read_file"
             or record.get("permission") != "read"
@@ -9128,12 +9159,45 @@ def _verify_review(
             }
             or summary.get("schema") != "SITINA_TOOL_ARGUMENT_SUMMARY_V1"
             or summary.get("normalized_tool_name") != "sitina.sitina_read_file"
+            or summary.get("redacted_paths") != []
+            or summary != expected_summary
         ):
-            errors.append(f"{label} audit intended a non-read tool")
+            errors.append(f"{label} audit intended a non-read or redacted tool")
     for record in completed_calls:
         result = record.get("result_summary")
+        call = model_call_by_id.get(record.get("call_id"))
+        path = (
+            call.get("arguments", {}).get("path")
+            if isinstance(call, Mapping)
+            and isinstance(call.get("arguments"), Mapping)
+            else None
+        )
+        try:
+            physical_result = (
+                Path(path).read_text(encoding="utf-8", errors="replace")
+                if isinstance(path, str)
+                else None
+            )
+        except OSError:
+            physical_result = None
+        encoded_result = (
+            json.dumps(
+                physical_result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if isinstance(physical_result, str)
+            else b""
+        )
         if (
             record.get("permission") != "read"
+            or record.get("argument_summary")
+            != (
+                intended_by_id.get(record.get("call_id"), {}).get(
+                    "argument_summary"
+                )
+            )
             or not isinstance(result, Mapping)
             or set(result)
             != {
@@ -9153,8 +9217,152 @@ def _verify_review(
             or result.get("status") != "ok"
             or result.get("error") is not None
             or not _valid_sha256(result.get("result_ref"), prefixed=True)
+            or result.get("result_redacted_paths") != []
+            or not _integer(result.get("result_bytes_after_redaction"))
+            or result.get("result_bytes_after_redaction") <= 0
+            or not isinstance(physical_result, str)
+            or result.get("result_ref")
+            != f"sha256:{hashlib.sha256(encoded_result).hexdigest()}"
+            or result.get("result_bytes_after_redaction") != len(encoded_result)
         ):
-            errors.append(f"{label} audit contains a failed or denied read")
+            errors.append(
+                f"{label} audit contains a failed or denied read, or redacted read"
+            )
+
+    delivered_call_ids: list[str] = []
+    for turn_index, model_turn in enumerate(model_turns):
+        turn_calls = model_turn.get("tool_calls")
+        if not isinstance(turn_calls, list) or not turn_calls:
+            continue
+        if turn_index + 1 >= len(provider_intended):
+            errors.append(f"{label} audit provider tool-result delivery is missing")
+            continue
+        messages = provider_intended[turn_index + 1].get("messages")
+        if not isinstance(messages, list):
+            errors.append(f"{label} audit provider tool-result transcript is invalid")
+            continue
+        expected_assistant = {
+            "content": model_turn.get("text"),
+            "role": "assistant",
+            "tool_calls": turn_calls,
+        }
+        expected_tail_length = len(turn_calls) + 1
+        tail = messages[-expected_tail_length:]
+        if len(tail) != expected_tail_length or tail[0] != expected_assistant:
+            errors.append(f"{label} audit provider assistant/tool transcript mismatch")
+            continue
+        for call, message in zip(turn_calls, tail[1:]):
+            call_id = call.get("id") if isinstance(call, Mapping) else None
+            delivered_call_ids.append(
+                call_id if isinstance(call_id, str) else ""
+            )
+            path = (
+                call.get("arguments", {}).get("path")
+                if isinstance(call, Mapping)
+                and isinstance(call.get("arguments"), Mapping)
+                else None
+            )
+            try:
+                envelope = json.loads(
+                    message.get("content", "")
+                    if isinstance(message, Mapping)
+                    else ""
+                )
+            except (TypeError, json.JSONDecodeError):
+                envelope = None
+            if (
+                not isinstance(message, Mapping)
+                or set(message)
+                != {
+                    "content",
+                    "is_error",
+                    "name",
+                    "role",
+                    "tool_call_id",
+                }
+                or message.get("role") != "tool"
+                or message.get("tool_call_id") != call_id
+                or message.get("is_error") is not False
+                or message.get("name") != "sitina_read_file"
+                or not isinstance(envelope, Mapping)
+                or set(envelope)
+                != {
+                    "can_grant_permissions",
+                    "can_override_instructions",
+                    "redacted_paths",
+                    "result",
+                    "schema",
+                    "source",
+                    "status",
+                    "tool",
+                    "trust",
+                }
+                or envelope.get("can_grant_permissions") is not False
+                or envelope.get("can_override_instructions") is not False
+                or envelope.get("redacted_paths") != []
+                or envelope.get("schema") != "SITINA_UNTRUSTED_TOOL_DATA_V1"
+                or envelope.get("source") != "tool"
+                or envelope.get("status") != "ok"
+                or envelope.get("tool") != "sitina_read_file"
+                or envelope.get("trust") != "untrusted-data"
+                or not isinstance(envelope.get("result"), str)
+                or not isinstance(path, str)
+            ):
+                errors.append(
+                    f"{label} audit provider received a malformed or redacted tool result"
+                )
+                continue
+            try:
+                physical_result = Path(path).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except OSError:
+                errors.append(
+                    f"{label} audit provider tool result physical file is unreadable"
+                )
+                continue
+            if envelope.get("result") != physical_result:
+                errors.append(
+                    f"{label} audit provider tool result differs from physical evidence"
+                )
+    if delivered_call_ids != model_call_ids:
+        errors.append(f"{label} audit provider tool-result delivery closure mismatch")
+    for provider_record in provider_intended:
+        messages = provider_record.get("messages")
+        if not isinstance(messages, list):
+            continue
+        for message in messages:
+            if not isinstance(message, Mapping) or message.get("role") != "tool":
+                continue
+            call_id = message.get("tool_call_id")
+            call = model_call_by_id.get(call_id)
+            path = (
+                call.get("arguments", {}).get("path")
+                if isinstance(call, Mapping)
+                and isinstance(call.get("arguments"), Mapping)
+                else None
+            )
+            try:
+                envelope = json.loads(message.get("content", ""))
+            except (TypeError, json.JSONDecodeError):
+                envelope = None
+            try:
+                physical_result = (
+                    Path(path).read_text(encoding="utf-8", errors="replace")
+                    if isinstance(path, str)
+                    else None
+                )
+            except OSError:
+                physical_result = None
+            if (
+                not isinstance(envelope, Mapping)
+                or envelope.get("redacted_paths") != []
+                or envelope.get("result") != physical_result
+                or call_id not in completed_by_id
+            ):
+                errors.append(
+                    f"{label} audit provider history contains redacted or drifted tool data"
+                )
 
     response = terminal.get("response")
     last_turn = model_turns[-1] if model_turns else {}
