@@ -3790,6 +3790,26 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 {"approval_id": approval_id},
             )
 
+    def test_v4_failed_51a010f_approval_is_mechanically_revoked(
+        self,
+    ) -> None:
+        approval_id = "SITINA_STEP7_DEPLOY_51A010F_6F_20260729T205500Z"
+        self.assertIn(
+            approval_id,
+            step7_gate.REVOKED_DEPLOYMENT_APPROVAL_IDS,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "production approval_id is revoked",
+        ):
+            step7_gate._step7_v4_require_production_run_id(
+                {
+                    "approval_id": approval_id,
+                    "run_id": f"{approval_id}_EXECUTION",
+                },
+                {"approval_id": approval_id},
+            )
+
     def test_v4_manifest_is_reloaded_exactly_before_rehearsal_or_apply(
         self,
     ) -> None:
@@ -10843,13 +10863,26 @@ class Step7ReadinessGateTests(unittest.TestCase):
             )["exact_file_operations"]
         }
         original_lstat = Path.lstat
+        original_exists = Path.exists
 
         def reject_live_target_read(path: Path) -> os.stat_result:
             if path in targets:
                 raise AssertionError("historical validation read a live target")
             return original_lstat(path)
 
-        with mock.patch.object(Path, "lstat", reject_live_target_read):
+        def reject_live_target_exists(
+            path: Path,
+            *,
+            follow_symlinks: bool = True,
+        ) -> bool:
+            if path in targets:
+                raise AssertionError("historical validation read a live target")
+            return original_exists(path, follow_symlinks=follow_symlinks)
+
+        with (
+            mock.patch.object(Path, "lstat", reject_live_target_read),
+            mock.patch.object(Path, "exists", reject_live_target_exists),
+        ):
             self.assertTrue(
                 step7_gate._failed_preapply_revocation_is_valid(
                     document,
