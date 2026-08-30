@@ -340,6 +340,64 @@ def _provider_accounting_delta(
     return {key: int(after.get(key, 0)) - int(before.get(key, 0)) for key in keys}
 
 
+def _failed_transport_receipts(executor: Any) -> list[dict[str, Any]]:
+    """Read only the executor's issuer-confirmed failed transport receipts."""
+
+    getter = getattr(executor, "failed_provider_transport_receipts", None)
+    if not callable(getter):
+        return []
+    values = getter()
+    if not isinstance(values, (list, tuple)):
+        raise DynamicCollaborationError("failed Provider receipt projection is not a sequence")
+    result = [dict(item) for item in values if isinstance(item, Mapping)]
+    if len(result) != len(values):
+        raise DynamicCollaborationError("failed Provider receipt projection contains a non-mapping")
+    return result
+
+
+def _failed_transport_call_ids(executor: Any, receipts: Sequence[Mapping[str, Any]]) -> list[str]:
+    getter = getattr(executor, "failed_provider_call_ids", None)
+    if callable(getter):
+        values = getter()
+        if not isinstance(values, (list, tuple)) or any(not isinstance(item, str) or not item for item in values):
+            raise DynamicCollaborationError("failed Provider call identity projection is malformed")
+        ids = list(values)
+    else:
+        ids = []
+        for receipt in receipts:
+            provider_call_id = receipt.get("provider_call_id")
+            if not isinstance(provider_call_id, str) or not provider_call_id:
+                raise DynamicCollaborationError("failed Provider receipt has no call identity")
+            if provider_call_id not in ids:
+                ids.append(provider_call_id)
+    derived: list[str] = []
+    for receipt in receipts:
+        provider_call_id = receipt.get("provider_call_id")
+        if not isinstance(provider_call_id, str) or not provider_call_id:
+            raise DynamicCollaborationError("failed Provider receipt has no call identity")
+        if provider_call_id not in derived:
+            derived.append(provider_call_id)
+    if ids != derived:
+        raise DynamicCollaborationError("failed Provider call identities do not match receipts")
+    return ids
+
+
+def _provider_retry_projection(calls: Sequence[Any], executor: Any) -> int:
+    getter = getattr(executor, "failed_provider_retry_total", None)
+    failed = int(getter() if callable(getter) else 0)
+    return sum(int(getattr(item, "retry_count", 0) or 0) for item in calls) + int(
+        executor.usage_totals().get("retry_count", 0)
+    ) + failed
+
+
+def _provider_fallback_projection(calls: Sequence[Any], executor: Any) -> int:
+    getter = getattr(executor, "failed_provider_fallback_total", None)
+    failed = int(getter() if callable(getter) else 0)
+    return sum(int(getattr(item, "fallback_count", 0) or 0) for item in calls) + int(
+        executor.usage_totals().get("fallback_count", 0)
+    ) + failed
+
+
 def _merge_embedded_attempt_accounting(
     value: Mapping[str, Any],
     before: Mapping[str, int],
@@ -12250,6 +12308,28 @@ class TrueMultiAgentProductionRuntime:
                 "execution_core_hash": (controls.get("code_mode_execution_core") or {}).get("content_hash"),
                 "user_response_hash": sha256_bytes(str(evidence.user_response or "").encode("utf-8")),
             }
+        failed_transport_receipts = _failed_transport_receipts(executor)
+        failed_provider_call_ids = _failed_transport_call_ids(
+            executor, failed_transport_receipts
+        )
+        provider_call_ids: list[str] = []
+        for call in evidence.calls:
+            call_id = getattr(call, "call_id", None)
+            if not isinstance(call_id, str) or not call_id:
+                raise DynamicCollaborationError("Provider evidence call has no call identity")
+            if call_id not in provider_call_ids:
+                provider_call_ids.append(call_id)
+        for call_id in failed_provider_call_ids:
+            if call_id not in provider_call_ids:
+                provider_call_ids.append(call_id)
+        failed_receipt_fields = (
+            {
+                "failed_provider_transport_receipts": [dict(item) for item in failed_transport_receipts],
+                "failed_provider_call_ids": list(failed_provider_call_ids),
+            }
+            if failed_transport_receipts
+            else {}
+        )
         if isinstance(code_core, Mapping):
             core_run = code_core.get("run_evidence")
             usage = code_core.get("provider_usage")
@@ -12288,6 +12368,7 @@ class TrueMultiAgentProductionRuntime:
                 "run_stream_frontier": dict(code_core.get("run_stream_frontier") or {}),
                 "decisions": list(core_run.get("decisions") or []),
                 "calls": list(safe_calls),
+                **failed_receipt_fields,
                 "rejected_call_hashes": [
                     stable_hash("CODE_MODE_REJECTED_CALL", dict(item))
                     for item in executor.rejected_calls
@@ -12356,6 +12437,7 @@ class TrueMultiAgentProductionRuntime:
                 ),
                 "decisions": list(evidence.decisions),
                 "calls": [item.evidence() for item in evidence.calls],
+                **failed_receipt_fields,
                 "rejected_calls": list(executor.rejected_calls),
                 "provider_recovery_attempts": list(executor.recovery_attempts),
                 "checkpoint_restarts": list(evidence.checkpoint_restarts),
@@ -12369,8 +12451,8 @@ class TrueMultiAgentProductionRuntime:
                 "execution_result": dict(evidence.execution_result or {}),
                 "provider_physical_send_count": executor.physical_send_total(),
                 "provider_call_count": executor.provider_call_total(),
-                "provider_retry_count": sum(item.retry_count for item in evidence.calls) + executor.usage_totals()["retry_count"],
-                "provider_fallback_count": sum(item.fallback_count for item in evidence.calls) + executor.usage_totals()["fallback_count"],
+                "provider_retry_count": _provider_retry_projection(evidence.calls, executor),
+                "provider_fallback_count": _provider_fallback_projection(evidence.calls, executor),
                 "provider_token_total": executor.usage_total,
                 "provider_cost_micro_usd": executor.cost_total_micro_usd,
                 "provider_input_tokens": executor.usage_totals()["input_tokens"],
@@ -12434,8 +12516,9 @@ class TrueMultiAgentProductionRuntime:
             "selected_agents": sorted(evidence.selected_agents),
             "provider_call_count": executor.provider_call_total(),
             "provider_physical_send_count": executor.physical_send_total(),
-            "provider_retry_count": sum(item.retry_count for item in evidence.calls) + executor.usage_totals()["retry_count"],
-            "provider_fallback_count": sum(item.fallback_count for item in evidence.calls) + executor.usage_totals()["fallback_count"],
+            "provider_retry_count": _provider_retry_projection(evidence.calls, executor),
+            "provider_fallback_count": _provider_fallback_projection(evidence.calls, executor),
+            "provider_unsettled_usage_count": executor.usage_totals()["unsettled_usage_count"],
             "negotiation_protocol_count": negotiation_protocol_count,
             "handoff_protocol_count": handoff_protocol_count,
             "external_mutation_count": int((evidence.execution_result or {}).get("external_mutation_count", 0) or 0),
@@ -12466,7 +12549,7 @@ class TrueMultiAgentProductionRuntime:
                 "event_type": "protocol.run.evidence.package.sealed",
                 "evidence_package_ref": receipt.object_ref.reference_id,
                 "evidence_package_hash": evidence_hash,
-                "provider_call_ids": [item.call_id for item in evidence.calls],
+                "provider_call_ids": list(provider_call_ids),
                 "provider_recovery_call_ids": [item["call_id"] for item in executor.recovery_attempts],
                 "_object_refs": [receipt.object_ref.reference_id],
             },
@@ -12600,8 +12683,8 @@ class TrueMultiAgentProductionRuntime:
             ),
             "negotiation_protocol_count": negotiation_protocol_count,
             "handoff_protocol_count": handoff_protocol_count,
-            "provider_retry_count": sum(item.retry_count for item in evidence.calls) + executor.usage_totals()["retry_count"],
-            "provider_fallback_count": sum(item.fallback_count for item in evidence.calls) + executor.usage_totals()["fallback_count"],
+            "provider_retry_count": _provider_retry_projection(evidence.calls, executor),
+            "provider_fallback_count": _provider_fallback_projection(evidence.calls, executor),
             "external_mutation_count": int(
                 (evidence.execution_result or {}).get("external_mutation_count", 0) or 0
             ),
@@ -13426,6 +13509,10 @@ class TrueMultiAgentProductionRuntime:
                 if type(candidate_status) is int and 100 <= candidate_status <= 599:
                     provider_http_status_code = candidate_status
                     break
+            failed_transport_receipts = _failed_transport_receipts(executor)
+            failed_provider_call_ids = _failed_transport_call_ids(
+                executor, failed_transport_receipts
+            )
             aborted: list[Mapping[str, Any]] = []
             for obligation_id, complete in list(evidence.obligations.items()):
                 if complete:
@@ -13460,18 +13547,21 @@ class TrueMultiAgentProductionRuntime:
                         "provider_http_status_code": provider_http_status_code,
                         "provider_call_count": executor.provider_call_total(),
                         "provider_physical_send_count": executor.physical_send_total(),
-                        "provider_retry_count": sum(item.retry_count for item in evidence.calls) + executor.usage_totals()["retry_count"],
-                        "provider_fallback_count": sum(item.fallback_count for item in evidence.calls) + executor.usage_totals()["fallback_count"],
+                        "provider_retry_count": _provider_retry_projection(evidence.calls, executor),
+                        "provider_fallback_count": _provider_fallback_projection(evidence.calls, executor),
+                        "provider_unsettled_usage_count": executor.usage_totals()["unsettled_usage_count"],
+                        "failed_provider_transport_receipts": [dict(item) for item in failed_transport_receipts],
+                        "failed_provider_call_ids": list(failed_provider_call_ids),
                         "rejected_provider_output_count": len(executor.rejected_calls),
                         "automatic_retry_performed": bool(
                             len((evidence.execution_result or {}).get("attempt_ledger", ())) > 1
-                            or sum(item.retry_count for item in evidence.calls) > 0
+                            or _provider_retry_projection(evidence.calls, executor) > 0
                             or executor.usage_totals()["retry_count"] > 0
-                            or sum(item.fallback_count for item in evidence.calls) > 0
+                            or _provider_fallback_projection(evidence.calls, executor) > 0
                             or executor.usage_totals()["fallback_count"] > 0
                         ),
                         "fallback_performed": bool(
-                            sum(item.fallback_count for item in evidence.calls) > 0
+                            _provider_fallback_projection(evidence.calls, executor) > 0
                             or executor.usage_totals()["fallback_count"] > 0
                         ),
                         "success_claimed": False,

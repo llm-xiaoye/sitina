@@ -1181,6 +1181,73 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             original_send_once(request, effect_attempt_id)
         self.assertEqual(len(_LocalProviderHandler.requests), 2)
 
+    def test_real_host_http_failure_reconciles_durable_receipt_once(self) -> None:
+        """A host-observed HTTP failure is one logical call, not a fake result."""
+        # A retryable status at max_retries=0 still represents one physical
+        # attempt; the completed retry projection must remain zero until a
+        # second issuer receipt exists.
+        _LocalProviderHandler.status_queue = [503]
+        runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
+        self.journal = self.context.open_runtime_writer()
+        executor = ProviderExecutor(
+            runtime_home, self.context, run_id, multi.policy_hash, multi.policy,
+            activation, self.journal, self.context.open_cas(),
+            client_override=None, pre_provider_authorization=authorization,
+        )
+        executor.transport.max_retries = 0
+        agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
+        captured: list[tuple[object, str]] = []
+        original_send_once = executor.transport.send_once
+
+        def capture(request, effect_attempt_id):
+            captured.append((request, effect_attempt_id))
+            return original_send_once(request, effect_attempt_id)
+
+        executor.transport.send_once = capture  # type: ignore[method-assign]
+        with self.assertRaises(ProviderHTTPError) as raised:
+            executor.call(
+                agent, task_id="goal-discovery", kind="proposal",
+                output_contract_id="sitina.goal-discovery.v1",
+                task_type="goal_discovery",
+                schema_id="SITINA_GOAL_DISCOVERY_V1",
+                root_phase="discovery/controller", system_prompt="system", user_prompt="user",
+                input_context={}, validate=lambda value: None,
+            )
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(len(_LocalProviderHandler.requests), 1)
+        self.assertEqual(len(captured), 1)
+        request, effect_attempt_id = captured[0]
+        self.assertEqual(executor.provider_call_total(), 1)
+        self.assertEqual(executor.physical_send_total(), 1)
+        self.assertEqual(executor.provider_transport_receipts(), executor.failed_provider_transport_receipts())
+        failures = executor.failed_provider_transport_receipts()
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["schema"], "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1")
+        self.assertEqual(failures[0]["provider_call_id"], request.effect_id)
+        self.assertEqual(failures[0]["effect_attempt_id"], effect_attempt_id)
+        self.assertEqual(failures[0]["status_code"], 503)
+        self.assertEqual(failures[0]["physical_attempts"], 1)
+        self.assertEqual(failures[0]["retry_count"], 0)
+        self.assertEqual(failures[0]["outcome_state"], "FAILED_CONFIRMED")
+        self.assertIsNone(failures[0]["token_usage"])
+        self.assertFalse(failures[0]["usage_settled"])
+        self.assertEqual(executor.failed_provider_call_ids(), (request.effect_id,))
+        self.assertEqual(executor.usage_totals()["unsettled_usage_count"], 1)
+        self.assertEqual(executor.failed_provider_retry_total(), 0)
+        self.assertEqual(executor.failed_provider_fallback_total(), 0)
+        self.assertEqual(executor.results, [])
+        # Re-reading the same issuer snapshot is idempotent and cannot mint a
+        # second logical call or unsettled usage marker.
+        executor.reconcile_authoritative_transport_failure(
+            provider_call_id=request.effect_id,
+            effect_attempt_id=effect_attempt_id,
+            attempt=1,
+        )
+        self.assertEqual(executor.provider_call_total(), 1)
+        self.assertEqual(executor.physical_send_total(), 1)
+        self.assertEqual(executor.usage_totals()["unsettled_usage_count"], 1)
+        self.assertEqual(len(executor.failed_provider_transport_receipts()), 1)
+
     def test_malformed_200_is_unknown_and_never_retried(self) -> None:
         _LocalProviderHandler.malformed_response = True
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()

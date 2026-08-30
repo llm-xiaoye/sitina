@@ -1737,6 +1737,16 @@ class ProviderExecutor:
     cost_total_micro_usd: int = 0
     unsettled_usage_count: int = 0
     results: list[AgentCallResult] = field(default_factory=list)
+    # Failed authoritative transport attempts are kept separately from
+    # ``results``.  A failed HTTP request has no output object and must never
+    # be represented as a synthetic successful ``AgentCallResult``.  The
+    # host-issued receipt is the only source of identity/accounting for this
+    # projection.
+    failed_transport_receipts: list[dict[str, Any]] = field(default_factory=list)
+    _failed_transport_receipts_by_identity: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    _failed_transport_call_keys: list[tuple[str, str]] = field(default_factory=list, repr=False)
+    _failed_transport_retry_count: int = field(default=0, repr=False)
+    _failed_transport_fallback_count: int = field(default=0, repr=False)
     rejected_calls: list[dict[str, Any]] = field(default_factory=list)
     recovery_attempts: list[dict[str, Any]] = field(default_factory=list)
 
@@ -2075,7 +2085,15 @@ class ProviderExecutor:
         )
 
     def _provider_call_total(self) -> int:
-        return int(self.call_count) + int(getattr(self, "embedded_call_count", 0))
+        # A logical call is counted once when it has either a successful
+        # AgentCallResult or an issuer-confirmed failure receipt.  Failed
+        # calls intentionally stay outside ``results`` because no output
+        # object/usage exists for them.
+        return (
+            int(self.call_count)
+            + int(getattr(self, "embedded_call_count", 0))
+            + len(getattr(self, "_failed_transport_call_keys", ()))
+        )
 
     def _assert_model_admission(self, max_output_tokens: int) -> None:
         if self._provider_call_total() >= int(self.policy["max_provider_requests_per_run"]):
@@ -2210,6 +2228,165 @@ class ProviderExecutor:
 
     def provider_call_total(self) -> int:
         return self._provider_call_total()
+
+    def failed_provider_transport_receipts(self) -> tuple[Mapping[str, Any], ...]:
+        """Return issuer-confirmed failed receipts accepted for this executor."""
+
+        # Root calls are reconciled synchronously from the host snapshot.
+        # Forge child calls are imported by ``_sync_embedded_transport_receipts``
+        # before their settlement callback.  Expose both projections through
+        # one immutable, de-duplicated view so terminal evidence cannot lose a
+        # child failure merely because a prior child call succeeded.
+        values: list[dict[str, Any]] = [dict(item) for item in self.failed_transport_receipts]
+        seen = {self._embedded_receipt_identity(item) for item in values}
+        for item in getattr(self, "_embedded_transport_receipts", ()):
+            if not isinstance(item, Mapping) or item.get("schema") != "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1":
+                continue
+            identity = self._embedded_receipt_identity(item)
+            if identity not in seen:
+                values.append(dict(item))
+                seen.add(identity)
+        return tuple(values)
+
+    def failed_provider_call_ids(self) -> tuple[str, ...]:
+        """Return unique failed logical provider identities in receipt order."""
+
+        values: list[str] = [key[0] for key in getattr(self, "_failed_transport_call_keys", ())]
+        for receipt in self.failed_provider_transport_receipts():
+            provider_call_id = receipt.get("provider_call_id")
+            if isinstance(provider_call_id, str) and provider_call_id and provider_call_id not in values:
+                values.append(provider_call_id)
+        return tuple(values)
+
+    def failed_provider_retry_total(self) -> int:
+        return int(getattr(self, "_failed_transport_retry_count", 0))
+
+    def failed_provider_fallback_total(self) -> int:
+        return int(getattr(self, "_failed_transport_fallback_count", 0))
+
+    def reconcile_authoritative_transport_failure(
+        self,
+        *,
+        provider_call_id: str,
+        effect_attempt_id: str,
+        attempt: Any = None,
+        observed_physical_attempts: int | None = None,
+    ) -> tuple[Mapping[str, Any], ...]:
+        """Import the host's exact failure receipts for one root call.
+
+        The host ledger is the authority for a request which crossed the HTTP
+        boundary.  This method deliberately does not manufacture an output
+        result or token usage; it only records the signed failure receipts and
+        derives logical/retry/fallback/unsettled facts from their immutable
+        identities.  Repeated snapshots are idempotent.
+        """
+
+        if not getattr(self.transport, "authoritative_physical", False):
+            return ()
+        if not isinstance(provider_call_id, str) or not provider_call_id:
+            raise TrueMultiAgentRuntimeError("failed Provider call identity is missing")
+        if not isinstance(effect_attempt_id, str) or not effect_attempt_id:
+            raise TrueMultiAgentRuntimeError("failed Provider effect attempt identity is missing")
+        ledger = getattr(self.transport, "transport_ledger", None)
+        capability = getattr(self.transport, "transport_ledger_capability", None)
+        if ledger is None or capability is None or not callable(getattr(ledger, "snapshot", None)):
+            raise TrueMultiAgentRuntimeError("authoritative Provider failure has no host transport ledger")
+        try:
+            snapshot = tuple(ledger.snapshot(capability))
+        except Exception as error:
+            raise TrueMultiAgentRuntimeError("authoritative Provider failure ledger snapshot failed") from error
+        if not isinstance(snapshot, tuple):
+            raise TrueMultiAgentRuntimeError("authoritative Provider failure ledger snapshot is invalid")
+        expected_binding = getattr(self.transport, "call_bindings", {}).get(provider_call_id, {})
+        expected_attempt = attempt
+        if expected_attempt is None and isinstance(expected_binding, Mapping):
+            expected_attempt = expected_binding.get("run_attempt")
+        if expected_attempt is None and isinstance(self.pre_provider_authorization, Mapping):
+            expected_attempt = self.pre_provider_authorization.get("run_attempt")
+        if expected_attempt is not None and (isinstance(expected_attempt, bool) or not isinstance(expected_attempt, int) or expected_attempt < 1):
+            raise TrueMultiAgentRuntimeError("authoritative Provider failure attempt binding is invalid")
+        matches: list[dict[str, Any]] = []
+        for raw in snapshot:
+            if not isinstance(raw, Mapping) or not self._receipt_is_current_lineage(raw):
+                continue
+            if raw.get("schema") != "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1":
+                continue
+            if raw.get("provider_call_id") != provider_call_id or raw.get("effect_attempt_id") != effect_attempt_id:
+                continue
+            receipt = dict(raw)
+            if receipt.get("run_id") != self.run_id:
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt run binding changed")
+            if expected_attempt is not None and receipt.get("attempt") != expected_attempt:
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt attempt binding changed")
+            try:
+                physical_attempt = receipt.get("physical_attempts")
+                if isinstance(physical_attempt, bool) or not isinstance(physical_attempt, int) or physical_attempt < 1:
+                    raise ValueError("physical_attempts")
+                failure_identity = receipt.get("failure_identity")
+                if not isinstance(failure_identity, str) or not failure_identity:
+                    raise ValueError("failure_identity")
+                receipt_hash = receipt.get("receipt_hash")
+                expected_receipt_hash = "sha256:" + sha256_bytes(
+                    canonical_json_bytes({key: value for key, value in receipt.items() if key != "receipt_hash"})
+                )
+                if receipt_hash != expected_receipt_hash:
+                    raise ValueError("receipt_hash")
+                if not isinstance(receipt.get("issuer_id"), str) or not receipt.get("issuer_id"):
+                    raise ValueError("issuer_id")
+                if not isinstance(receipt.get("issuer_signature"), str) or not receipt.get("issuer_signature"):
+                    raise ValueError("issuer_signature")
+                if receipt.get("token_usage") is not None or receipt.get("usage_status") != "unknown" or receipt.get("usage_settled") is not False:
+                    raise ValueError("usage")
+                if receipt.get("outcome_state") not in {"FAILED_CONFIRMED", "OUTCOME_UNKNOWN"}:
+                    raise ValueError("outcome_state")
+                if receipt.get("settlement_state") not in {"SETTLED", "RECONCILING"}:
+                    raise ValueError("settlement_state")
+            except (TypeError, ValueError) as error:
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt is malformed") from error
+            contains = getattr(ledger, "contains", None)
+            if not callable(contains) or not contains(receipt):
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt is not ledger-owned")
+            matches.append(receipt)
+        if not matches:
+            raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt is missing")
+        if observed_physical_attempts is not None:
+            if isinstance(observed_physical_attempts, bool) or not isinstance(observed_physical_attempts, int) or observed_physical_attempts < 1:
+                raise TrueMultiAgentRuntimeError("observed Provider physical failure count is invalid")
+            observed_attempts = {int(item["physical_attempts"]) for item in matches}
+            if max(observed_attempts) != observed_physical_attempts or len(observed_attempts) != observed_physical_attempts:
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure physical attempts do not reconcile")
+
+        for receipt in matches:
+            identity = self._embedded_receipt_identity(receipt)
+            prior = self._failed_transport_receipts_by_identity.get(identity)
+            if prior is not None and prior != receipt:
+                raise TrueMultiAgentRuntimeError("authoritative Provider failure receipt identity was reused")
+            if prior is None:
+                self._failed_transport_receipts_by_identity[identity] = dict(receipt)
+                self.failed_transport_receipts.append(dict(receipt))
+        logical_key = (provider_call_id, effect_attempt_id)
+        if logical_key not in self._failed_transport_call_keys:
+            self._failed_transport_call_keys.append(logical_key)
+            # Usage is unknown for a confirmed HTTP failure.  Mark the
+            # logical call once even when it has several physical attempts.
+            self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + 1
+
+        grouped_attempts: dict[tuple[str, str], set[int]] = {}
+        grouped_profiles: dict[tuple[str, str], set[str]] = {}
+        for receipt in self.failed_transport_receipts:
+            key = (str(receipt.get("provider_call_id") or ""), str(receipt.get("effect_attempt_id") or ""))
+            grouped_attempts.setdefault(key, set()).add(int(receipt["physical_attempts"]))
+            profile_name = receipt.get("provider_profile")
+            if isinstance(profile_name, str) and profile_name:
+                grouped_profiles.setdefault(key, set()).add(profile_name)
+        self._failed_transport_retry_count = sum(
+            max(attempts) - 1 for attempts in grouped_attempts.values()
+        )
+        self._failed_transport_fallback_count = sum(
+            max(0, len(grouped_profiles.get(key, set())) - 1)
+            for key in grouped_attempts
+        )
+        return tuple(dict(item) for item in matches)
 
     def physical_send_total(self) -> int:
         return int(self.transport.physical_send_count) + int(
@@ -2788,7 +2965,24 @@ class ProviderExecutor:
         )
         started_at = now_rfc3339()
         prior_sends = self.transport.physical_send_count
-        transport_value = self.gateway.transmit(effect_id, effect_attempt_id)
+        try:
+            transport_value = self.gateway.transmit(effect_id, effect_attempt_id)
+        except ProviderHTTPError:
+            # The authority host appends a signed failure receipt after it has
+            # consumed the physical attempt and before the broker reports the
+            # HTTP error.  Reconcile that issuer-owned snapshot while the
+            # host/ledger binding is still live; a physical failure without a
+            # matching receipt is an accounting integrity failure.
+            self.reconcile_authoritative_transport_failure(
+                provider_call_id=effect_id,
+                effect_attempt_id=effect_attempt_id,
+                attempt=(pre_provider_binding or {}).get(
+                    "run_attempt",
+                    (self.pre_provider_authorization or {}).get("run_attempt"),
+                ),
+                observed_physical_attempts=self.transport.physical_send_count - prior_sends,
+            )
+            raise
         raw_text = str(transport_value.pop("raw_text"))
         metadata = dict(transport_value.pop("metadata"))
         physical_attempts = int(transport_value.pop("physical_attempts", 1) or 1)

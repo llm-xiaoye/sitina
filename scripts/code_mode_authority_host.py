@@ -1789,6 +1789,7 @@ class AuthorityService:
     def _validate_stage_draft(
         self, draft: Mapping[str, Any], *, stage: str, run_id: str,
         generation: str, resolved: Mapping[str, Mapping[str, Any]],
+        session_token: str | None = None,
     ) -> None:
         """Validate a stage draft against formal CAS facts before signing.
 
@@ -2084,13 +2085,90 @@ class AuthorityService:
             # predecessor bodies before the host signs the stage.
             call_ids = [item.get("call_id") for item in evidence.get("calls", []) if isinstance(item, Mapping)]
             recovery_ids = [item.get("call_id") for item in evidence.get("provider_recovery_attempts", []) if isinstance(item, Mapping)]
+            failed_receipts = evidence.get("failed_provider_transport_receipts", [])
+            failed_ids_claimed = evidence.get("failed_provider_call_ids", [])
+            if failed_receipts is None:
+                failed_receipts = []
+            if failed_ids_claimed is None:
+                failed_ids_claimed = []
+            if not isinstance(failed_receipts, list) or not isinstance(failed_ids_claimed, list):
+                raise AuthorityError("terminal evidence failed Provider receipt projection is malformed")
+            if any(not isinstance(item, str) or not item for item in call_ids + recovery_ids):
+                raise AuthorityError("terminal evidence provider call identity is malformed")
+            if any(not isinstance(item, str) or not item for item in failed_ids_claimed):
+                raise AuthorityError("terminal evidence failed Provider call identity is malformed")
+            if len(set(failed_ids_claimed)) != len(failed_ids_claimed):
+                raise AuthorityError("terminal evidence failed Provider call identity is duplicated")
+            if failed_receipts and not isinstance(session_token, str):
+                raise AuthorityError("terminal evidence failed Provider receipts have no host session binding")
+            session_receipts = self._transport.get(session_token, []) if isinstance(session_token, str) else []
+            if not isinstance(session_receipts, list):
+                raise AuthorityError("host transport ledger is invalid")
+            derived_failed_ids: list[str] = []
+            seen_failure_identities: set[str] = set()
+            for raw_receipt in failed_receipts:
+                if not isinstance(raw_receipt, Mapping):
+                    raise AuthorityError("terminal evidence failed Provider receipt is not a mapping")
+                receipt = dict(raw_receipt)
+                if receipt.get("schema") != "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1":
+                    raise AuthorityError("terminal evidence failed Provider receipt schema is invalid")
+                provider_call_id = receipt.get("provider_call_id")
+                receipt_run_id = receipt.get("run_id")
+                if not isinstance(provider_call_id, str) or not provider_call_id:
+                    raise AuthorityError("terminal evidence failed Provider receipt has no call identity")
+                if receipt_run_id != run_id and not (
+                    isinstance(receipt_run_id, str)
+                    and receipt_run_id.startswith(f"forge-exec-{run_id}-")
+                ):
+                    raise AuthorityError("terminal evidence failed Provider receipt run is outside the current lineage")
+                failure_identity = receipt.get("failure_identity")
+                if not isinstance(failure_identity, str) or not failure_identity:
+                    raise AuthorityError("terminal evidence failed Provider receipt identity is missing")
+                if failure_identity in seen_failure_identities:
+                    raise AuthorityError("terminal evidence failed Provider receipt is duplicated")
+                seen_failure_identities.add(failure_identity)
+                receipt_hash = receipt.get("receipt_hash")
+                expected_receipt_hash = _hash({
+                    key: value for key, value in receipt.items() if key != "receipt_hash"
+                })
+                if receipt_hash != expected_receipt_hash:
+                    raise AuthorityError("terminal evidence failed Provider receipt hash is invalid")
+                if (
+                    not isinstance(receipt.get("issuer_id"), str)
+                    or receipt.get("issuer_id") != self.issuer_id
+                    or not isinstance(receipt.get("issuer_signature"), str)
+                    or not receipt.get("issuer_signature")
+                    or self._mac({
+                        key: value for key, value in receipt.items()
+                        if key not in {"issuer_signature", "receipt_hash"}
+                    }) != receipt.get("issuer_signature")
+                ):
+                    raise AuthorityError("terminal evidence failed Provider receipt signature is invalid")
+                if (
+                    receipt.get("token_usage") is not None
+                    or receipt.get("usage_status") != "unknown"
+                    or receipt.get("usage_settled") is not False
+                    or receipt.get("outcome_state") not in {"FAILED_CONFIRMED", "OUTCOME_UNKNOWN"}
+                    or receipt.get("settlement_state") not in {"SETTLED", "RECONCILING"}
+                ):
+                    raise AuthorityError("terminal evidence failed Provider receipt usage/outcome is invalid")
+                if not any(dict(item) == receipt for item in session_receipts if isinstance(item, Mapping)):
+                    raise AuthorityError("terminal evidence failed Provider receipt is not in the current host ledger")
+                if provider_call_id not in derived_failed_ids:
+                    derived_failed_ids.append(provider_call_id)
+            if failed_ids_claimed != derived_failed_ids:
+                raise AuthorityError("terminal evidence failed Provider IDs do not match host receipts")
+            provider_ids: list[str] = []
+            for provider_call_id in call_ids + failed_ids_claimed:
+                if provider_call_id not in provider_ids:
+                    provider_ids.append(provider_call_id)
             expected_sealed = {
                 "schema": "RUN_EVIDENCE_PACKAGE_SEALED_V1",
                 "event_type": "protocol.run.evidence.package.sealed",
                 "run_id": run_id,
                 "evidence_package_ref": evidence_ref,
                 "evidence_package_hash": evidence.get("content_hash"),
-                "provider_call_ids": call_ids,
+                "provider_call_ids": provider_ids,
                 "provider_recovery_call_ids": recovery_ids,
             }
             sealed_refs = [evidence_ref]
@@ -2135,6 +2213,7 @@ class AuthorityService:
                 "provider_physical_send_count": evidence.get("provider_physical_send_count"),
                 "provider_retry_count": sum(int(item.get("retry_count", 0) or 0) for item in calls if isinstance(item, Mapping)) + int(evidence.get("provider_retry_count", 0) or 0),
                 "provider_fallback_count": sum(int(item.get("fallback_count", 0) or 0) for item in calls if isinstance(item, Mapping)) + int(evidence.get("provider_fallback_count", 0) or 0),
+                "provider_unsettled_usage_count": evidence.get("provider_unsettled_usage_count"),
                 "negotiation_protocol_count": sum(item.get("protocol_kind") == "debate" for item in protocols if isinstance(item, Mapping)),
                 "handoff_protocol_count": sum(item.get("protocol_kind") == "handoff" for item in protocols if isinstance(item, Mapping)),
                 "external_mutation_count": int((evidence.get("execution_result") or {}).get("external_mutation_count", 0) or 0),
@@ -2731,6 +2810,7 @@ class AuthorityService:
                     run_id=run_id,
                     generation=generation,
                     resolved=resolved,
+                    session_token=str(session_token),
                 )
             request_body = resolved["request_locator"]["payload"]
             self._lock_session_scope(
