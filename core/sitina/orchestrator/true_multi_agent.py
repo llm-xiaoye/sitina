@@ -110,6 +110,27 @@ def _tester_machine_command(
     ]
 
 
+def _code_mode_terminal_state(payload: Mapping[str, Any]) -> str | None:
+    """Classify a Code Mode terminal fact without trusting its name alone.
+
+    Historical journals may contain the old success-named event with a
+    FAILED state.  That contradiction is intentionally interpreted as
+    failure/blocked, never as resumable success.
+    """
+    event_type = payload.get("event_type")
+    schema = payload.get("schema")
+    state = payload.get("terminal_state")
+    if event_type == "code-mode.terminal-success" and schema == "CODE_MODE_TERMINAL_SUCCESS_V1":
+        return state if state in {"SUCCEEDED", "FAILED"} else "INVALID"
+    if event_type == "code-mode.terminal-failed" and schema == "CODE_MODE_TERMINAL_FAILED_V1":
+        return "FAILED" if state == "FAILED" else "INVALID"
+    if event_type == "code-mode.terminal-success" or schema == "CODE_MODE_TERMINAL_SUCCESS_V1":
+        return "INVALID"
+    if event_type == "code-mode.terminal-failed" or schema == "CODE_MODE_TERMINAL_FAILED_V1":
+        return "INVALID"
+    return None
+
+
 class DynamicCollaborationError(TrueMultiAgentRuntimeError):
     pass
 
@@ -8146,6 +8167,56 @@ class TrueMultiAgentProductionRuntime:
         attempt_workers: dict[int, Any] = {}
         replan_context: dict[int, Mapping[str, Any]] = {}
 
+        def child_journal_facts(audit: Any, child_run_id: str) -> dict[str, Any]:
+            """Rebuild completed tool/mutation facts from the child Journal.
+
+            ``AutonomousRuntime`` may raise while asking for its next model
+            turn, after earlier tools have completed.  The exception summary
+            is not authoritative in that window; the durable child audit
+            events are.  Contradictory write facts are rejected rather than
+            silently downgraded to zero.
+            """
+            stream = getattr(audit, "stream", None)
+            child_journal = getattr(stream, "journal", None)
+            if child_journal is None:
+                raise DynamicCollaborationError("Forge child audit has no bound Journal")
+            completed: list[Mapping[str, Any]] = []
+            mutations: list[dict[str, Any]] = []
+            for event in child_journal.iter_events(0):
+                if str(getattr(event, "stream_id", "")) != f"run/{child_run_id}":
+                    continue
+                payload = getattr(event, "payload", None)
+                if not isinstance(payload, Mapping) or payload.get("event_type") != "autonomous.tool-completed":
+                    continue
+                completed.append(payload)
+                fact = payload.get("mutation_fact")
+                if not isinstance(fact, Mapping):
+                    continue
+                item = dict(fact)
+                path = item.get("path")
+                if item.get("denied") is False and (not isinstance(path, str) or not path):
+                    raise DynamicCollaborationError("Forge child Journal has an incomplete successful mutation fact")
+                if isinstance(path, str) and path:
+                    item["path"] = str(Path(path).expanduser().resolve(strict=False))
+                item["sequence"] = len(mutations) + 1
+                item["tool_call_id"] = payload.get("call_id")
+                item["tool_name"] = payload.get("name")
+                mutations.append(item)
+            return {
+                "tool_call_count": len(completed),
+                "mutation_events": mutations,
+                "file_mutation_event_count": sum(
+                    item.get("denied") is False for item in mutations
+                ),
+                "unique_mutated_path_count": len({
+                    str(item["path"]) for item in mutations
+                    if item.get("denied") is False and isinstance(item.get("path"), str)
+                }),
+                "denied_effect_attempt_count": sum(
+                    item.get("denied") is True for item in mutations
+                ),
+            }
+
         def provider_accounting_snapshot() -> dict[str, int]:
             totals = executor.usage_totals()
             return {
@@ -8726,7 +8797,17 @@ class TrueMultiAgentProductionRuntime:
                 # was raised after a successful Provider settlement (for
                 # example an unknown tool call). Transport attributes are only
                 # a fallback for failures before the executor saw the call.
-                if not accounting["provider_calls"] and getattr(error, "sitina_physical_send_count", 0):
+                # Authoritative embedded failures are reconciled from the
+                # host ledger by ``settle_failed_embedded_provider_call``.
+                # Exception attributes are retained only for the legacy
+                # non-authoritative fixture path; using them after an
+                # existing successful call would otherwise hide a later
+                # failed physical attempt.
+                if (
+                    not getattr(executor.transport, "authoritative_physical", False)
+                    and not accounting["provider_calls"]
+                    and getattr(error, "sitina_physical_send_count", 0)
+                ):
                     accounting.update(
                         {
                             "provider_calls": 1,
@@ -8775,6 +8856,38 @@ class TrueMultiAgentProductionRuntime:
                     )
                 except Exception:
                     pass
+            # The child Journal is the source of truth for completed tool
+            # activity, including the prefix of a run that failed on a later
+            # Provider turn.  A nonzero runtime summary must agree with it;
+            # an exception summary of zero must never erase it.
+            child_facts = child_journal_facts(audit, exec_run_id)
+            declared_tool_count = int(r.get("tool_call_count", 0) or 0)
+            if declared_tool_count not in {0, int(child_facts["tool_call_count"])}:
+                raise DynamicCollaborationError("Forge child tool count contradicts its Journal")
+            if declared_tool_count:
+                declared_mutations = {
+                    (
+                        str(item.get("path") or ""),
+                        item.get("before_hash"),
+                        item.get("after_hash"),
+                        item.get("denied") is True,
+                    )
+                    for item in (r.get("mutation_events") or ())
+                    if isinstance(item, Mapping)
+                }
+                journal_mutations = {
+                    (
+                        str(item.get("path") or ""),
+                        item.get("before_hash"),
+                        item.get("after_hash"),
+                        item.get("denied") is True,
+                    )
+                    for item in child_facts["mutation_events"]
+                    if isinstance(item, Mapping)
+                }
+                if declared_mutations != journal_mutations:
+                    raise DynamicCollaborationError("Forge child mutation facts contradict its Journal")
+            r = {**r, **child_facts}
             accounting = provider_accounting_delta(accounting_before)
             provider_identity = getattr(embedded_client, "last_profile", None) or executor.actual_provider_profile()
             r = _merge_embedded_attempt_accounting(
@@ -10129,15 +10242,13 @@ class TrueMultiAgentProductionRuntime:
             terminal_events = [
                 event for event in events
                 if isinstance(event.payload, Mapping)
-                and event.payload.get("event_type") == "code-mode.terminal-success"
+                and _code_mode_terminal_state(event.payload) is not None
             ]
             if any(
-                isinstance(event.payload, Mapping)
-                and event.payload.get("event_type") == "code-mode.terminal-success"
-                and event.payload.get("terminal_state") != "SUCCEEDED"
-                for event in events
+                _code_mode_terminal_state(event.payload) not in {None, "SUCCEEDED"}
+                for event in terminal_events
             ):
-                raise DynamicCollaborationError("Code Mode pending run has a non-success terminal")
+                raise DynamicCollaborationError("Code Mode pending run has a failed or contradictory terminal")
             if len(terminal_events) > 1:
                 raise DynamicCollaborationError("Code Mode pending run has multiple terminal events")
             accepted_fact_for_recovery = next(
@@ -10964,12 +11075,15 @@ class TrueMultiAgentProductionRuntime:
         run_stream = CanonicalStream(journal, str(run_id), f"run/{run_id}", self.policy_hash)
         try:
             events = tuple(event for event in journal.iter_events(0) if event.stream_id == run_stream.stream_id)
-            existing_success = any(
-                isinstance(event.payload, Mapping)
-                and event.payload.get("event_type") == "code-mode.terminal-success"
-                and event.payload.get("terminal_state") == "SUCCEEDED"
+            terminal_states = [
+                _code_mode_terminal_state(event.payload)
                 for event in events
-            )
+                if isinstance(event.payload, Mapping)
+                and _code_mode_terminal_state(event.payload) is not None
+            ]
+            if any(state != "SUCCEEDED" for state in terminal_states):
+                raise DynamicCollaborationError("Code Mode reviewed terminal is failed or contradictory")
+            existing_success = "SUCCEEDED" in terminal_states
             existing_roots = [
                 event for event in events
                 if isinstance(event.payload, Mapping)
@@ -12165,6 +12279,7 @@ class TrueMultiAgentProductionRuntime:
                         (code_core.get("run_stream_frontier") or {}).get("stream_version")
                     ),
                     "admission_generation": int(run.admission_generation),
+                    "terminal_state": core_run.get("expected_terminal"),
                 },
                 "run_id": evidence.run_id,
                 "admission_generation": int(run.admission_generation),
@@ -12291,10 +12406,22 @@ class TrueMultiAgentProductionRuntime:
             receipt = prepared_receipt
         else:
             receipt = executor._publish(evidence_package, purpose="true-multi-agent-run-evidence")
+        terminal_event_type = (
+            "code-mode.terminal-success"
+            if run.state.value == "SUCCEEDED"
+            else "code-mode.terminal-failed"
+        )
+        terminal_schema = (
+            "CODE_MODE_TERMINAL_SUCCESS_V1"
+            if run.state.value == "SUCCEEDED"
+            else "CODE_MODE_TERMINAL_FAILED_V1"
+        )
+        if run.state.value not in {"SUCCEEDED", "FAILED"}:
+            raise DynamicCollaborationError("Code Mode terminal state cannot be projected")
         terminal_fact = {
             **terminal,
-            "schema": "CODE_MODE_TERMINAL_SUCCESS_V1",
-            "event_type": "code-mode.terminal-success",
+            "schema": terminal_schema,
+            "event_type": terminal_event_type,
             "status": "terminal",
             "required_obligations_open": 0,
             "terminal_state": run.state.value,

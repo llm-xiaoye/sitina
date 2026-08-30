@@ -1818,11 +1818,23 @@ class AuthorityService:
         ).hexdigest()
         if payload.get("event_projection_hash") != expected_projection_hash:
             raise AuthorityError(f"{stage} stage draft projection commitment is invalid")
+        terminal_state = None
+        if stage == "terminal" and isinstance(projection[-1], Mapping):
+            terminal_payload = projection[-1].get("payload")
+            if isinstance(terminal_payload, Mapping):
+                terminal_state = terminal_payload.get("terminal_state")
+        terminal_event = (
+            "code-mode.terminal-success" if terminal_state == "SUCCEEDED"
+            else "code-mode.terminal-failed" if terminal_state == "FAILED"
+            else None
+        )
+        if stage == "terminal" and terminal_event is None:
+            raise AuthorityError("terminal stage state is invalid")
         expected_event_types = {
             "terminal": [
                 "run.closing", "protocol.terminal.negative.probe.rejected",
                 "protocol.terminal.full.validation.accepted",
-                "protocol.run.evidence.package.sealed", "code-mode.terminal-success",
+                "protocol.run.evidence.package.sealed", terminal_event,
             ],
             "root": ["code-mode.final-root"],
             "conversation": ["code-mode.conversation-completion"],
@@ -1858,8 +1870,15 @@ class AuthorityService:
                     raise AuthorityError(f"{stage} stage draft binding changed: {field}")
             if "stage_body_tampered" in body:
                 raise AuthorityError(f"{stage} stage draft contains an uncommitted field")
-            if stage == "terminal" and item.get("event_type") == "code-mode.terminal-success":
-                if body.get("schema") != "CODE_MODE_TERMINAL_SUCCESS_V1":
+            if stage == "terminal" and item.get("event_type") in {
+                "code-mode.terminal-success", "code-mode.terminal-failed",
+            }:
+                expected_schema = (
+                    "CODE_MODE_TERMINAL_SUCCESS_V1"
+                    if item.get("event_type") == "code-mode.terminal-success"
+                    else "CODE_MODE_TERMINAL_FAILED_V1"
+                )
+                if body.get("schema") != expected_schema:
                     raise AuthorityError("Code Mode terminal event schema is not dedicated")
         normalized_proofs = []
         proof_payloads: list[Mapping[str, Any]] = []
@@ -2090,13 +2109,21 @@ class AuthorityService:
             ):
                 if field in terminal_binding:
                     terminal_binding[field] = value
+            terminal_state = terminal_projection.get("terminal_state")
+            if terminal_state not in {"SUCCEEDED", "FAILED"}:
+                raise AuthorityError("terminal evidence state is invalid")
+            expected_terminal_event = (
+                ("CODE_MODE_TERMINAL_SUCCESS_V1", "code-mode.terminal-success")
+                if terminal_state == "SUCCEEDED"
+                else ("CODE_MODE_TERMINAL_FAILED_V1", "code-mode.terminal-failed")
+            )
             expected_terminal = {
-                "schema": "CODE_MODE_TERMINAL_SUCCESS_V1",
-                "event_type": "code-mode.terminal-success",
+                "schema": expected_terminal_event[0],
+                "event_type": expected_terminal_event[1],
                 "run_id": run_id,
                 "status": "terminal",
                 "required_obligations_open": 0,
-                "terminal_state": "SUCCEEDED",
+                "terminal_state": terminal_state,
                 "terminal_command_id": decision.get("command_id"),
                 "terminal_request_hash": decision.get("request_hash"),
                 "authoritative_fact_hash": decision.get("authoritative_fact_hash"),
@@ -2733,8 +2760,25 @@ class AuthorityService:
             ):
                 is_conversation = operation == "LOGICAL_CONVERSATION_COMPLETION_V1"
                 event_count = 5 if operation == "LOGICAL_TERMINAL_OPERATION_V1" else 1
+                terminal_stage = stage_drafts.get("terminal") if isinstance(stage_drafts, Mapping) else None
+                terminal_stage_payload = terminal_stage.get("payload") if isinstance(terminal_stage, Mapping) else None
+                terminal_projection = terminal_stage_payload.get("event_projection") if isinstance(terminal_stage_payload, Mapping) else None
+                terminal_state = (
+                    terminal_projection[-1].get("payload", {}).get("terminal_state")
+                    if isinstance(terminal_projection, list) and terminal_projection
+                    and isinstance(terminal_projection[-1], Mapping)
+                    and isinstance(terminal_projection[-1].get("payload"), Mapping)
+                    else None
+                )
+                terminal_event_type = (
+                    "code-mode.terminal-success" if terminal_state == "SUCCEEDED"
+                    else "code-mode.terminal-failed" if terminal_state == "FAILED"
+                    else None
+                )
+                if terminal_event_type is None:
+                    raise AuthorityError("terminal operation state is invalid")
                 event_schema_order = (
-                    ["run.closing", "protocol.terminal.negative.probe.rejected", "protocol.terminal.full.validation.accepted", "protocol.run.evidence.package.sealed", "code-mode.terminal-success"]
+                    ["run.closing", "protocol.terminal.negative.probe.rejected", "protocol.terminal.full.validation.accepted", "protocol.run.evidence.package.sealed", terminal_event_type]
                     if event_count == 5 else (["code-mode.conversation-completion"] if is_conversation else ["code-mode.final-root"])
                 )
                 locator_values = [resolved[name] for name in ("request_locator", "candidate_locator", "package_locator", "core_locator", "review_locator", "gate_locator")]
@@ -3961,6 +4005,20 @@ class AuthorityService:
             except urllib.error.HTTPError as error:
                 status_code = int(error.code)
                 self._pending.pop(str(permit), None)
+                # The host has already consumed the physical attempt before
+                # ``urlopen``.  Persist that observed failed attempt even
+                # though no usage-bearing response exists.  The receipt is
+                # keyed by the immutable logical/attempt identity so a
+                # replayed observation is idempotent and cannot mint a
+                # second physical send or fabricate token usage.
+                self._append_transport_failure_receipt(
+                    session_token,
+                    pending,
+                    outcome_state="FAILED_CONFIRMED",
+                    settlement_state="SETTLED",
+                    status_code=status_code,
+                    error_type="HTTPError",
+                )
                 if status_code in {429, 503}:
                     prior_call["retry_count"] = int(prior_call.get("retry_count") or 0) + 1
                     prior_call["state"] = (
@@ -3981,6 +4039,14 @@ class AuthorityService:
             except Exception as error:
                 self._pending.pop(str(permit), None)
                 prior_call["state"] = "OUTCOME_UNKNOWN"
+                self._append_transport_failure_receipt(
+                    session_token,
+                    pending,
+                    outcome_state="OUTCOME_UNKNOWN",
+                    settlement_state="RECONCILING",
+                    status_code=None,
+                    error_type=type(error).__name__,
+                )
                 raise AuthorityError("host provider transport failed") from error
             return self._finalize_provider_response(
                 session_token, request, payload, permit, prior_call,
@@ -4234,6 +4300,68 @@ class AuthorityService:
             "authority": "network-transport-boundary-v1"})
         receipt["receipt_hash"] = _hash({k: v for k, v in receipt.items() if k != "receipt_hash"})
         self._transport[session_token].append(receipt)
+        return receipt
+
+    def _append_transport_failure_receipt(
+        self,
+        session_token: str,
+        pending: Mapping[str, Any],
+        *,
+        outcome_state: str,
+        settlement_state: str,
+        status_code: int | None,
+        error_type: str,
+    ) -> dict[str, Any]:
+        """Record one host-observed physical failure without inventing usage.
+
+        ``transport_send`` consumes the physical-attempt scalar immediately
+        before entering ``urlopen``.  A failure therefore still belongs in
+        the issuer-owned transport ledger, even though no successful
+        response receipt can be produced.  The identity fields are copied
+        from the authenticated pending permit; the only new values describe
+        the observed outcome and intentionally leave token usage absent.
+        """
+        if outcome_state not in {"FAILED_CONFIRMED", "OUTCOME_UNKNOWN"}:
+            raise AuthorityError("transport failure outcome state is invalid")
+        if settlement_state not in {"SETTLED", "RECONCILING"}:
+            raise AuthorityError("transport failure settlement state is invalid")
+        identity = _hash({
+            "provider_call_id": pending.get("provider_call_id"),
+            "effect_attempt_id": pending.get("effect_attempt_id"),
+            "run_id": pending.get("run_id"),
+            "attempt": pending.get("attempt"),
+            "physical_attempts": pending.get("physical_attempts"),
+        })
+        body = {
+            "schema": "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1",
+            **dict(pending),
+            "failure_identity": identity,
+            "provider_response_id": None,
+            "token_usage": None,
+            "usage_status": "unknown",
+            "usage_settled": False,
+            "outcome_state": outcome_state,
+            "settlement_state": settlement_state,
+            "status_code": status_code,
+            "error_type": error_type,
+            "authority": "network-transport-boundary-v1",
+        }
+        for existing in self._transport.get(session_token, ()):
+            if (
+                isinstance(existing, Mapping)
+                and existing.get("schema") == body["schema"]
+                and existing.get("failure_identity") == identity
+            ):
+                existing_core = {
+                    key: value for key, value in existing.items()
+                    if key not in {"issuer_id", "issuer_signature", "receipt_hash"}
+                }
+                if existing_core != body:
+                    raise AuthorityError("transport failure identity was reused with different content")
+                return dict(existing)
+        receipt = self._signed(body)
+        receipt["receipt_hash"] = _hash({k: v for k, v in receipt.items() if k != "receipt_hash"})
+        self._transport.setdefault(session_token, []).append(receipt)
         return receipt
 
     def serve(self) -> None:

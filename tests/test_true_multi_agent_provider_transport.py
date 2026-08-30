@@ -8,6 +8,7 @@ import secrets
 import socket
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from sitina.effects.model import EffectRequest
@@ -308,6 +309,55 @@ class ProviderTransportTests(unittest.TestCase):
         self.assertEqual(result["fallback_count"], 0)
         self.assertEqual(result["physical_attempts"], 2)
         self.assertEqual(transport.physical_send_count, 2)
+
+    def test_embedded_retry_requires_a_second_physical_attempt(self) -> None:
+        executor = object.__new__(ProviderExecutor)
+        executor.transport = SimpleNamespace(authoritative_physical=False)
+        executor._embedded_transport_receipts = [{
+            "schema": "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1",
+            "provider_call_id": "call-1", "effect_attempt_id": "attempt-1",
+            "physical_attempts": 1, "status_code": 503,
+            "usage_status": "unknown",
+        }]
+        executor._settled_embedded_transport_receipt_count = 0
+        self.assertEqual(executor._consume_embedded_receipt_delta(), (1, 0, 0, 1))
+
+        executor._embedded_transport_receipts.append({
+            "schema": "CODE_MODE_PROVIDER_TRANSPORT_RECEIPT_V1",
+            "provider_call_id": "call-1", "effect_attempt_id": "attempt-1",
+            "physical_attempts": 2, "usage_status": "settled",
+        })
+        self.assertEqual(executor._consume_embedded_receipt_delta(), (1, 1, 0, 0))
+
+    def test_host_failure_receipt_is_idempotent_and_usage_free(self) -> None:
+        service = object.__new__(AuthorityService)
+        service._transport = {"session-1": []}
+        service._signed = lambda body: {
+            **dict(body), "issuer_id": "fixture-host", "issuer_signature": "sig",
+        }
+        pending = {
+            "session": "session-1", "provider_call_id": "call-1",
+            "effect_attempt_id": "attempt-1", "run_id": "forge-exec-run-1-1",
+            "attempt": 1, "physical_attempts": 1,
+        }
+        first = service._append_transport_failure_receipt(
+            "session-1", pending, outcome_state="FAILED_CONFIRMED",
+            settlement_state="SETTLED", status_code=503, error_type="HTTPError",
+        )
+        duplicate = service._append_transport_failure_receipt(
+            "session-1", pending, outcome_state="FAILED_CONFIRMED",
+            settlement_state="SETTLED", status_code=503, error_type="HTTPError",
+        )
+        self.assertEqual(first, duplicate)
+        self.assertEqual(len(service._transport["session-1"]), 1)
+        self.assertIsNone(first["token_usage"])
+        self.assertFalse(first["usage_settled"])
+        with self.assertRaises(AuthorityError):
+            service._append_transport_failure_receipt(
+                "session-1", {**pending, "status_code": 500},
+                outcome_state="FAILED_CONFIRMED", settlement_state="SETTLED",
+                status_code=500, error_type="HTTPError",
+            )
 
     def test_configured_fallback_records_actual_provider_and_model(self) -> None:
         primary = ProviderProfile("primary", "https://api.deepseek.com", "token", "model-a")

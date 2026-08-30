@@ -1440,12 +1440,22 @@ class LocalJournal:
                 "non-terminal Code Mode facts require their role-specific Journal entry"
             )
         if terminal_bundle:
+            terminal_state = events[-1].payload.get("terminal_state") if isinstance(events[-1].payload, Mapping) else None
+            terminal_event = (
+                ("code-mode.terminal-success", "CODE_MODE_TERMINAL_SUCCESS_V1")
+                if terminal_state == "SUCCEEDED"
+                else ("code-mode.terminal-failed", "CODE_MODE_TERMINAL_FAILED_V1")
+                if terminal_state == "FAILED"
+                else None
+            )
+            if terminal_event is None:
+                raise LocalJournalError("Code Mode terminal state is invalid")
             expected = (
                 ("run.closing", None),
                 ("protocol.terminal.negative.probe.rejected", None),
                 ("protocol.terminal.full.validation.accepted", "TERMINAL_FULL_VALIDATION_ACCEPTED_V1"),
                 ("protocol.run.evidence.package.sealed", "RUN_EVIDENCE_PACKAGE_SEALED_V1"),
-                ("code-mode.terminal-success", "CODE_MODE_TERMINAL_SUCCESS_V1"),
+                terminal_event,
             )
             if len(events) != len(expected):
                 raise LocalJournalError("Code Mode terminal bundle has the wrong event count")
@@ -2614,11 +2624,23 @@ class LocalJournal:
                     if authority.completion_plan_hash not in plan_object_ids:
                         raise LocalJournalError("authority acceptance plan commitment changed")
                 elif authority.operation == "LOGICAL_TERMINAL_OPERATION_V1":
-                    if len(events) != 5 or sum(
-                        isinstance(event.payload, dict)
-                        and event.payload.get("event_type") == "code-mode.terminal-success"
-                        for event in events
-                    ) != 1:
+                    terminal_events = [
+                        event for event in events
+                        if isinstance(event.payload, dict)
+                        and (
+                            (
+                                event.payload.get("event_type") == "code-mode.terminal-success"
+                                and event.payload.get("schema") == "CODE_MODE_TERMINAL_SUCCESS_V1"
+                                and event.payload.get("terminal_state") == "SUCCEEDED"
+                            )
+                            or (
+                                event.payload.get("event_type") == "code-mode.terminal-failed"
+                                and event.payload.get("schema") == "CODE_MODE_TERMINAL_FAILED_V1"
+                                and event.payload.get("terminal_state") == "FAILED"
+                            )
+                        )
+                    ]
+                    if len(events) != 5 or len(terminal_events) != 1:
                         raise LocalJournalError("authenticated terminal operation must contain the complete terminal projection")
                 elif authority.operation == "LOGICAL_FINAL_ROOT_SEAL_OPERATION_V1":
                     roots = [

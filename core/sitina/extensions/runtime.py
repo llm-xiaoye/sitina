@@ -481,6 +481,8 @@ class JournalAutonomousAudit:
                 )
                 if key in clean and isinstance(clean[key], (str, int, bool))
             }
+            if isinstance(clean.get("mutation_fact"), Mapping):
+                safe_metadata["mutation_fact"] = dict(clean["mutation_fact"])
             _receipt, references = self.stream.append(
                 "autonomous-" + event.replace("_", "-"),
                 (
@@ -1107,6 +1109,12 @@ class AutonomousRuntime:
                             duration_ms=result.duration_ms,
                             permission_decision=result.permission_decision,
                         ),
+                        # Keep the minimal hash/path mutation fact in the
+                        # child Journal/CAS record.  The parent Forge result
+                        # must be able to recover completed worker effects if
+                        # the next Provider turn fails before ``_result`` can
+                        # return; raw contents never cross this boundary.
+                        "mutation_fact": self._mutation_fact(call, result),
                     },
                 )
             # M1.5 loop detection: if the model repeats the exact same tool
@@ -1180,6 +1188,30 @@ class AutonomousRuntime:
         for call in gated_calls:
             results[call.call_id] = self._execute_one(run_id, call)
         return results
+
+    @staticmethod
+    def _mutation_fact(call: ProviderToolCall, result: ToolResult) -> dict[str, Any] | None:
+        if result.permission != "write":
+            return None
+        value = result.value if isinstance(result.value, Mapping) else {}
+        arguments = call.arguments if isinstance(call.arguments, Mapping) else {}
+        before_hash = value.get("before_hash") if isinstance(value.get("before_hash"), str) else None
+        after_hash = value.get("after_hash") if isinstance(value.get("after_hash"), str) else None
+        path = arguments.get("path") or value.get("path")
+        if not isinstance(path, str) or not path:
+            return {"status": str(result.status), "denied": result.status != "ok", "path": None}
+        return {
+            "status": str(result.status),
+            "denied": result.status != "ok",
+            "operation": str(value.get("operation") or ("create" if before_hash is None else "modify")),
+            "path": str(path),
+            "destination": value.get("destination") if isinstance(value.get("destination"), str) else arguments.get("destination"),
+            "before_hash": before_hash,
+            "after_hash": after_hash,
+            "authorization_ref": result.authorization_ref,
+            "worker_observed": value.get("worker_observed") is True,
+            "worker_binding_hash": value.get("worker_binding_hash"),
+        }
 
     def _execute_one(self, run_id: str, call: ProviderToolCall) -> ToolResult:
         definition = self.catalog.get(call.name)

@@ -1107,12 +1107,20 @@ class CanonicalStream:
         # legacy run.terminal path remains on ``append``.
         terminal_bundle = stage == "code-mode-terminal"
         if terminal_bundle:
+            terminal = facts[-1] if facts else {}
+            terminal_state = terminal.get("terminal_state") if isinstance(terminal, Mapping) else None
+            if terminal_state == "SUCCEEDED":
+                terminal_event = ("code-mode.terminal-success", "CODE_MODE_TERMINAL_SUCCESS_V1")
+            elif terminal_state == "FAILED":
+                terminal_event = ("code-mode.terminal-failed", "CODE_MODE_TERMINAL_FAILED_V1")
+            else:
+                raise TrueMultiAgentRuntimeError("Code Mode terminal state is invalid")
             expected = (
                 ("run.closing", None),
                 ("protocol.terminal.negative.probe.rejected", None),
                 ("protocol.terminal.full.validation.accepted", "TERMINAL_FULL_VALIDATION_ACCEPTED_V1"),
                 ("protocol.run.evidence.package.sealed", "RUN_EVIDENCE_PACKAGE_SEALED_V1"),
-                ("code-mode.terminal-success", "CODE_MODE_TERMINAL_SUCCESS_V1"),
+                terminal_event,
             )
             if len(facts) != len(expected):
                 raise TrueMultiAgentRuntimeError("Code Mode terminal bundle has the wrong event count")
@@ -2314,6 +2322,73 @@ class ProviderExecutor:
         self._embedded_transport_receipts_by_identity = by_identity
         self._embedded_transport_receipts.append(dict(receipt))
 
+    def _sync_embedded_transport_receipts(self) -> None:
+        """Import current-attempt host receipts before embedded settlement.
+
+        The embedded client receives successful receipts through its normal
+        sink.  A host-side HTTP/transport failure raises before that callback,
+        so settlement must explicitly re-open the issuer-owned snapshot and
+        import the failure receipt from the same Forge child lineage.  Root
+        planning and post-review receipts are intentionally excluded.
+        """
+        if not getattr(self.transport, "authoritative_physical", False):
+            return
+        ledger = getattr(self.transport, "transport_ledger", None)
+        capability = getattr(self.transport, "transport_ledger_capability", None)
+        if ledger is None or capability is None:
+            raise TrueMultiAgentRuntimeError("embedded settlement has no host transport ledger")
+        prefix = f"forge-exec-{self.run_id}-"
+        for receipt in ledger.snapshot(capability):
+            if not isinstance(receipt, Mapping):
+                continue
+            receipt_run = str(receipt.get("run_id") or "")
+            if not receipt_run.startswith(prefix):
+                continue
+            if str(receipt.get("authorization_kind") or "") != "forge-execution":
+                continue
+            self.record_embedded_transport_receipt(receipt)
+
+    def _consume_embedded_receipt_delta(self) -> tuple[int, int, int, int]:
+        """Return physical/retry/fallback/unsettled facts since last consume."""
+        self._sync_embedded_transport_receipts()
+        receipts = list(getattr(self, "_embedded_transport_receipts", ()))
+        cursor = int(getattr(self, "_settled_embedded_transport_receipt_count", 0))
+        if cursor < 0 or cursor > len(receipts):
+            raise TrueMultiAgentRuntimeError("embedded transport receipt cursor is invalid")
+        current = receipts[cursor:]
+        self._settled_embedded_transport_receipt_count = len(receipts)
+        # A retry is a retransmission, not a retryable response class.  The
+        # issuer-owned physical_attempts field is cumulative per logical
+        # provider call, so one failed attempt (including a 429/503 with
+        # max_retries=0) contributes zero; an attempt numbered 2 contributes
+        # exactly one retry.  Grouping by logical identity prevents receipts
+        # for two independent calls from inflating each other.
+        attempts_by_call: dict[tuple[Any, Any], set[int]] = {}
+        for item in current:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("schema") not in {
+                "CODE_MODE_PROVIDER_TRANSPORT_RECEIPT_V1",
+                "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1",
+            }:
+                continue
+            try:
+                attempt_no = int(item.get("physical_attempts"))
+            except (TypeError, ValueError):
+                raise TrueMultiAgentRuntimeError("embedded transport receipt attempt is invalid")
+            if attempt_no < 1:
+                raise TrueMultiAgentRuntimeError("embedded transport receipt attempt is invalid")
+            key = (item.get("provider_call_id"), item.get("effect_attempt_id"))
+            attempts_by_call.setdefault(key, set()).add(attempt_no)
+        retry_count = sum(max(attempts) - 1 for attempts in attempts_by_call.values())
+        fallback_count = sum(int(item.get("fallback_count", 0) or 0) for item in current)
+        unsettled_count = sum(
+            1 for item in current
+            if item.get("schema") == "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1"
+            or item.get("usage_status") in {"unknown", "unsettled"}
+        )
+        return len(current), retry_count, fallback_count, unsettled_count
+
     def actual_provider_profile(self) -> Any:
         """Return the provider/model identity used by the latest physical send."""
 
@@ -2336,10 +2411,13 @@ class ProviderExecutor:
         self._assert_model_admission(max_output_tokens)
 
     def settle_embedded_provider_call(self, metadata: Mapping[str, Any]) -> None:
+        physical, receipt_retries, receipt_fallbacks, receipt_unsettled = self._consume_embedded_receipt_delta()
         try:
             usage = normalize_usage(metadata)
         except Exception:
-            self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + 1
+            self.embedded_call_count = int(getattr(self, "embedded_call_count", 0)) + 1
+            self.embedded_physical_send_count = int(getattr(self, "embedded_physical_send_count", 0)) + physical
+            self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + max(1, receipt_unsettled)
             raise
         cost_micro = self._usage_cost(usage)
         self.embedded_call_count = int(getattr(self, "embedded_call_count", 0)) + 1
@@ -2347,25 +2425,19 @@ class ProviderExecutor:
         # network transport boundary.  Their metadata cannot mint physical
         # sends or token proof; the outer transport receipts remain the only
         # canary-grade source of physical/token authenticity.
-        authoritative = bool(getattr(self.transport, "authoritative_physical", False))
-        receipt_count = len(getattr(self, "_embedded_transport_receipts", ())) if authoritative else 0
-        settled_receipt_count = int(
-            getattr(self, "_settled_embedded_transport_receipt_count", 0)
-        )
-        if receipt_count < settled_receipt_count:
-            raise TrueMultiAgentRuntimeError(
-                "authoritative embedded transport receipt ledger moved backwards"
-            )
         # Do not consume the caller/client-reported physical_send_count.  A
         # physical send is real for Code Mode accounting only after the
         # issuer-bound transport ledger has accepted its receipt.
-        physical = receipt_count - settled_receipt_count
-        self._settled_embedded_transport_receipt_count = receipt_count
         self.embedded_physical_send_count = int(
             getattr(self, "embedded_physical_send_count", 0)
         ) + physical
-        self.embedded_retry_count = int(getattr(self, "embedded_retry_count", 0)) + (int(metadata.get("retry_count", 0) or 0) if getattr(self.transport, "authoritative_physical", False) else 0)
-        self.embedded_fallback_count = int(getattr(self, "embedded_fallback_count", 0)) + (int(metadata.get("fallback_count", 0) or 0) if getattr(self.transport, "authoritative_physical", False) else 0)
+        if getattr(self.transport, "authoritative_physical", False):
+            self.embedded_retry_count = int(getattr(self, "embedded_retry_count", 0)) + receipt_retries
+            self.embedded_fallback_count = int(getattr(self, "embedded_fallback_count", 0)) + receipt_fallbacks
+            self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + receipt_unsettled
+        else:
+            self.embedded_retry_count = int(getattr(self, "embedded_retry_count", 0)) + int(metadata.get("retry_count", 0) or 0)
+            self.embedded_fallback_count = int(getattr(self, "embedded_fallback_count", 0)) + int(metadata.get("fallback_count", 0) or 0)
         token_over, cost_over = self._record_usage(usage, cost_micro)
         if token_over or cost_over:
             raise TrueMultiAgentRuntimeError(
@@ -2382,21 +2454,18 @@ class ProviderExecutor:
         unified run ledger.
         """
         authoritative = bool(getattr(self.transport, "authoritative_physical", False))
-        receipt_count = len(getattr(self, "_embedded_transport_receipts", ())) if authoritative else 0
-        settled_receipt_count = int(
-            getattr(self, "_settled_embedded_transport_receipt_count", 0)
-        )
-        if receipt_count < settled_receipt_count:
-            raise TrueMultiAgentRuntimeError(
-                "authoritative embedded transport receipt ledger moved backwards"
-            )
-        physical_count = receipt_count - settled_receipt_count
-        self._settled_embedded_transport_receipt_count = receipt_count
+        physical_count, receipt_retries, receipt_fallbacks, receipt_unsettled = self._consume_embedded_receipt_delta()
+        if authoritative and int(metadata.get("physical_send_count", 0) or 0) > 0 and receipt_unsettled == 0:
+            raise TrueMultiAgentRuntimeError("host failure receipt is missing for an observed physical send")
         self.embedded_call_count = int(getattr(self, "embedded_call_count", 0)) + 1
         self.embedded_physical_send_count = int(getattr(self, "embedded_physical_send_count", 0)) + physical_count
-        self.embedded_retry_count = int(getattr(self, "embedded_retry_count", 0)) + int(metadata.get("retry_count", 0) or 0)
-        self.embedded_fallback_count = int(getattr(self, "embedded_fallback_count", 0)) + int(metadata.get("fallback_count", 0) or 0)
-        self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + 1
+        self.embedded_retry_count = int(getattr(self, "embedded_retry_count", 0)) + (
+            receipt_retries if authoritative else int(metadata.get("retry_count", 0) or 0)
+        )
+        self.embedded_fallback_count = int(getattr(self, "embedded_fallback_count", 0)) + (
+            receipt_fallbacks if authoritative else int(metadata.get("fallback_count", 0) or 0)
+        )
+        self.unsettled_usage_count = int(getattr(self, "unsettled_usage_count", 0)) + max(1, receipt_unsettled)
 
     def _publish(self, value: Mapping[str, Any], *, purpose: str) -> PublishedObjectReceipt:
         return self.cas.publish_verified(

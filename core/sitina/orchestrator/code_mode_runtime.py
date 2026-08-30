@@ -46,6 +46,22 @@ from sitina.runners.provider import (
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
+def _code_mode_terminal_state(payload: Mapping[str, Any]) -> str | None:
+    """Return a terminal state only when event name/schema/state agree."""
+    event_type = payload.get("event_type")
+    schema = payload.get("schema")
+    state = payload.get("terminal_state")
+    if event_type == "code-mode.terminal-success" and schema == "CODE_MODE_TERMINAL_SUCCESS_V1":
+        return state if state in {"SUCCEEDED", "FAILED"} else "INVALID"
+    if event_type == "code-mode.terminal-failed" and schema == "CODE_MODE_TERMINAL_FAILED_V1":
+        return "FAILED" if state == "FAILED" else "INVALID"
+    if event_type in {"code-mode.terminal-success", "code-mode.terminal-failed"} or schema in {
+        "CODE_MODE_TERMINAL_SUCCESS_V1", "CODE_MODE_TERMINAL_FAILED_V1",
+    }:
+        return "INVALID"
+    return None
+
+
 def _workspace_observation_hash(root: Path) -> str:
     """Hash a worktree's names, types, symlink targets, and file bytes."""
     records: list[dict[str, Any]] = []
@@ -2195,7 +2211,7 @@ class CodeModeRuntimeContext:
         terminals = [
             event for event in events
             if isinstance(getattr(event, "payload", None), Mapping)
-            and event.payload.get("event_type") == "code-mode.terminal-success"
+            and _code_mode_terminal_state(event.payload) is not None
         ]
         request_ref = locator.get("review_request_ref") or locator.get("request_ref")
         if not isinstance(request_ref, str) or not re.fullmatch(r"cas:[0-9a-f]{64}", request_ref):
@@ -2214,7 +2230,7 @@ class CodeModeRuntimeContext:
             if len(accepted) != 1 or len(terminals) != 1:
                 raise PermissionError("Code Mode TERMINALIZED stage is incomplete")
             terminal = terminals[0]
-            if terminal.payload.get("terminal_state") != "SUCCEEDED":
+            if _code_mode_terminal_state(terminal.payload) != "SUCCEEDED":
                 raise PermissionError("Code Mode terminalized stage is not successful")
             if locator.get("terminal_event_id") not in {None, terminal.event_id}:
                 raise PermissionError("Code Mode terminal event binding changed")
@@ -2315,8 +2331,7 @@ class CodeModeRuntimeContext:
                 event for event in journal.iter_events(0)
                 if str(getattr(event, "stream_id", "")) == f"run/{run_id}"
                 and isinstance(getattr(event, "payload", None), Mapping)
-                and event.payload.get("event_type") == "code-mode.terminal-success"
-                and event.payload.get("terminal_state") == "SUCCEEDED"
+                and _code_mode_terminal_state(event.payload) is not None
             ]
             reviewer_facts = [
                 event for event in journal.iter_events(0)
@@ -2338,6 +2353,8 @@ class CodeModeRuntimeContext:
             journal.close()
         if len(roots) != 1 or len(terminals) != 1:
             raise PermissionError("reviewed Code Mode receipt closing lineage is not unique")
+        if _code_mode_terminal_state(terminals[0].payload) != "SUCCEEDED":
+            raise PermissionError("reviewed Code Mode receipt has failed or contradictory terminal")
         if len(reviewer_facts) != 1 or len(accepted_facts) != 1:
             raise PermissionError("reviewed Code Mode acceptance pair is not unique")
         reviewer_fact = reviewer_facts[0]

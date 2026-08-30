@@ -1187,6 +1187,16 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         self.assertTrue(result_events)
         self.assertEqual(result_events[-1].payload.get("accepted"), False)
         self.assertIn("rework_exhausted_fail_closed", result_events[-1].payload.get("notes", []))
+        terminal_events = [
+            event for event in events
+            if event.payload.get("event_type") in {
+                "code-mode.terminal-success", "code-mode.terminal-failed",
+            }
+        ]
+        self.assertEqual(len(terminal_events), 1)
+        self.assertEqual(terminal_events[0].payload.get("event_type"), "code-mode.terminal-failed")
+        self.assertEqual(terminal_events[0].payload.get("schema"), "CODE_MODE_TERMINAL_FAILED_V1")
+        self.assertEqual(terminal_events[0].payload.get("terminal_state"), "FAILED")
 
     def test_new_code_mode_run_starts_a_fresh_attempt_namespace(self) -> None:
         """Conversation turns create new runs; only in-run rework increments."""
