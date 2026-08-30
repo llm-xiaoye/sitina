@@ -37,6 +37,7 @@ the current terminal process.
 
 Detailed docs:
 
+- `RECOVERY.md`: rebuild a clean installation from this private repository.
 - `docs/usage.md`: commands, mock/live runs, provider smoke checks, and high-risk command behavior.
 - `docs/conversation-routing.md`: AUTO/FAST/MULTI routing, evidence, and safety boundaries.
 - `docs/architecture.md`: package layout, state/logging model, and safety boundaries.
