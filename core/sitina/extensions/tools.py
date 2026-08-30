@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import glob
+import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import time
 import urllib.request
@@ -33,7 +35,7 @@ from sitina.security.tool_security import (
     ToolAccessRequest,
     ToolPermissionRule,
 )
-from sitina.utils import isolated_env, iso_now, redact_text, stable_json
+from sitina.utils import isolated_env, iso_now, load_json_yaml, normalize_command, redact_text, stable_json
 
 
 class ToolRuntimeError(RuntimeError):
@@ -70,6 +72,7 @@ class ApprovalRequest:
 
 ApprovalCallback = Callable[[ApprovalRequest], bool]
 ToolHandler = Callable[[dict[str, Any]], Any]
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -139,6 +142,9 @@ class ToolCatalog:
         approval_callback: ApprovalCallback | None = None,
         workspace: Path | None = None,
         write_executor: Any | None = None,
+        before_hashes: Mapping[str, str | None] | None = None,
+        strict_workspace: bool = False,
+        managed_process_manager: Any | None = None,
     ):
         self.manager = manager
         self.approval_callback = approval_callback
@@ -148,7 +154,29 @@ class ToolCatalog:
         # instead of whole-file overwrite. Approval is still enforced by
         # _authorize upstream; this only upgrades the write mechanics (M1.1).
         self._write_executor = write_executor
+        self._strict_workspace = bool(strict_workspace)
+        self._managed_process_manager = managed_process_manager
+        permissions_path = self.manager.sitina_home / "config" / "permissions.yaml"
+        try:
+            permissions = load_json_yaml(permissions_path) if permissions_path.is_file() else {}
+        except Exception:
+            permissions = {}
+        configured_commands = permissions.get("tester_allowed_commands", []) if isinstance(permissions, Mapping) else []
+        self._tester_allowed_commands = tuple(
+            str(item).strip() for item in configured_commands
+            if isinstance(item, str) and item.strip()
+        )
+        # A run may bind the files it observed before the first write.  The
+        # strong write primitive then turns a concurrent edit into a
+        # before-hash mismatch instead of silently overwriting user work.
+        self._expected_before_hashes = {
+            str(Path(path).expanduser().resolve(strict=False)): value
+            for path, value in dict(before_hashes or {}).items()
+        }
         self._run_id: str | None = None
+        self._active_direct_capability: Any | None = None
+        self._active_risk_scan: Any | None = None
+        self._managed_process_baselines: dict[str, dict[str, Any]] = {}
         # Deterministic risk floor (M1.4): scans every non-trivial tool call
         # against config/permissions.yaml before approval. Block verdicts
         # (sudo, curl|sh, .env/secret/ssh/key reads+writes, path escape) cannot
@@ -187,6 +215,17 @@ class ToolCatalog:
         authorization_ref = self._authorize(definition, payload)
         started_at = iso_now()
         started_monotonic = time.monotonic()
+        previous_capability = self._active_direct_capability
+        previous_scan = self._active_risk_scan
+        self._active_risk_scan = getattr(self, "_last_authorization_scan", None)
+        if self._write_executor is not None and self._run_id is not None and definition.permission == "write":
+            self._active_direct_capability = self._write_executor._mint_direct_capability(
+                run_id=self._run_id,
+                authorization_ref=authorization_ref,
+                target_repo=str(self.workspace),
+                allowed_roots=[str(self.workspace)],
+                purpose=f"tool:{definition.name}",
+            )
         try:
             scope = (
                 contextlib.nullcontext()
@@ -211,10 +250,18 @@ class ToolCatalog:
                 max(0, int((time.monotonic() - started_monotonic) * 1000)),
                 authorization_ref=authorization_ref,
             )
+        finally:
+            self._active_direct_capability = previous_capability
+            self._active_risk_scan = previous_scan
+        result_status = (
+            "error"
+            if isinstance(value, Mapping) and str(value.get("status") or "") in {"blocked", "failed", "dirty", "error"}
+            else "ok"
+        )
         return ToolResult(
             name,
             definition.permission,
-            "ok",
+            result_status,
             value,
             started_at,
             iso_now(),
@@ -227,6 +274,26 @@ class ToolCatalog:
         Called by the runtime at the start of each run()."""
         self._run_id = run_id
 
+    def _expected_before_hash(self, path: Path) -> object:
+        normalized = str(path.expanduser().resolve(strict=False))
+        return self._expected_before_hashes.get(normalized, _UNSET)
+
+    def _strong_write_kwargs(self, path: Path) -> dict[str, Any]:
+        """Pass a before-hash guard only when this run has a baseline value.
+
+        ToolCatalog and ToolExecutor deliberately use private sentinels.  An
+        unset catalog value must therefore not be passed as an ordinary hash,
+        otherwise every first write is compared with the wrong sentinel and
+        fails closed before it can create the file.
+        """
+        expected = self._expected_before_hash(path)
+        return {} if expected is _UNSET else {"expected_before_hash": expected}
+
+    def _record_after_hash(self, path: Path, result: Mapping[str, Any]) -> None:
+        after = result.get("after_hash")
+        if isinstance(after, str):
+            self._expected_before_hashes[str(path.expanduser().resolve(strict=False))] = after
+
     @staticmethod
     def _risk_params(definition: ToolDefinition, arguments: Mapping[str, Any]) -> tuple[str, str | None, str | None] | None:
         """Map a builtin tool call to (operation, target, command) for the risk
@@ -237,13 +304,54 @@ class ToolCatalog:
             return ("read", str(arguments.get("path") or ""), None)
         if name in {"sitina_write_file", "sitina_edit_file"}:
             return ("write", str(arguments.get("path") or ""), None)
+        if name == "sitina_delete_file":
+            return ("delete", str(arguments.get("path") or ""), None)
+        if name == "sitina_rename_file":
+            return ("move", str(arguments.get("path") or ""), None)
         if name == "sitina_shell":
             return ("shell", None, str(arguments.get("command") or ""))
+        if name == "sitina_process_start":
+            argv = arguments.get("command")
+            command = " ".join(str(item) for item in argv) if isinstance(argv, list) else str(argv or "")
+            return ("shell", str(arguments.get("cwd") or ""), command)
+        if name == "sitina_process_stop":
+            return ("shell", None, "process stop")
         if name == "sitina_http_request":
             return ("web", str(arguments.get("url") or ""), None)
         return None
 
+    def _enforce_workspace_boundary(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> None:
+        if not self._strict_workspace:
+            return
+        name = definition.name
+        path_value: str | None = None
+        if name in {"sitina_read_file", "sitina_list_directory", "sitina_grep", "sitina_write_file", "sitina_edit_file", "sitina_delete_file", "sitina_rename_file"}:
+            path_value = str(arguments.get("path") or self.workspace)
+        elif name in {"sitina_shell", "sitina_process_start"}:
+            raw_cwd = str(arguments.get("cwd") or self.workspace)
+            path_value = raw_cwd if Path(raw_cwd).expanduser().is_absolute() else str(self.workspace / raw_cwd)
+        elif name == "sitina_glob":
+            pattern = str(arguments.get("pattern") or "")
+            if not pattern:
+                raise ToolApprovalDenied("workspace glob requires a pattern")
+            expanded = Path(os.path.expanduser(pattern))
+            if expanded.is_absolute():
+                wildcard = next((index for index, char in enumerate(str(expanded)) if char in "*?["), len(str(expanded)))
+                prefix = Path(str(expanded)[:wildcard]).parent if wildcard < len(str(expanded)) else expanded
+                path_value = str(prefix)
+            else:
+                path_value = str(self.workspace / expanded)
+        if path_value is None:
+            return
+        try:
+            resolved = Path(path_value).expanduser().resolve(strict=False)
+            root = self.workspace.resolve(strict=False)
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            raise ToolApprovalDenied("tool target escapes the bound execution workspace") from None
+
     def _authorize(self, definition: ToolDefinition, arguments: Mapping[str, Any]) -> str:
+        self._enforce_workspace_boundary(definition, arguments)
         # Deterministic risk floor (M1.4): scan first, hard-block cannot be
         # overridden by the approval callback.
         scan = None
@@ -265,6 +373,7 @@ class ToolCatalog:
                     f"risk scanner blocked {definition.name}: {reasons}",
                     authorization_ref=denial_ref,
                 )
+        self._last_authorization_scan = scan
         approval_granted = definition.permission == "read"
         authorization_ref = "automatic-read"
         if not approval_granted:
@@ -323,6 +432,34 @@ class ToolCatalog:
                 f"approval denied or unavailable for {definition.name} ({definition.permission})",
                 authorization_ref=authorization_ref,
             )
+        if (
+            definition.permission == "write"
+            and scan is not None
+            and self._write_executor is not None
+            and self._run_id is not None
+        ):
+            approved_files = [
+                str(arguments[key])
+                for key in ("path", "destination")
+                if isinstance(arguments.get(key), str)
+            ]
+            try:
+                record = self._write_executor.approvals.create(
+                    run_id=self._run_id,
+                    action="approve",
+                    risk_scan=scan,
+                    plan_hash=hashlib.sha256(
+                        stable_json({"tool": definition.name, "arguments": dict(arguments)}).encode()
+                    ).hexdigest(),
+                    approved_touched_files=approved_files,
+                )
+            except Exception:
+                # Disposable mock fixtures may not provision the SQLite
+                # approval tables.  Production execution never uses this
+                # fallback because the Journal/CAS capability is mandatory.
+                pass
+            else:
+                authorization_ref = record.approval_id
         return authorization_ref
 
     def _add(self, definition: ToolDefinition) -> None:
@@ -374,7 +511,7 @@ class ToolCatalog:
                 self._object_schema({"pattern": {"type": "string"}}, ("pattern",)),
                 "read",
                 "sitina",
-                lambda value: sorted(glob.glob(os.path.expanduser(str(value["pattern"])), recursive=True)),
+                self._glob,
             )
         )
         self._add(
@@ -432,8 +569,27 @@ class ToolCatalog:
         )
         self._add(
             ToolDefinition(
+                "sitina_delete_file",
+                "Delete one regular file inside the bound workspace. Root, user-home, system and sensitive paths are blocked; requires write approval.",
+                self._object_schema({"path": {"type": "string"}}, ("path",)),
+                "write", "sitina", self._delete_file,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_rename_file",
+                "Rename one regular file inside the bound workspace. Both source and destination are scope-bound; requires write approval.",
+                self._object_schema({"path": {"type": "string"}, "destination": {"type": "string"}}, ("path", "destination")),
+                "write", "sitina", self._rename_file,
+            )
+        )
+        self._add(
+            ToolDefinition(
                 "sitina_shell",
-                "Run an arbitrary local shell command in a selected directory. Requires per-call shell approval.",
+                "Run one approved foreground test, lint, or build command in the selected directory. "
+                "The command must exactly match tester_allowed_commands policy; do not add semicolons, pipes, echo, "
+                "or unauthorized flags. When status is ok and exit_code is 0, treat the result as verified and do "
+                "not repeat it merely to inspect output. Requires per-call shell approval.",
                 self._object_schema(
                     {
                         "command": {"type": "string"},
@@ -463,6 +619,43 @@ class ToolCatalog:
                 "network",
                 "sitina",
                 self._http,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_process_start",
+                "Start an argv-only managed background process in the bound workspace for a service or other "
+                "long-running task. Do not use it for unittest or other one-shot tests. It is audited and cleaned "
+                "up at task end unless keep is explicitly authorized.",
+                self._object_schema({
+                    "command": {"type": "array", "items": {"type": "string"}},
+                    "cwd": {"type": "string"}, "keep": {"type": "boolean"},
+                }, ("command",)),
+                "shell", "sitina", self._process_start,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_process_status",
+                "Read status for a managed process owned by this execution run.",
+                self._object_schema({"process_id": {"type": "string"}}, ("process_id",)),
+                "read", "sitina", self._process_status,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_process_log",
+                "Read redacted tail logs for a managed process owned by this execution run.",
+                self._object_schema({"process_id": {"type": "string"}, "tail_lines": {"type": "number"}}, ("process_id",)),
+                "read", "sitina", self._process_log,
+            )
+        )
+        self._add(
+            ToolDefinition(
+                "sitina_process_stop",
+                "Stop a managed process owned by this execution run.",
+                self._object_schema({"process_id": {"type": "string"}}, ("process_id",)),
+                "shell", "sitina", self._process_stop,
             )
         )
 
@@ -644,6 +837,27 @@ class ToolCatalog:
                 break
         return {"matches": matches, "count": len(matches), "truncated": truncated}
 
+    def _glob(self, value: dict[str, Any]) -> list[str]:
+        pattern = str(value["pattern"])
+        expanded = Path(os.path.expanduser(pattern))
+        search = str(expanded if expanded.is_absolute() else self.workspace / expanded)
+        results = sorted(glob.glob(search, recursive=True))
+        if not self._strict_workspace:
+            return results
+        root = self.workspace.resolve(strict=True)
+        safe: list[str] = []
+        for raw in results:
+            path = Path(raw)
+            if path.is_symlink():
+                raise ToolRuntimeError("glob result is a symlink in strict execution")
+            resolved = path.resolve(strict=False)
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                raise ToolRuntimeError("glob result escapes the bound execution workspace") from None
+            safe.append(str(resolved))
+        return safe
+
     def _write_file(self, value: dict[str, Any]) -> dict[str, Any]:
         path = Path(str(value["path"])).expanduser().resolve(strict=False)
         content = str(value["content"])
@@ -662,11 +876,14 @@ class ToolCatalog:
                 target=str(path),
                 content=updated,
                 run_id=self._run_id,
+                capability=self._active_direct_capability,
+                **self._strong_write_kwargs(path),
             )
             if result.get("status") != "ok":
                 raise ToolRuntimeError(
                     f"strong write failed ({result.get('status')}): {result.get('reason')}"
                 )
+            self._record_after_hash(path, result)
             return {
                 "path": str(path),
                 "bytes": len(content.encode("utf-8")),
@@ -674,6 +891,8 @@ class ToolCatalog:
                 "patch_id": result.get("patch_id"),
                 "before_hash": result.get("before_hash"),
                 "after_hash": result.get("after_hash"),
+                "worker_observed": result.get("worker_observed") is True,
+                "worker_binding_hash": result.get("worker_binding_hash"),
             }
         path.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
@@ -705,12 +924,17 @@ class ToolCatalog:
         # when available; otherwise plain atomic-ish overwrite.
         if self._write_executor is not None and self._run_id is not None:
             result = self._write_executor.write_direct(
-                target=str(path), content=updated, run_id=self._run_id
+                target=str(path),
+                content=updated,
+                run_id=self._run_id,
+                capability=self._active_direct_capability,
+                **self._strong_write_kwargs(path),
             )
             if result.get("status") != "ok":
                 raise ToolRuntimeError(
                     f"strong write failed ({result.get('status')}): {result.get('reason')}"
                 )
+            self._record_after_hash(path, result)
             return {
                 "path": str(path),
                 "replaced": replaced,
@@ -722,20 +946,397 @@ class ToolCatalog:
             handle.write(updated)
         return {"path": str(path), "replaced": replaced}
 
+    def _destructive_path_guard(self, path: Path) -> None:
+        resolved = path.expanduser().resolve(strict=False)
+        workspace = self.workspace.resolve(strict=False)
+        forbidden = {
+            Path("/"), Path.home().resolve(strict=False), workspace,
+            Path("/System"), Path("/Library"), Path("/usr"), Path("/etc"),
+        }
+        if resolved in forbidden:
+            raise ToolRuntimeError("destructive operation on a protected root requires separate confirmation")
+        if self._strict_workspace and not (resolved == workspace or workspace in resolved.parents):
+            raise ToolRuntimeError("destructive operation escapes the bound workspace")
+
+    def _delete_file(self, value: dict[str, Any]) -> dict[str, Any]:
+        if self._write_executor is None or self._run_id is None or self._active_direct_capability is None:
+            raise ToolRuntimeError("delete requires a bound execution capability")
+        path = Path(str(value["path"])).expanduser().resolve(strict=False)
+        self._destructive_path_guard(path)
+        result = self._write_executor.execute(
+            operation="delete", run_id=self._run_id, agent="forge-execution-role",
+            target=str(path), allowed_roots=[str(self.workspace)],
+            capability=self._active_direct_capability,
+            approval_id=self._active_direct_capability.authorization_ref,
+            approved_files=[str(path)],
+            precomputed_risk_scan=self._active_risk_scan,
+        )
+        if result.get("status") != "ok":
+            raise ToolRuntimeError(str(result.get("reason") or "delete failed"))
+        return {"path": str(path), "operation": "delete", **result}
+
+    def _rename_file(self, value: dict[str, Any]) -> dict[str, Any]:
+        if self._write_executor is None or self._run_id is None or self._active_direct_capability is None:
+            raise ToolRuntimeError("rename requires a bound execution capability")
+        source = Path(str(value["path"])).expanduser().resolve(strict=False)
+        destination = Path(str(value["destination"])).expanduser().resolve(strict=False)
+        self._destructive_path_guard(source)
+        self._destructive_path_guard(destination)
+        result = self._write_executor.execute(
+            operation="move", run_id=self._run_id, agent="forge-execution-role",
+            target=str(source), destination=str(destination),
+            allowed_roots=[str(self.workspace)],
+            capability=self._active_direct_capability,
+            approval_id=self._active_direct_capability.authorization_ref,
+            approved_files=[str(source), str(destination)],
+            precomputed_risk_scan=self._active_risk_scan,
+        )
+        if result.get("status") != "ok":
+            raise ToolRuntimeError(str(result.get("reason") or "rename failed"))
+        return {"path": str(source), "destination": str(destination), "operation": "rename", **result}
+
+    def _require_process_manager(self) -> Any:
+        if self._managed_process_manager is None:
+            raise ToolRuntimeError("managed process API is unavailable outside a bound execution run")
+        return self._managed_process_manager
+
+    def _process_start(self, value: dict[str, Any]) -> dict[str, Any]:
+        manager = self._require_process_manager()
+        argv = [str(item) for item in value["command"]]
+        normalized = normalize_command(" ".join(argv))
+        if not any(
+            normalized == normalize_command(item)
+            or normalized.startswith(normalize_command(item) + " ")
+            for item in self._tester_allowed_commands
+        ):
+            raise ToolRuntimeError("managed process command is not in tester_allowed_commands")
+        before = self._workspace_state()
+        result = manager.start(argv, cwd=value.get("cwd"), keep=bool(value.get("keep", False)))
+        process_id = str(result.get("process_id") or "")
+        if not process_id:
+            raise ToolRuntimeError("managed process start returned no process identity")
+        self._managed_process_baselines[process_id] = before
+        return {
+            "operation": "start",
+            "mutation_audit": "workspace-diff-bound-to-process-lifecycle",
+            **result,
+        }
+
+    def _process_status(self, value: dict[str, Any]) -> dict[str, Any]:
+        process_id = str(value["process_id"])
+        manager = self._require_process_manager()
+        result = manager.status(process_id)
+        mutation = self._reconcile_managed_process(process_id, stop_on_change=True)
+        if mutation is not None:
+            return {"operation": "status", **mutation, "process": result}
+        return {"operation": "status", **result}
+
+    def _process_log(self, value: dict[str, Any]) -> dict[str, Any]:
+        process_id = str(value["process_id"])
+        mutation = self._reconcile_managed_process(process_id, stop_on_change=True)
+        if mutation is not None:
+            return {"operation": "log", **mutation}
+        return {"operation": "log", **self._require_process_manager().log(
+            process_id, tail_lines=int(value.get("tail_lines", 200) or 200)
+        )}
+
+    def _process_stop(self, value: dict[str, Any]) -> dict[str, Any]:
+        process_id = str(value["process_id"])
+        manager = self._require_process_manager()
+        result = manager.stop(process_id)
+        mutation = self._reconcile_managed_process(process_id, stop_on_change=False)
+        if mutation is not None:
+            return {"operation": "stop", **mutation, "process": result}
+        return {"operation": "stop", **result}
+
+    def _reconcile_managed_process(
+        self, process_id: str, *, stop_on_change: bool,
+    ) -> dict[str, Any] | None:
+        before = self._managed_process_baselines.get(process_id)
+        if before is None:
+            return None
+        after = self._workspace_state()
+        before_descriptors = self._state_descriptors(before)
+        after_descriptors = self._state_descriptors(after)
+        changed = sorted(
+            path for path in set(before_descriptors) | set(after_descriptors)
+            if before_descriptors.get(path) != after_descriptors.get(path)
+        )
+        if not changed:
+            return None
+        manager = self._require_process_manager()
+        stop_error: str | None = None
+        if stop_on_change:
+            try:
+                manager.stop(process_id)
+            except Exception as error:  # noqa: BLE001
+                stop_error = type(error).__name__
+        after_stop = self._workspace_state()
+        rollback = self._rollback_workspace(before, after_stop, changed)
+        failed = list(rollback.get("failed_paths") or [])
+        if stop_error:
+            failed.append("<process-stop:" + stop_error + ">")
+        self._managed_process_baselines.pop(process_id, None)
+        return {
+            "status": "dirty" if failed else "blocked",
+            "reason": "managed process produced unregistered workspace mutations",
+            "unregistered_paths": changed[:200],
+            "rollback_status": "failed" if failed else "complete",
+            "rolled_back_paths": list(rollback.get("rolled_back_paths") or [])[:200],
+            "rollback_failed_paths": sorted(set(failed))[:200],
+        }
+
+    def reconcile_managed_processes(self) -> None:
+        """Stop/reconcile every async process before task cleanup.
+
+        This is called from AutonomousRuntime's finally path, so a process
+        that mutates after its start call cannot disappear silently between
+        the last model turn and terminal evidence.
+        """
+
+        failures: list[str] = []
+        non_kept: list[str] = []
+        for process_id in sorted(tuple(self._managed_process_baselines)):
+            try:
+                metadata = self._require_process_manager()._load(process_id)
+            except Exception as error:  # noqa: BLE001
+                failures.append(process_id + ":" + type(error).__name__)
+                continue
+            if bool(metadata.get("keep")):
+                # Explicit keep is the only task-end exception.  It remains
+                # outside cleanup and is not silently converted into a
+                # stopped process.
+                continue
+            non_kept.append(process_id)
+            # Give a just-started child a short, bounded settle window.  This
+            # is part of the production lifecycle contract, not a test sleep:
+            # fast async writes must be observable before termination, while
+            # the post-stop snapshot below closes the remaining race window.
+            settle_deadline = time.monotonic() + 0.25
+            while time.monotonic() < settle_deadline:
+                settled_state = self._workspace_state()
+                before_descriptors = self._state_descriptors(self._managed_process_baselines[process_id])
+                settled_descriptors = self._state_descriptors(settled_state)
+                if any(
+                    before_descriptors.get(path) != settled_descriptors.get(path)
+                    for path in set(before_descriptors) | set(settled_descriptors)
+                ):
+                    break
+                time.sleep(0.01)
+            try:
+                # Stop and verify first.  A pre-stop snapshot is insufficient:
+                # a child can be scheduled between that snapshot and SIGTERM.
+                self._require_process_manager().stop(process_id)
+            except Exception as error:  # noqa: BLE001
+                failures.append(process_id + ":stop-" + type(error).__name__)
+
+        # Only after every non-keep process has been confirmed stopped do we
+        # inspect/restore the baseline.  This closes the final scheduling
+        # window for asynchronous mutations.
+        for process_id in non_kept:
+            try:
+                result = self._reconcile_managed_process(process_id, stop_on_change=False)
+            except Exception as error:  # noqa: BLE001
+                failures.append(process_id + ":" + type(error).__name__)
+            else:
+                if result is not None and result.get("status") == "dirty":
+                    failures.append(process_id + ":rollback-failed")
+                elif result is not None:
+                    # A mutation was observed even when rollback succeeded;
+                    # raise so the outer runtime cannot claim successful
+                    # execution.  The returned path set is already audited by
+                    # the eventual ToolRuntimeError boundary.
+                    failures.append(process_id + ":unregistered-mutation")
+        if failures:
+            raise ToolRuntimeError("managed process mutation reconciliation failed: " + ",".join(failures))
+
     def _shell(self, value: dict[str, Any]) -> dict[str, Any]:
         cwd = Path(str(value.get("cwd") or self.workspace)).expanduser().resolve(strict=True)
-        timeout = float(value["timeout_seconds"]) if value.get("timeout_seconds") is not None else None
-        result = subprocess.run(
-            str(value["command"]),
-            shell=True,
+        if self._write_executor is None or self._run_id is None:
+            return {"status": "blocked", "reason": "shell requires a bound execution runtime"}
+        # Keep the rollback image in memory only.  It is deliberately never
+        # placed in the tool result, Journal, CAS, or command artifact; this
+        # permits restoring a pre-existing secret without exposing it to the
+        # model or audit stream.
+        before_state = self._workspace_state()
+        before = self._state_descriptors(before_state)
+        result = self._write_executor.execute(
+            operation="shell",
+            run_id=self._run_id,
+            agent="tester",
+            target=str(cwd),
+            command=str(value["command"]),
             cwd=str(cwd),
-            env=isolated_env(),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            allowed_commands=list(self._tester_allowed_commands),
         )
-        return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": redact_text(result.stderr)}
+        after_state = self._workspace_state()
+        after = self._state_descriptors(after_state)
+        changed = sorted(
+            path for path in set(before) | set(after)
+            if before.get(path) != after.get(path)
+        )
+        if changed:
+            rollback = self._rollback_workspace(before_state, after_state, changed)
+            rollback_failed = list(rollback.get("failed_paths") or [])
+            return {
+                # A successful rollback is still a rejected shell call.  A
+                # failed rollback is explicitly dirty and requires user
+                # resolution; neither state is admissible execution evidence.
+                "status": "dirty" if rollback_failed else "blocked",
+                "reason": "shell produced unregistered workspace mutations",
+                "unregistered_paths": changed[:200],
+                "rollback_status": "failed" if rollback_failed else "complete",
+                "rolled_back_paths": list(rollback.get("rolled_back_paths") or [])[:200],
+                "rollback_failed_paths": rollback_failed[:200],
+                "command_result": {key: value for key, value in result.items() if key not in {"risk_scan"}},
+            }
+        return {key: value for key, value in result.items() if key != "risk_scan"}
+
+    def _workspace_snapshot(self) -> dict[str, str]:
+        """Return hash/type-only state suitable for comparison and audit."""
+
+        return self._state_descriptors(self._workspace_state())
+
+    def _workspace_state(self) -> dict[str, dict[str, Any]]:
+        """Capture a private, in-memory rollback image of the workspace.
+
+        Regular-file bytes are retained only for the duration of one shell
+        call.  Symlink targets and file types are captured explicitly so a
+        command cannot hide a replacement behind ``Path.is_file()``.  The
+        ``.sitina`` bookkeeping directory is outside the command mutation
+        surface; ``.git`` is intentionally included so git metadata changes
+        cannot evade the dirty-workspace check.
+        """
+
+        root = self.workspace.resolve(strict=True)
+        state: dict[str, dict[str, Any]] = {}
+        for current, dirs, files in os.walk(root, followlinks=False):
+            dirs[:] = sorted(name for name in dirs if name != ".sitina")
+            for name in tuple(dirs):
+                path = Path(current) / name
+                relative = path.relative_to(root).as_posix()
+                state[relative] = self._capture_workspace_entry(path)
+            for name in sorted(files):
+                path = Path(current) / name
+                relative = path.relative_to(root).as_posix()
+                state[relative] = self._capture_workspace_entry(path)
+        return state
+
+    @staticmethod
+    def _capture_workspace_entry(path: Path) -> dict[str, Any]:
+        try:
+            item = path.lstat()
+            mode = int(item.st_mode & 0o7777)
+            if stat.S_ISLNK(item.st_mode):
+                return {"kind": "symlink", "target": os.readlink(path), "mode": mode}
+            if stat.S_ISREG(item.st_mode):
+                # This is an ephemeral rollback buffer, never an evidence
+                # payload.  A read failure is fail-closed because restoring
+                # the user's prior bytes would not be provable.
+                return {"kind": "file", "content": path.read_bytes(), "mode": mode}
+            if stat.S_ISDIR(item.st_mode):
+                return {"kind": "directory", "mode": mode}
+            return {"kind": "special", "mode": mode}
+        except OSError as error:
+            raise ToolRuntimeError("workspace snapshot could not safely read a path") from error
+
+    @staticmethod
+    def _state_descriptors(state: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+        descriptors: dict[str, str] = {}
+        for relative, entry in state.items():
+            kind = str(entry.get("kind") or "special")
+            if kind == "file":
+                content = entry.get("content")
+                if not isinstance(content, bytes):
+                    raise ToolRuntimeError("workspace snapshot contains invalid file identity")
+                descriptors[relative] = "file:" + hashlib.sha256(content).hexdigest()
+            elif kind == "symlink":
+                target = str(entry.get("target") or "")
+                descriptors[relative] = "symlink:" + hashlib.sha256(
+                    target.encode("utf-8", "surrogateescape")
+                ).hexdigest()
+            elif kind == "directory":
+                descriptors[relative] = "directory"
+            else:
+                descriptors[relative] = "special:" + oct(int(entry.get("mode") or 0) & 0o170000)
+        return descriptors
+
+    def _snapshot_path(self, relative: str) -> Path:
+        root = self.workspace.resolve(strict=True)
+        path = root / relative
+        # Validate the parent, not the final component: the final component
+        # may itself be a symlink that must be removed during rollback.
+        parent = path.parent.resolve(strict=False)
+        if parent != root and root not in parent.parents:
+            raise ToolRuntimeError("workspace rollback path escapes the bound workspace")
+        return path
+
+    def _remove_workspace_path(self, path: Path) -> None:
+        try:
+            item = path.lstat()
+        except FileNotFoundError:
+            return
+        if stat.S_ISDIR(item.st_mode) and not stat.S_ISLNK(item.st_mode):
+            for child in list(os.scandir(path)):
+                self._remove_workspace_path(Path(child.path))
+            path.rmdir()
+        else:
+            path.unlink()
+
+    def _rollback_workspace(
+        self,
+        before: Mapping[str, Mapping[str, Any]],
+        after: Mapping[str, Mapping[str, Any]],
+        changed: list[str],
+    ) -> dict[str, Any]:
+        rolled_back: list[str] = []
+        failed: list[str] = []
+        # Remove changed post-command paths deepest-first.  This handles
+        # newly-created directories and type replacements without following a
+        # symlink into a user or system directory.
+        for relative in sorted(changed, key=lambda item: (item.count("/"), item), reverse=True):
+            if relative not in after:
+                continue
+            try:
+                self._remove_workspace_path(self._snapshot_path(relative))
+            except (OSError, ToolRuntimeError):
+                failed.append(relative)
+        # Recreate only the prior state for changed paths, shallowest-first.
+        for relative in sorted(changed, key=lambda item: (item.count("/"), item)):
+            entry = before.get(relative)
+            if entry is None:
+                continue
+            try:
+                path = self._snapshot_path(relative)
+                kind = str(entry.get("kind") or "special")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if kind == "directory":
+                    path.mkdir(exist_ok=True)
+                    os.chmod(path, int(entry.get("mode") or 0o755))
+                elif kind == "file":
+                    content = entry.get("content")
+                    if not isinstance(content, bytes):
+                        raise ToolRuntimeError("file rollback content is unavailable")
+                    path.write_bytes(content)
+                    os.chmod(path, int(entry.get("mode") or 0o644))
+                elif kind == "symlink":
+                    os.symlink(str(entry.get("target") or ""), path)
+                else:
+                    # Device/FIFO restoration is not safe for an autonomous
+                    # command.  Keep the run dirty and require a decision.
+                    raise ToolRuntimeError("special file rollback is unsupported")
+                rolled_back.append(relative)
+            except (OSError, ToolRuntimeError):
+                failed.append(relative)
+        try:
+            if not failed and self._state_descriptors(self._workspace_state()) != self._state_descriptors(before):
+                failed.extend(changed)
+        except ToolRuntimeError:
+            failed.extend(changed)
+        return {
+            "rolled_back_paths": sorted(set(rolled_back)),
+            "failed_paths": sorted(set(failed)),
+        }
 
     @staticmethod
     def _http(value: dict[str, Any]) -> dict[str, Any]:

@@ -18,6 +18,7 @@ from sitina.orchestrator.execution_bridge import (
     ExecutionIdentityBinding,
     run_safe_execution,
 )
+from sitina.legacy.fence import LegacyWriteGate
 from sitina.orchestrator.execution_sandbox import FilesystemTestEvidencePublisher
 from sitina.security.redaction import redact_boundary_value
 from sitina.guards.path_lease import PathLease
@@ -52,6 +53,11 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
         self._prev_home = os.environ.get("SITINA_HOME")
         self.home = Path(tempfile.mkdtemp())
         os.environ["SITINA_HOME"] = str(self.home)
+        # This integration suite exercises the real frozen sandbox path.  The
+        # fixture must be explicit; an unfrozen temporary home must remain
+        # rejected by the production verifier.
+        (self.home / ".sitina-bplus-disposable-v1").touch()
+        LegacyWriteGate(self.home).freeze("execution-bridge-integration", fixture_authorization=True)
         shutil.copytree("/Users/moss/SitinaHub/config", self.home / "config", dirs_exist_ok=True)
         self._ctr = itertools.count()
 
@@ -98,6 +104,7 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
                 run_id=f"integration-{base.name}-{state['attempt']}",
                 home=self.home,
                 identity_binding=execution_identity,
+                fixture_authorization=True,
                 evidence_publisher=FilesystemTestEvidencePublisher(self.home / "test-evidence"),
             )
         def rollback(a):

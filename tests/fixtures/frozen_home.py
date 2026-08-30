@@ -54,7 +54,8 @@ def make_frozen_home() -> Path:
             "import os, sys, json; "
             f"os.environ['SITINA_HOME']={str(home)!r}; "
             f"sys.path.insert(0, {core!r}); "
-            "from sitina.legacy.fence import LegacyWriteGate; "
+            "from sitina.legacy.fence import LegacyWriteGate, install_legacy_mutation_guard; "
+            "install_legacy_mutation_guard(LegacyWriteGate(os.environ['SITINA_HOME']).home); "
             "st = LegacyWriteGate(os.environ['SITINA_HOME']).freeze('test-snapshot', fixture_authorization=True); "
             "print('FREEZE_JSON:' + json.dumps({'state': str(st.state), 'record_hash': st.record_hash}))"
         )

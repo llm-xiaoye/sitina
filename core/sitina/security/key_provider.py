@@ -80,6 +80,61 @@ class InMemoryKeyProvider:
         self._sealer_nonce = os.urandom(32).hex()
         self._sealer_capabilities: set[str] = set()
 
+    def export_read_only_verification_material(self) -> dict[str, object]:
+        """Export only ephemeral symmetric material needed by a trusted reader.
+
+        The authority host is a trusted, short-lived reader of the controller's
+        state root.  It must be able to call the canonical Journal/CAS
+        verification code, but it never needs the controller's Ed25519 signing
+        keys.  This material is carried only through the one-shot bootstrap and
+        is never written to Journal, CAS, or worker state.
+        """
+        for purpose in (KeyPurpose.JOURNAL_AUTH, KeyPurpose.CAS_KEK, KeyPurpose.CAS_COMMITMENT):
+            descriptor = self.current_descriptor(purpose)
+            self.symmetric_for_id(descriptor.key_id, purpose)
+        return {
+            "schema": "SITINA_EPHEMERAL_READ_ONLY_KEY_MATERIAL_V1",
+            "environment": self.environment,
+            "namespace": self.namespace,
+            "current": {purpose.value: int(version) for purpose, version in self._current.items()},
+            "symmetric": {
+                f"{purpose.value}:v{version}": value.hex()
+                for (purpose, version), value in self._symmetric.items()
+                if purpose in {KeyPurpose.JOURNAL_AUTH, KeyPurpose.CAS_KEK, KeyPurpose.CAS_COMMITMENT}
+            },
+        }
+
+    @classmethod
+    def from_read_only_verification_material(cls, value: Mapping[str, object]) -> "InMemoryKeyProvider":
+        """Rehydrate a verifier-only provider without any signing material."""
+        if not isinstance(value, Mapping) or value.get("schema") != "SITINA_EPHEMERAL_READ_ONLY_KEY_MATERIAL_V1":
+            raise KeyProviderError("read-only key material schema is invalid")
+        environment, namespace = value.get("environment"), value.get("namespace")
+        if not isinstance(environment, str) or not isinstance(namespace, str):
+            raise KeyProviderError("read-only key material identity is invalid")
+        provider = cls(environment=environment, namespace=namespace)
+        current = value.get("current")
+        symmetric = value.get("symmetric")
+        if not isinstance(current, Mapping) or not isinstance(symmetric, Mapping):
+            raise KeyProviderError("read-only key material is incomplete")
+        provider._current = {purpose: int(current.get(purpose.value, 1)) for purpose in KeyPurpose}
+        provider._symmetric.clear()
+        for raw_key, raw_value in symmetric.items():
+            if not isinstance(raw_key, str) or ":v" not in raw_key or not isinstance(raw_value, str):
+                raise KeyProviderError("read-only key material entry is invalid")
+            purpose_name, version_text = raw_key.rsplit(":v", 1)
+            try:
+                purpose = KeyPurpose(purpose_name)
+                version = int(version_text)
+                material = bytes.fromhex(raw_value)
+            except (ValueError, TypeError):
+                raise KeyProviderError("read-only key material entry is invalid") from None
+            if purpose not in {KeyPurpose.JOURNAL_AUTH, KeyPurpose.CAS_KEK, KeyPurpose.CAS_COMMITMENT} or len(material) != 32:
+                raise KeyProviderError("read-only key material purpose is invalid")
+            provider._symmetric[(purpose, version)] = material
+        provider._signing.clear()
+        return provider
+
     def issue_evidence_sealer_capability(self, principal_role: str) -> EvidenceSealerCapability:
         if principal_role != "evidence-sealer":
             raise KeyProviderError("only the evidence-sealer role may receive an evidence signing handle")

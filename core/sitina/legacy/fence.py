@@ -37,6 +37,7 @@ _guard_home: Path | None = None
 _writer_fds: dict[Path, int] = {}
 _network_egress_nonces: set[str] = set()
 _sandbox_execution_nonces: dict[str, str] = {}
+_code_mode_sandbox_nonces: dict[str, str] = {}
 _local = threading.local()
 _state_lock = threading.RLock()
 
@@ -150,6 +151,31 @@ class FrozenSandboxExecutionCapability:
     authority_ref: str
     identity_binding_hash: str
     issued_at: int
+    _nonce: str
+
+
+@dataclass(frozen=True)
+class CodeModeSandboxExecutionCapability:
+    """One-use sandbox admission for the independent Code Mode runtime.
+
+    This is deliberately not a Legacy/B+ activation capability.  It binds
+    only the trusted sandbox supervisor invocation to the current Code Mode
+    run and is issued by the already-authorized local execution verifier.
+    """
+
+    capability_id: str
+    run_id: str
+    attempt: int
+    diff_hash: str
+    test_plan_hash: str
+    parent_authorization_hash: str
+    runner_executable: str
+    worker_path: str
+    cwd: str
+    read_roots: tuple[str, ...]
+    write_roots: tuple[str, ...]
+    argv: tuple[str, ...]
+    expires_at: int
     _nonce: str
 
 
@@ -640,6 +666,156 @@ def authorized_frozen_sandbox_execution(
         _local.sandbox_execution = previous
 
 
+def _issue_trusted_code_mode_sandbox_capability(
+    *,
+    run_id: str,
+    attempt: int,
+    diff_hash: str,
+    test_plan_hash: str,
+    parent_authorization_hash: str,
+    runner_executable: Path,
+    worker_path: Path,
+    cwd: Path,
+    read_roots: tuple[Path, ...],
+    write_roots: tuple[Path, ...],
+    argv: tuple[str, ...],
+    expires_at: int,
+    now: int | None = None,
+) -> CodeModeSandboxExecutionCapability:
+    """Issue a child capability for a trusted Code Mode runtime only."""
+
+    moment = int(time.time()) if now is None else int(now)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,255}", str(run_id)):
+        raise LegacyWriteDenied("Code Mode sandbox run_id is invalid")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise LegacyWriteDenied("Code Mode sandbox attempt is invalid")
+    if any(
+        not re.fullmatch(r"[0-9a-f]{64}", str(value))
+        for value in (diff_hash, test_plan_hash, parent_authorization_hash)
+    ):
+        raise LegacyWriteDenied("Code Mode sandbox input hash is invalid")
+    if expires_at <= moment or expires_at - moment > 300:
+        raise LegacyWriteDenied("Code Mode sandbox expiry is invalid")
+    runner = Path(runner_executable).expanduser().resolve(strict=True)
+    worker = Path(worker_path).expanduser().resolve(strict=True)
+    working_directory = Path(cwd).expanduser().resolve(strict=True)
+    if (
+        runner.is_symlink() or not runner.is_file()
+        or worker.is_symlink() or not worker.is_file()
+        or working_directory.is_symlink() or not working_directory.is_dir()
+    ):
+        raise LegacyWriteDenied("Code Mode sandbox executable or cwd is unsafe")
+    normalized_argv = tuple(str(item) for item in argv)
+    if not normalized_argv or normalized_argv[0] != str(runner):
+        raise LegacyWriteDenied("Code Mode sandbox argv is not bound to the trusted supervisor")
+    if str(worker) not in normalized_argv:
+        raise LegacyWriteDenied("Code Mode sandbox argv is not bound to the trusted worker")
+    normalized_reads = tuple(sorted(str(Path(item).expanduser().resolve(strict=True)) for item in read_roots))
+    normalized_writes = tuple(sorted(str(Path(item).expanduser().resolve(strict=True)) for item in write_roots))
+    if not normalized_reads or not normalized_writes:
+        raise LegacyWriteDenied("Code Mode sandbox filesystem scope is empty")
+    if any(not Path(item).is_dir() or Path(item).is_symlink() for item in (*normalized_reads, *normalized_writes)):
+        raise LegacyWriteDenied("Code Mode sandbox filesystem scope is unsafe")
+    if not any(working_directory == Path(item) or Path(item) in working_directory.parents for item in normalized_reads):
+        raise LegacyWriteDenied("Code Mode sandbox cwd is outside the parent authorization scope")
+    nonce = os.urandom(32).hex()
+    identity = hashlib.sha256(
+        _canonical(
+            {
+                "run_id": str(run_id),
+                "attempt": int(attempt),
+                "diff_hash": str(diff_hash),
+                "test_plan_hash": str(test_plan_hash),
+                "parent_authorization_hash": str(parent_authorization_hash),
+                "runner_executable": str(runner),
+                "worker_path": str(worker),
+                "cwd": str(working_directory),
+                "read_roots": list(normalized_reads),
+                "write_roots": list(normalized_writes),
+                "argv": list(normalized_argv),
+                "expires_at": int(expires_at),
+                "nonce_hash": hashlib.sha256(nonce.encode("ascii")).hexdigest(),
+            }
+        )
+    ).hexdigest()
+    capability = CodeModeSandboxExecutionCapability(
+        capability_id="code-mode-sandbox:" + identity,
+        run_id=str(run_id),
+        attempt=int(attempt),
+        diff_hash=str(diff_hash),
+        test_plan_hash=str(test_plan_hash),
+        parent_authorization_hash=str(parent_authorization_hash),
+        runner_executable=str(runner),
+        worker_path=str(worker),
+        cwd=str(working_directory),
+        read_roots=normalized_reads,
+        write_roots=normalized_writes,
+        argv=normalized_argv,
+        expires_at=int(expires_at),
+        _nonce=nonce,
+    )
+    _code_mode_sandbox_nonces[nonce] = capability.capability_id
+    return capability
+
+
+def issue_code_mode_sandbox_execution_capability(*args: Any, **kwargs: Any) -> CodeModeSandboxExecutionCapability:
+    """Reject direct/public capability minting.
+
+    Code Mode sandbox capabilities must come from the live runtime context,
+    which verifies the opaque parent record and its immutable expiry.  Keeping
+    this compatibility name fail-closed prevents model output, controls, or a
+    caller with a copied parent hash from minting a capability.
+    """
+
+    del args, kwargs
+    raise LegacyWriteDenied(
+        "Code Mode sandbox capability must be derived by a trusted runtime parent"
+    )
+
+
+@contextlib.contextmanager
+def authorized_code_mode_sandbox_execution(
+    capability: CodeModeSandboxExecutionCapability,
+    *,
+    argv: tuple[str, ...],
+    cwd: Path,
+    attempt: int,
+    diff_hash: str,
+    test_plan_hash: str,
+    parent_authorization_hash: str,
+    read_roots: tuple[Path, ...],
+    write_roots: tuple[Path, ...],
+    now: int | None = None,
+) -> Iterator[None]:
+    """Admit exactly one trusted Code Mode sandbox Popen call."""
+
+    moment = int(time.time()) if now is None else int(now)
+    resolved_cwd = str(Path(cwd).expanduser().resolve(strict=True))
+    if (
+        type(capability) is not CodeModeSandboxExecutionCapability
+        or _code_mode_sandbox_nonces.get(capability._nonce) != capability.capability_id
+        or isinstance(attempt, bool)
+        or not isinstance(attempt, int)
+        or int(attempt) != capability.attempt
+        or tuple(str(item) for item in argv) != capability.argv
+        or resolved_cwd != capability.cwd
+        or str(diff_hash) != capability.diff_hash
+        or str(test_plan_hash) != capability.test_plan_hash
+        or str(parent_authorization_hash) != capability.parent_authorization_hash
+        or tuple(sorted(str(Path(item).expanduser().resolve(strict=True)) for item in read_roots)) != capability.read_roots
+        or tuple(sorted(str(Path(item).expanduser().resolve(strict=True)) for item in write_roots)) != capability.write_roots
+        or moment >= capability.expires_at
+    ):
+        raise LegacyWriteDenied("Code Mode sandbox capability is invalid, expired, or out of scope")
+    del _code_mode_sandbox_nonces[capability._nonce]
+    previous = getattr(_local, "code_mode_sandbox_execution", None)
+    _local.code_mode_sandbox_execution = (capability, False)
+    try:
+        yield
+    finally:
+        _local.code_mode_sandbox_execution = previous
+
+
 def issue_frozen_network_egress_capability(
     authority_resolution: object,
     *,
@@ -1054,6 +1230,23 @@ def _audit_guard(event: str, arguments: tuple[Any, ...]) -> None:
     if home is None or getattr(_local, "bypass", False):
         return
     if event == "subprocess.Popen":
+        code_mode_scope = getattr(_local, "code_mode_sandbox_execution", None)
+        if code_mode_scope is not None:
+            capability, used = code_mode_scope
+            executable = str(arguments[0]) if arguments else ""
+            raw_argv = arguments[1] if len(arguments) > 1 else ()
+            requested_argv = tuple(str(item) for item in raw_argv) if isinstance(raw_argv, (list, tuple)) else ()
+            requested_cwd = arguments[2] if len(arguments) > 2 else None
+            resolved_cwd = str(Path(requested_cwd).expanduser().resolve(strict=False)) if requested_cwd else capability.cwd
+            if (
+                not used
+                and executable == capability.runner_executable
+                and requested_argv == capability.argv
+                and resolved_cwd == capability.cwd
+            ):
+                _local.code_mode_sandbox_execution = (capability, True)
+                return
+            raise LegacyWriteDenied("Legacy fence denies an out-of-scope Code Mode sandbox subprocess")
         if _marker_present(home):
             if getattr(_local, "extension_effect", None) in {"shell", "install_network"}:
                 return

@@ -11,8 +11,8 @@ from sitina.cas.crypto import encrypt_object
 from sitina.conversation.context import ConversationContextSnapshot
 from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import ChatMode, RouteDecision, route_decision_from_mapping
+from sitina.conversation.session_runtime import SessionRuntimeContext
 from sitina.journal.model import FrontierRef, canonical_json_bytes
-from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 from sitina.orchestrator.true_multi_agent_runtime import (
     AgentCallResult,
     AgentIdentity,
@@ -117,9 +117,13 @@ class FastConversationRuntime:
         home: Path,
         *,
         test_backend: Callable[..., Mapping[str, Any]] | None = None,
+        runtime_context_factory: Any | None = None,
+        session_runtime_provider: Any | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self._test_backend = test_backend
+        self.runtime_context_factory = runtime_context_factory
+        self.session_runtime_provider = session_runtime_provider
         self.registry: AgentRegistry | None = None
         self.policy: dict[str, Any] | None = None
         self.policy_hash: str | None = None
@@ -331,7 +335,7 @@ class FastConversationRuntime:
     def recover_committed_run(
         self,
         *,
-        context_runtime: ProductionRuntimeContext,
+        context_runtime: Any,
         journal: Any,
         cas: Any,
         historical_events: tuple[Any, ...],
@@ -596,7 +600,13 @@ class FastConversationRuntime:
                     "decision": decision.__dict__,
                 },
                 {
-                    "schema": "RUN_EVIDENCE_PACKAGE_SEALED_V1",
+                    # This is the ordinary FAST terminal evidence package.
+                    # RUN_EVIDENCE_PACKAGE_SEALED_V1 is reserved for the
+                    # authenticated Code Mode terminal bundle; sharing that
+                    # schema made the ordinary Journal path look like a Code
+                    # Mode authority writer and tripped the reserved guard.
+                    "schema": "FAST_CONVERSATION_EVIDENCE_PACKAGE_SEALED_V1",
+                    "event_type": "conversation.fast.evidence.package.sealed",
                     "evidence_package_ref": evidence_receipt.object_ref.reference_id,
                     "evidence_package_hash": evidence_hash,
                     "provider_call_ids": [call.call_id] if call else [],
@@ -702,7 +712,12 @@ class FastConversationRuntime:
         if not isinstance(message, str) or not message.strip():
             raise FastConversationError("FAST conversation requires a non-empty message")
         assert self.registry is not None and self.policy is not None and self.policy_hash is not None
-        context_runtime = ProductionRuntimeContext.load(self.home)
+        if callable(self.runtime_context_factory):
+            context_runtime = self.runtime_context_factory(self.home)
+        else:
+            context_runtime = SessionRuntimeContext.open(
+                self.home, provider=self.session_runtime_provider
+            )
         runtime_writer = getattr(type(context_runtime), "open_runtime_writer", None)
         journal = context_runtime.open_runtime_writer() if callable(runtime_writer) else context_runtime.open_writer()
         run_id = "fast-chat-run-" + stable_hash(

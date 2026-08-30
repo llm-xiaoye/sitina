@@ -95,7 +95,8 @@
         "tests/optimization/test_source_manifest_coverage.py",
         "tests/optimization/test_system_evaluation.py",
         "tests/optimization/test_suggestion_management.py",
-        "tests/test_execution_bridge.py"
+        "tests/test_execution_bridge.py",
+        "tests/test_capability_config.py"
       ],
       "timeout_seconds": 900,
       "expected_duration": "fast",
@@ -129,7 +130,12 @@
         "tests/test_execution_sandbox.py",
         "tests/test_frozen_home_fixture.py",
         "tests/test_frozen_fence_contract.py",
-        "tests/test_execution_verifier_frozen.py"
+        "tests/test_execution_verifier_frozen.py",
+        "tests/test_execution_target_v2.py",
+        "tests/test_git_worktree_cleanup.py",
+        "tests/test_managed_processes.py",
+        "tests/test_shell_mutation_guard.py",
+        "tests/test_true_multi_agent_provider_transport.py"
       ],
       "timeout_seconds": 1800,
       "expected_duration": "medium",

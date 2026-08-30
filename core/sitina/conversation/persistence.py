@@ -92,7 +92,17 @@ class JournalSessionRepository:
         receipt = self.journal.append(command, expected, [event], object_reference_proofs=proofs)
         return next(item for item in self.journal.iter_events(receipt.first_position - 1) if item.position == receipt.first_position)
 
-    def ensure_created(self, *, session_id: str, title: str, created_at: str) -> EventEnvelope:
+    def ensure_created(
+        self,
+        *,
+        session_id: str,
+        title: str,
+        created_at: str,
+        session_instance_id: str | None = None,
+        run_attempt: int | None = None,
+        generation: str | None = None,
+        workspace: str | None = None,
+    ) -> EventEnvelope:
         existing = next((item for item in self._events(session_id) if item.event_type == "session.created"), None)
         if existing is not None:
             return existing
@@ -119,6 +129,9 @@ class JournalSessionRepository:
         body: str,
         turn_index: int,
         created_at: str,
+        session_instance_id: str | None = None,
+        run_attempt: int | None = None,
+        generation: str | None = None,
     ) -> PersistedMessage:
         if role not in {"user", "assistant", "system", "tool"} or not body:
             raise SessionPersistenceError("message role/body is invalid")
@@ -137,6 +150,13 @@ class JournalSessionRepository:
                 or int(existing.payload.get("turn_index", -1)) != turn_index
             ):
                 raise SessionPersistenceError("message identity is bound to different content")
+            for field, expected in (
+                ("session_instance_id", session_instance_id),
+                ("run_attempt", run_attempt),
+                ("generation", generation),
+            ):
+                if expected is not None and existing.payload.get(field) != expected:
+                    raise SessionPersistenceError("message identity is bound to a different execution")
             reference = self._object_ref(existing.payload)
             self.cas.open_verified(reference)
             return PersistedMessage(
@@ -171,6 +191,15 @@ class JournalSessionRepository:
                 "body_commitment_key_id": reference.commitment_key_id,
                 "turn_index": turn_index,
                 "created_at": created_at,
+                **(
+                    {
+                        "session_instance_id": session_instance_id,
+                        "run_attempt": run_attempt,
+                        "generation": generation,
+                    }
+                    if session_instance_id is not None
+                    else {}
+                ),
             },
             created_at=created_at,
             proofs=(published,),
@@ -243,7 +272,11 @@ class JournalSessionRepository:
         )
         return PersistedMessage(session_id, message_id, role, turn_index, reference.reference_id, body_hash, event.position, reference)
 
-    def link_run(self, *, session_id: str, run_id: str, turn_index: int, created_at: str) -> EventEnvelope:
+    def link_run(
+        self, *, session_id: str, run_id: str, turn_index: int, created_at: str,
+        session_instance_id: str | None = None, run_attempt: int | None = None,
+        generation: str | None = None, workspace: str | None = None,
+    ) -> EventEnvelope:
         existing = next(
             (
                 item
@@ -266,6 +299,10 @@ class JournalSessionRepository:
                 "session_id": session_id,
                 "run_id": run_id,
                 "turn_index": turn_index,
+                **({"session_instance_id": session_instance_id} if session_instance_id else {}),
+                **({"run_attempt": run_attempt} if type(run_attempt) is int else {}),
+                **({"generation": generation} if generation else {}),
+                **({"workspace": workspace} if workspace else {}),
                 "created_at": created_at,
             },
             created_at=created_at,

@@ -64,9 +64,14 @@ class LocalCAS:
         else:
             if self.home == Path("/Users/moss/SitinaHub"):
                 raise CASError("Production CAS requires a Phase 6B or resolved runtime capability")
-            if namespace_kind not in {"shadow", "controlled_fixture"}:
-                raise CASError("CAS namespace must be shadow, controlled_fixture, or manifest-bound Production")
-            marker = ".sitina-bplus-shadow-v1" if namespace_kind == "shadow" else ".sitina-bplus-disposable-v1"
+            if namespace_kind not in {"shadow", "controlled_fixture", "code_mode", "session"}:
+                raise CASError("CAS namespace must be shadow, controlled_fixture, code_mode, session, or manifest-bound Production")
+            marker = {
+                "shadow": ".sitina-bplus-shadow-v1",
+                "controlled_fixture": ".sitina-bplus-disposable-v1",
+                "code_mode": ".sitina-code-mode-v1",
+                "session": ".sitina-session-runtime-v1",
+            }[namespace_kind]
             if not (self.home / marker).is_file():
                 raise CASError("isolated CAS namespace marker is missing")
         self.provider = provider
@@ -284,7 +289,7 @@ class LocalCAS:
             envelope_id=encrypted.envelope.envelope_id, issued_at=now.isoformat().replace("+00:00", "Z"),
             expires_at=(now + dt.timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
             durability_profile="MACOS_APFS_FSYNC_PROCESS_OS_CRASH_V1+" + NO_REPLACE_PROFILE,
-            fresh_verified=True, no_replace_published=True,
+            fresh_verified=True, no_replace_published=True, purpose_class=encrypted.envelope.purpose,
         )
 
     @staticmethod
@@ -696,6 +701,7 @@ class LocalCAS:
             durability_profile="MACOS_APFS_FSYNC_PROCESS_OS_CRASH_V1+" + NO_REPLACE_PROFILE,
             fresh_verified=True,
             no_replace_published=True,
+            purpose_class=envelope.purpose,
         )
 
     def publish_quarantine(self, raw: bytes, *, classification: str) -> str:

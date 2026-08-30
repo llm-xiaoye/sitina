@@ -41,6 +41,10 @@ class ConversationLifecycle:
         message: str,
         route_decision: RouteDecision,
         occurred_at: str,
+        session_instance_id: str | None = None,
+        run_attempt: int | None = None,
+        generation: str | None = None,
+        workspace: str | None = None,
     ) -> PersistedMessage:
         body = str(message).strip()
         if not body:
@@ -50,6 +54,10 @@ class ConversationLifecycle:
             session_id=session_id,
             title="Conversation",
             created_at=occurred_at,
+            session_instance_id=session_instance_id,
+            run_attempt=run_attempt,
+            generation=generation,
+            workspace=workspace,
         )
         self.sessions.record_mode_changed(
             session_id=session_id,
@@ -63,6 +71,9 @@ class ConversationLifecycle:
             body=body,
             turn_index=turn_index,
             created_at=occurred_at,
+            session_instance_id=session_instance_id,
+            run_attempt=run_attempt,
+            generation=generation,
         )
         self.sessions.record_route_decision(
             session_id=session_id,
@@ -109,12 +120,20 @@ class ConversationLifecycle:
         turn_index: int,
         run_id: str,
         occurred_at: str,
+        session_instance_id: str | None = None,
+        run_attempt: int | None = None,
+        generation: str | None = None,
+        workspace: str | None = None,
     ) -> None:
         self.sessions.link_run(
             session_id=session_id,
             run_id=run_id,
             turn_index=turn_index,
             created_at=occurred_at,
+            session_instance_id=session_instance_id,
+            run_attempt=run_attempt,
+            generation=generation,
+            workspace=workspace,
         )
 
     def complete_turn(

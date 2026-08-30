@@ -6,7 +6,7 @@ import zlib
 from dataclasses import dataclass
 from typing import BinaryIO
 
-from .model import EventEnvelope, JournalTransaction, domain_hash, object_reference_manifest_hash
+from .model import EventEnvelope, JournalTransaction, canonical_json_bytes, domain_hash, object_reference_manifest_hash, parse_canonical_json
 
 
 FRAME_PROFILE_ID = "SITINA_LOCAL_FRAME_V1"
@@ -17,6 +17,7 @@ PREFIX = struct.Struct(">8sHHIQ")
 U16 = struct.Struct(">H")
 U32 = struct.Struct(">I")
 U64 = struct.Struct(">Q")
+U8 = struct.Struct(">B")
 
 
 class FrameCodecError(ValueError):
@@ -88,6 +89,17 @@ def encode_frame(transaction: JournalTransaction, limits: FrameLimits | None = N
             U64.pack(transaction.last_position),
             U64.pack(transaction.first_stream_version),
             U64.pack(transaction.last_stream_version),
+            U8.pack(1 if transaction.authenticated_seal_stream_id is not None else 0),
+            (_encoded_id(transaction.authenticated_seal_stream_id, limits)
+             if transaction.authenticated_seal_stream_id is not None else b""),
+            U32.pack(len(transaction.proof_manifest)),
+            *(
+                U32.pack(len(encoded)) + encoded
+                for encoded in (
+                    canonical_json_bytes(dict(item))
+                    for item in transaction.proof_manifest
+                )
+            ),
         )
     )
     if len(header) > limits.max_header_bytes:
@@ -172,6 +184,38 @@ def _decode_frame(raw: bytes, start: int, limits: FrameLimits) -> DecodedFrame:
     event_count = header.u32()
     first_position, last_position = header.u64(), header.u64()
     first_version, last_version = header.u64(), header.u64()
+    authenticated_seal_stream_id = None
+    # Older frames ended after the last stream version. New frames carry an
+    # explicit transaction-level marker; a root payload alone is insufficient
+    # during recovery.
+    if header.offset < len(header.raw):
+        marker = U8.unpack(header.take(U8.size))[0]
+        if marker == 1:
+            authenticated_seal_stream_id = header.identifier(limits)
+        elif marker != 0:
+            raise FrameCorruption("invalid authenticated seal marker")
+    proof_manifest: tuple[dict, ...] = ()
+    legacy_proof_manifest = False
+    if header.offset < len(header.raw):
+        proof_count = header.u32()
+        if proof_count > limits.max_object_references:
+            raise FrameCorruption("proof manifest exceeds limit")
+        values = []
+        for _ in range(proof_count):
+            length = header.u32()
+            if length > limits.max_event_bytes:
+                raise FrameCorruption("proof manifest entry exceeds limit")
+            value = parse_canonical_json(header.take(length))
+            if not isinstance(value, dict):
+                raise FrameCorruption("proof manifest entry is not an object")
+            values.append(value)
+        proof_manifest = tuple(values)
+    else:
+        # V1 frames had no proof extension.  Keep them reopenable by deriving
+        # a stable, explicitly legacy marker from their object references.
+        # This marker is not a proof for a new replay; a replay must present
+        # current typed proofs and will fail the manifest comparison.
+        legacy_proof_manifest = True
     if header.offset != len(header.raw):
         raise FrameCorruption("unknown header extension")
     if not 1 <= event_count <= limits.max_events:
@@ -197,7 +241,16 @@ def _decode_frame(raw: bytes, start: int, limits: FrameLimits) -> DecodedFrame:
     references = tuple(sorted({reference for event in events for reference in event.object_refs}))
     if len(references) != object_count or object_reference_manifest_hash(references) != object_manifest:
         raise FrameCorruption("object reference manifest mismatch")
-    transaction = JournalTransaction(transaction_id, command_id, request_hash, stream_id, events, references)
+    if legacy_proof_manifest and references:
+        proof_manifest = tuple(
+            {"reference_id": reference, "proof_type": "legacy_v1"}
+            for reference in references
+        )
+    transaction = JournalTransaction(
+        transaction_id, command_id, request_hash, stream_id, events, references,
+        authenticated_seal_stream_id,
+        proof_manifest,
+    )
     return DecodedFrame(start, start + len(raw), transaction, stored_hash, raw)
 
 
@@ -236,4 +289,3 @@ def decode_one(raw: bytes, limits: FrameLimits | None = None) -> DecodedFrame:
     if not result.clean or len(result.frames) != 1 or result.valid_end_offset != len(raw):
         raise FrameCorruption(result.error or "expected exactly one complete frame")
     return result.frames[0]
-

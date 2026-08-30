@@ -5,6 +5,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sitina.orchestrator.execution_bridge import (
     ExecutionBinding,
@@ -15,7 +16,11 @@ from sitina.orchestrator.execution_bridge import (
 )
 from sitina.orchestrator.true_multi_agent import (
     DynamicCollaborationError,
+    RunEvidence,
     TrueMultiAgentProductionRuntime,
+    UsageAggregationError,
+    _embedded_usage_delta,
+    _merge_embedded_attempt_accounting,
 )
 from sitina.orchestrator.true_multi_agent_runtime import AgentIdentity, AgentRegistry
 from sitina.orchestrator.execution_patch import (
@@ -169,14 +174,16 @@ class ExecutionBridgeTests(unittest.TestCase):
             )
 
     def test_verifier_must_inspect_actual_diff(self) -> None:
-        with self.assertRaises(ExecutionBridgeError):
-            run_safe_execution(
-                binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
-                forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
-                boundary_check=lambda d: [],
-                verifier=lambda d, r: accepted_verdict(checked_diff=False),  # checked_diff=False
-                rollback=lambda a: None, max_attempts=1,
-            )
+        result = run_safe_execution(
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
+            forge_runner=ok_forge, collect_diff=lambda: ["src/x"],
+            boundary_check=lambda d: [],
+            verifier=lambda d, r: accepted_verdict(checked_diff=False),  # checked_diff=False
+            rollback=lambda a: None, max_attempts=1,
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "rejected")
+        self.assertEqual(result.attempt_ledger[0]["failure_type"], "TesterBindingError")
 
     def test_sensitive_diff_blocked_before_accept_fail_closed(self) -> None:
         verifier_called: list[bool] = []
@@ -207,6 +214,177 @@ class ExecutionBridgeTests(unittest.TestCase):
         )
         self.assertTrue(result.accepted)
         self.assertEqual(attempts_seen, [1, 2])
+
+    def test_forge_exception_is_bounded_and_replanned_from_typed_failure(self) -> None:
+        forge_attempts: list[int] = []
+        rollback_attempts: list[int] = []
+        replans: list[dict[str, object]] = []
+
+        def forge(attempt, _workspace):
+            forge_attempts.append(attempt)
+            raise ValueError("fixture forge failure")
+
+        def replan(attempt, failure):
+            replans.append({"attempt": attempt, **dict(failure)})
+            return {"plan_hash": "c" * 64, "prior_failure_hash": failure["failure_hash"]}
+
+        result = run_safe_execution(
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
+            forge_runner=forge, collect_diff=lambda: ["src/x.py"],
+            boundary_check=lambda _diff: [], verifier=lambda _diff, _result: accepted_verdict(),
+            rollback=lambda attempt: rollback_attempts.append(attempt), max_attempts=2,
+            replan=replan,
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "rejected")
+        self.assertEqual(forge_attempts, [1, 2])
+        self.assertEqual(rollback_attempts, [1, 2])
+        self.assertEqual(len(replans), 1)
+        self.assertEqual(replans[0]["failure_type"], "ValueError")
+        self.assertEqual(len(result.attempt_ledger), 2)
+        self.assertEqual(result.attempt_ledger[0]["failure_type"], "ValueError")
+        self.assertTrue(result.attempt_ledger[1]["replan"])
+        self.assertTrue(result.attempt_ledger[1]["same_failure"])
+        self.assertEqual(result.attempt_ledger[1]["prior_failure_hash"], result.attempt_ledger[0]["failure_hash"])
+        self.assertEqual(result.attempt_ledger[1]["plan_hash"], "c" * 64)
+        self.assertTrue(all(item["rollback"] == "ok" for item in result.attempt_ledger))
+
+    def test_rollback_failure_terminalizes_failed_and_is_recorded(self) -> None:
+        result = run_safe_execution(
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
+            forge_runner=lambda _attempt, _workspace: (_ for _ in ()).throw(RuntimeError("forge")),
+            collect_diff=lambda: [], boundary_check=lambda _diff: [],
+            verifier=lambda _diff, _result: accepted_verdict(),
+            rollback=lambda _attempt: (_ for _ in ()).throw(OSError("rollback")),
+            max_attempts=2,
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.attempts, 1)
+        self.assertEqual(len(result.attempt_ledger), 1)
+        self.assertEqual(result.attempt_ledger[0]["rollback"], "failed")
+        self.assertEqual(result.attempt_ledger[0]["rollback_failure_type"], "OSError")
+
+    def test_usage_aggregation_fault_is_typed_before_totals_are_mutated(self) -> None:
+        with self.assertRaises(UsageAggregationError):
+            _embedded_usage_delta({"provider_token_total": "not-an-integer"})
+        self.assertEqual(
+            _embedded_usage_delta({"provider_call_count": 1, "provider_token_total": 7})["total_tokens"],
+            7,
+        )
+
+    def test_post_settlement_forge_failure_uses_executor_delta(self) -> None:
+        before = {
+            "provider_calls": 2, "physical_sends": 2, "input_tokens": 10,
+            "output_tokens": 5, "cache_read_tokens": 0, "cache_write_tokens": 0,
+            "total_tokens": 15, "cost_micro_usd": 4, "retry_count": 1,
+            "fallback_count": 0, "unsettled_usage_count": 0,
+        }
+        after = {**before, "provider_calls": 3, "physical_sends": 3,
+                 "input_tokens": 12, "output_tokens": 6, "total_tokens": 18,
+                 "cost_micro_usd": 5}
+        result = _merge_embedded_attempt_accounting(
+            {"status": "error", "error_type": "ToolRuntimeError"},
+            before,
+            after,
+            provider_profile="fallback",
+            provider_model="model-b",
+        )
+        self.assertEqual(result["provider_call_count"], 1)
+        self.assertEqual(result["provider_physical_send_count"], 1)
+        self.assertEqual(result["provider_input_tokens"], 2)
+        self.assertEqual(result["provider_output_tokens"], 1)
+        self.assertEqual(result["provider_token_total"], 3)
+        self.assertEqual(result["provider_profile"], "fallback")
+        self.assertEqual(result["provider_model"], "model-b")
+        self.assertEqual(result["provider_usage_status"], "settled")
+
+    def test_runtime_cleanup_event_precedes_terminal_evidence_and_binds_failure(self) -> None:
+        class Stream:
+            def __init__(self):
+                self.events = []
+
+            def append(self, stage, facts, **_kwargs):
+                self.events.append((stage, facts))
+
+        runtime = object.__new__(TrueMultiAgentProductionRuntime)
+        runtime.home = Path(tempfile.mkdtemp())
+        evidence = RunEvidence("run-cleanup-runtime", "change", "a" * 64, "b" * 64)
+        stream = Stream()
+        report = {
+            "run_id": evidence.run_id,
+            "repo": "/tmp/target",
+            "worktree": "/tmp/worktree",
+            "status": "ok",
+            "registered_before": True,
+            "registered_after": False,
+            "removed": True,
+            "physical_removed": True,
+            "audit_recorded": True,
+            "porcelain_before_sha256": "c" * 64,
+            "porcelain_after_sha256": "d" * 64,
+        }
+        with patch("sitina.orchestrator.git_ops.GitWorktreeManager") as manager_type:
+            manager_type.return_value.cleanup_for_run.return_value = report
+            actual = runtime._cleanup_before_terminalize(
+                run_id=evidence.run_id,
+                controls={"execution_workspace": "/tmp/target"},
+                run_stream=stream,
+                evidence=evidence,
+            )
+        self.assertEqual(actual["status"], "ok")
+        stream.append("run-terminal", ({"event_type": "run.terminal"},))
+        self.assertLess(
+            next(i for i, item in enumerate(stream.events) if item[0] == "execution-worktree-cleanup-finally"),
+            next(i for i, item in enumerate(stream.events) if item[0] == "run-terminal"),
+        )
+        self.assertEqual(evidence.expected_terminal, "SUCCEEDED")
+
+        failing_stream = Stream()
+        failing_evidence = RunEvidence("run-cleanup-failure", "change", "e" * 64, "f" * 64)
+        manager_type.return_value.cleanup_for_run.return_value = {
+            **report, "run_id": failing_evidence.run_id, "status": "failed", "removed": False,
+            "audit_recorded": False,
+        }
+        with patch("sitina.orchestrator.git_ops.GitWorktreeManager", manager_type):
+            failed = runtime._cleanup_before_terminalize(
+                run_id=failing_evidence.run_id,
+                controls={"execution_workspace": "/tmp/target"},
+                run_stream=failing_stream,
+                evidence=failing_evidence,
+            )
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failing_evidence.expected_terminal, "FAILED")
+        self.assertTrue(failing_evidence.execution_result["cleanup_failed"])
+
+        class BrokenStream(Stream):
+            def append(self, *_args, **_kwargs):
+                raise RuntimeError("journal append fault")
+
+        event_failure_evidence = RunEvidence("run-cleanup-event-failure", "change", "1" * 64, "2" * 64)
+        with patch("sitina.orchestrator.git_ops.GitWorktreeManager", manager_type):
+            runtime._cleanup_before_terminalize(
+                run_id=event_failure_evidence.run_id,
+                controls={"execution_workspace": "/tmp/target"},
+                run_stream=BrokenStream(),
+                evidence=event_failure_evidence,
+            )
+        self.assertEqual(event_failure_evidence.expected_terminal, "FAILED")
+        self.assertTrue(event_failure_evidence.execution_result["cleanup_failed"])
+
+    def test_tester_exception_is_ledgered_and_reworked(self) -> None:
+        result = run_safe_execution(
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
+            forge_runner=ok_forge, collect_diff=lambda: ["src/tested.py"],
+            boundary_check=lambda _diff: [],
+            verifier=lambda _diff, _result: (_ for _ in ()).throw(RuntimeError("tester unavailable")),
+            rollback=lambda _attempt: None, max_attempts=2,
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "rejected")
+        self.assertEqual(result.attempts, 2)
+        self.assertEqual([item["failure_type"] for item in result.attempt_ledger], ["TesterExecutionError", "TesterExecutionError"])
+        self.assertTrue(result.attempt_ledger[1]["same_failure"])
 
     def test_result_carries_immutable_binding(self) -> None:
         result = run_safe_execution(
@@ -454,7 +632,7 @@ class ExecutionBridgeTests(unittest.TestCase):
                     load_content=lambda _reference: b"tampered",
                 )
 
-    def test_patch_manifest_rejects_hidden_or_unsupported_successful_mutations(self) -> None:
+    def test_patch_manifest_rejects_hidden_successful_mutations(self) -> None:
         with tempfile.TemporaryDirectory() as parent:
             workspace = Path(parent) / "workspace"
             workspace.mkdir()
@@ -490,19 +668,49 @@ class ExecutionBridgeTests(unittest.TestCase):
                     ],
                     content_refs={str(target.resolve()): "content:" + digest},
                 )
-            for operation in ("delete", "rename"):
-                with self.subTest(operation=operation), self.assertRaisesRegex(
-                    ExecutionPatchError,
-                    "destructive mutation is outside the accepted Step6 contract",
-                ):
-                    build_patch_manifest(
-                        run_id="run-" + operation,
-                        execution_attempt_id="execution-attempt:" + "d" * 64,
-                        workspace=workspace,
-                        diff_paths=[str(target)],
-                        mutation_events=[{**base_event, "operation": operation}],
-                        content_refs={str(target.resolve()): "content:" + digest},
-                    )
+    def test_patch_manifest_supports_delete_tombstone_and_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            workspace.mkdir()
+            source = workspace / "old.py"
+            destination = workspace / "new.py"
+            source.write_bytes(b"value = 1\n")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            source.rename(destination)
+            rename_event = {
+                "sequence": 1, "operation": "rename", "path": str(source.resolve()),
+                "destination": str(destination.resolve()), "before_hash": digest,
+                "after_hash": digest, "authorization_ref": "appr-rename", "denied": False,
+            }
+            rename_manifest, _ = build_patch_manifest(
+                run_id="run-rename", execution_attempt_id="execution-attempt:" + "d" * 64,
+                workspace=workspace, diff_paths=[str(source)], mutation_events=[rename_event],
+                content_refs={str(source.resolve()): "content:" + digest},
+            )
+            self.assertEqual(rename_manifest["schema"], "SITINA_EXECUTION_PATCH_MANIFEST_V2")
+            self.assertEqual(rename_manifest["entries"][0]["operation"], "rename")
+            self.assertEqual(rename_manifest["entries"][0]["destination"], "new.py")
+            replay_root = Path(parent) / "rename-replay"
+            replay_patch_manifest(
+                rename_manifest, destination=replay_root,
+                load_content=lambda _reference: b"value = 1\n",
+            )
+            self.assertEqual((replay_root / "new.py").read_bytes(), b"value = 1\n")
+
+            deleted = workspace / "delete.py"
+            deleted.write_bytes(b"remove me\n")
+            deleted_digest = hashlib.sha256(deleted.read_bytes()).hexdigest()
+            deleted.unlink()
+            delete_manifest, _ = build_patch_manifest(
+                run_id="run-delete", execution_attempt_id="execution-attempt:" + "e" * 64,
+                workspace=workspace, diff_paths=[str(deleted)], mutation_events=[{
+                    "sequence": 1, "operation": "delete", "path": str(deleted.resolve()),
+                    "before_hash": deleted_digest, "after_hash": None,
+                    "authorization_ref": "appr-delete", "denied": False,
+                }], content_refs={},
+            )
+            self.assertTrue(delete_manifest["entries"][0]["tombstone"])
+            self.assertIsNone(delete_manifest["entries"][0]["after_hash"])
 
     def test_patch_replay_rejects_tampered_destructive_operation(self) -> None:
         with tempfile.TemporaryDirectory() as parent:
@@ -531,7 +739,7 @@ class ExecutionBridgeTests(unittest.TestCase):
             )
             manifest["entries"][0]["operation"] = "delete"
             with self.assertRaisesRegex(
-                ExecutionPatchError, "operation contract is invalid"
+                ExecutionPatchError, "explicit tombstone"
             ):
                 replay_patch_manifest(
                     manifest,

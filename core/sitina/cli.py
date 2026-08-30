@@ -3,9 +3,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import secrets
+import socket
+import shutil
+import subprocess
 import sys
+import time
+import fcntl
+import stat
 from pathlib import Path
 from typing import Any, Mapping
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sitina.config import ConfigValidator, export_json_schemas
 from sitina.conversation import (
@@ -25,8 +35,6 @@ from sitina.extensions.manager import ExtensionInstallError, ExtensionManager, P
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.extensions.tools import ApprovalRequest
 from sitina.guards.risk import RiskScanner
-from sitina.legacy.fence import LegacyWriteGate
-from sitina.legacy.inventory import build_observational_inventory
 from sitina.memory.native import MemoryAccessDenied, MemoryRepository, MemoryStateError
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.arbitration import ArbitrationManager
@@ -36,8 +44,16 @@ from sitina.orchestrator.cli_evidence import CliEvidenceRecorder
 from sitina.orchestrator.blackboard import Blackboard
 from sitina.orchestrator.checkpoint import CheckpointManager
 from sitina.orchestrator.context import ContextBuilder
-from sitina.orchestrator.bplus_production import ProductionRuntimeContext
-from sitina.orchestrator.clean_acceptance import CleanAcceptanceContext
+from sitina.orchestrator.code_mode_gate import CodeModeAcceptanceV1, build_candidate_manifest
+from sitina.orchestrator.code_mode_runtime import (
+    CodeModeScriptedProvider,
+    CodeModeRuntimeContext,
+)
+from sitina.orchestrator.code_mode_authority_broker import _connect_attested_host
+from sitina.orchestrator.code_mode_reviewer import (
+    CodeModeReviewerProducerSession,
+    CodeModeReviewerSession,
+)
 from sitina.orchestrator.evidence_bundle import EvidenceBundleManager
 from sitina.orchestrator.git_ops import GitWorktreeManager
 from sitina.orchestrator.handoff import HandoffManager
@@ -63,6 +79,7 @@ from sitina.runners.mcp_adapter import McpAdapter
 from sitina.runners.profiles import ProfileLoader
 from sitina.security.profile_exception import evaluate_deepseek_direct_storage_exception
 from sitina.runners.provider import AnthropicCompatibleClient, ScriptedMockToolClient
+from sitina.security.key_provider import InMemoryKeyProvider
 from sitina.storage import LegacyRuntimePolicy, SitinaStore
 from sitina.utils import ensure_dir, iso_now, load_json_yaml, write_json
 
@@ -82,8 +99,12 @@ def _bplus_installed() -> bool:
     return production_genesis or (SITINA_HOME / "state/clean-acceptance/genesis.json").is_file()
 
 
-def _bplus_context() -> ProductionRuntimeContext:
+def _bplus_context() -> Any:
+    from sitina.orchestrator.bplus_production import ProductionRuntimeContext
+
     if not _is_production_home() and (SITINA_HOME / "state/clean-acceptance/genesis.json").is_file():
+        from sitina.orchestrator.clean_acceptance import CleanAcceptanceContext
+
         return CleanAcceptanceContext.load(SITINA_HOME)  # type: ignore[return-value]
     return ProductionRuntimeContext.load(
         SITINA_HOME,
@@ -91,6 +112,145 @@ def _bplus_context() -> ProductionRuntimeContext:
     )
 
 
+def _fence_orphaned_code_mode_sessions(runtime_parent: Path, current_session: str) -> None:
+    """Fence stale controller-owned worker groups without reopening old state."""
+    sessions_root = runtime_parent / "sessions"
+    if not sessions_root.is_dir():
+        return
+    for namespace in sorted(sessions_root.iterdir(), key=lambda item: item.name):
+        if not namespace.is_dir() or namespace.name == current_session:
+            continue
+        lock = None
+        try:
+            lock = (namespace / ".code-mode-session.lock").open("a+")
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, IOError):
+            if lock is not None:
+                lock.close()
+            continue
+        try:
+            records_path = namespace / ".code-mode-managed-processes.json"
+            try:
+                records = json.loads(records_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                records = []
+            if not isinstance(records, list):
+                records = []
+            for record in records:
+                if not isinstance(record, Mapping):
+                    continue
+                try:
+                    pid = int(record.get("pid") or 0)
+                except (TypeError, ValueError):
+                    continue
+                expected = str(record.get("start_identity") or "").removeprefix("sha256:")
+                if pid <= 1 or pid == os.getpid() or not expected:
+                    continue
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(pid), "-o", "lstart="],
+                        check=True, capture_output=True, text=True, timeout=2,
+                    ).stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    observed = ""
+                if hashlib.sha256(observed.encode("utf-8")).hexdigest() != expected:
+                    continue
+                try:
+                    if os.getpgid(pid) != pid:
+                        continue
+                    os.killpg(pid, 15)
+                    deadline = time.monotonic() + 1.0
+                    while time.monotonic() < deadline:
+                        try:
+                            os.kill(pid, 0)
+                        except ProcessLookupError:
+                            break
+                        time.sleep(0.02)
+                    else:
+                        os.killpg(pid, 9)
+                except (OSError, ProcessLookupError):
+                    pass
+            try:
+                records_path.write_text("[]", encoding="utf-8")
+            except OSError:
+                pass
+        finally:
+            if lock is not None:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                finally:
+                    lock.close()
+
+
+def _discover_provider_profile_paths(home: Path) -> dict[str, str]:
+    """Return only launcher-approved, non-secret profile file references.
+
+    The CLI deliberately does not parse these files.  Their contents, including
+    direct credentials and keychain references, are authority-host material.
+    The launcher only forwards a regular mode-0600 file that is not a symlink or
+    template; the host performs the actual profile/keychain load in its own
+    process.
+    """
+
+    profile_dir = Path(home) / "profiles"
+    try:
+        directory_info = profile_dir.lstat()
+    except OSError:
+        return {}
+    if not stat.S_ISDIR(directory_info.st_mode) or profile_dir.is_symlink():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        entries = sorted(profile_dir.iterdir(), key=lambda item: item.name)
+    except OSError:
+        return {}
+    for path in entries:
+        if path.suffix != ".env" or path.name.endswith(".template") or not path.stem:
+            continue
+        try:
+            info = path.lstat()
+        except OSError:
+            continue
+        if path.is_symlink() or not stat.S_ISREG(info.st_mode):
+            continue
+        if stat.S_IMODE(info.st_mode) != 0o600:
+            continue
+        result[path.stem] = str(path)
+    return result
+
+
+def _provider_policy_for_profile(source_root: Path, selected: str | None) -> dict[str, Any] | None:
+    """Build a non-secret policy selection for a configured profile.
+
+    A profile selection is meaningful only when the signed source policy lists
+    its model allowlist.  This keeps the host authoritative for secrets while
+    preventing a caller from selecting an arbitrary endpoint/model pair.
+    """
+
+    requested = str(selected or "").strip()
+    if not requested:
+        return None
+    policy_path = Path(source_root) / "config" / "true_multi_agent_policy.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("provider profile policy is unavailable") from error
+    if not isinstance(policy, dict):
+        raise RuntimeError("provider profile policy is invalid")
+    configured = policy.get("provider_profile")
+    if requested == configured:
+        return None
+    profile_table = policy.get("provider_profiles")
+    entry = profile_table.get(requested) if isinstance(profile_table, Mapping) else None
+    if not isinstance(entry, Mapping):
+        raise RuntimeError("provider profile is not authorized by the Code Mode policy")
+    models = entry.get("provider_model_allowlist", entry.get("allowed_models"))
+    if not isinstance(models, list) or not models or any(type(item) is not str or not item for item in models):
+        raise RuntimeError("provider profile has no exact model allowlist")
+    selected_policy = dict(policy)
+    selected_policy["provider_profile"] = requested
+    selected_policy["provider_model_allowlist"] = list(models)
+    return selected_policy
 def authority_writer_label(resolution: object, *, now: int, phase_flag: str | None = None) -> str:
     """Return the already-resolved writer; a CLI/phase flag is never authority."""
     del phase_flag
@@ -235,7 +395,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if out["status"] == "ok" else 2
 
 
-def _stable_projection_overlay(context: ProductionRuntimeContext):
+def _stable_projection_overlay(context: Any):
     from sitina.projections.generations import ProjectionGenerationError, ProjectionGenerationReader
     from sitina.projections.production import PRODUCTION_SCHEMA_COVERAGE, production_handlers
 
@@ -496,6 +656,8 @@ def cmd_runtime_diagnostics(args: argparse.Namespace) -> int:
 
 
 def cmd_legacy(args: argparse.Namespace) -> int:
+    from sitina.legacy.fence import LegacyWriteGate
+
     gate = LegacyWriteGate(SITINA_HOME)
     policy = LegacyRuntimePolicy.load(SITINA_HOME)
     if args.legacy_cmd == "status":
@@ -518,6 +680,8 @@ def cmd_legacy(args: argparse.Namespace) -> int:
         )
         return 0
     if args.legacy_cmd == "inventory":
+        from sitina.legacy.inventory import build_observational_inventory
+
         manifest = build_observational_inventory(SITINA_HOME, Path(args.output))
         print_json({"status": "ok", "coherence": manifest.coherence, "semantic_manifest_hash": manifest.semantic_manifest_hash, "output": str(Path(args.output).resolve())})
         return 0
@@ -717,15 +881,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 def _chat_failure_text(error_type: str | None, error_text: str = "") -> str:
     normalized = f"{error_type or ''} {error_text}".casefold()
     if any(marker in normalized for marker in ("authentication", "unauthorized", "forbidden", "401", "403")):
-        return "DeepSeek 认证失败。请检查 profiles/deepseek.env。"
+        return "Provider 认证失败。请检查当前配置 profile 的凭据。"
     if "keychain" in normalized or "credential handle" in normalized:
         return "无法访问 Production Keychain。请解锁 macOS 登录 Keychain 后输入 /retry。"
     if any(marker in normalized for marker in ("rate limit", "quota", "429", "额度", "限流")):
-        return "DeepSeek 当前限流或额度不足。本轮未自动切换 Provider。\n稍后输入 /retry，或检查 Provider 配额。"
+        return "当前 Provider 限流或额度不足。本轮未自动切换 Provider。\n稍后输入 /retry，或检查 Provider 配额。"
     if any(marker in normalized for marker in ("network", "timeout", "connection", "dns", "http")):
-        return "DeepSeek 网络请求失败。本轮未自动重发。\n请检查网络后输入 /retry。"
+        return "Provider 网络请求失败。本轮未自动重发。\n请检查网络后输入 /retry。"
     if any(marker in normalized for marker in ("schema", "contract", "json", "output pipeline")):
-        return "DeepSeek 返回格式未通过安全校验，本轮已失败关闭。"
+        return "Provider 返回格式未通过安全校验，本轮已失败关闭。"
     return "本轮未形成可交付回答，已失败关闭。"
 
 
@@ -779,15 +943,336 @@ def _interactive_tool_approval(request: ApprovalRequest) -> bool:
         print("请输入 y 或 n。")
 
 
-def cmd_chat(_args: argparse.Namespace) -> int:
-    if not _bplus_installed() or not _is_production_home():
-        print("Sitina interactive chat requires the Journal-native Production home.", file=sys.stderr)
-        return 3
+def _build_code_mode_runtime(
+    selected_workspace: Path,
+    *,
+    state_root: str | Path | None = None,
+    provider: Any | None = None,
+    session_instance_id: str | None = None,
+    provider_profile_name: str | None = None,
+) -> tuple[Path, Any, TrueMultiAgentProductionRuntime]:
+    """Construct the independent Code Mode runtime used by the public chat.
 
-    runtime = ConversationRuntime(SITINA_HOME, approval_callback=_interactive_tool_approval)
-    recovered = runtime.resume_or_create_session()
+    This is intentionally a small runtime bootstrap, not an acceptance gate:
+    it creates only local Code Mode Journal/CAS state and copies non-secret
+    project configuration.  It never reads Legacy B+ genesis/foundation or
+    asks the old ProductionRuntimeContext to authorize the session.
+    """
+
+    session_instance_id = str(
+        session_instance_id or ("session-instance-" + secrets.token_hex(16))
+    )
+    runtime_parent = Path(state_root).expanduser().resolve(strict=False) if state_root else (
+        SITINA_HOME / "state" / "code-mode"
+    ).resolve(strict=False)
+    # A CLI process never reuses a prior Code Mode authority namespace.  The
+    # parent remains available for audit, while Journal/CAS for this run live
+    # below a fresh instance directory and are never used to restore authority.
+    runtime_home = runtime_parent / "sessions" / session_instance_id
+    if runtime_home.is_symlink():
+        raise RuntimeError("Code Mode state root may not be a symlink")
+    # Keep a non-authoritative discovery marker at the caller-selected parent
+    # for existing CLI diagnostics. All journal/CAS/session state remains in
+    # the fresh per-instance child and the marker never grants authority.
+    runtime_parent.mkdir(parents=True, exist_ok=True)
+    _fence_orphaned_code_mode_sessions(runtime_parent, session_instance_id)
+    (runtime_parent / ".sitina-code-mode-v1").touch(exist_ok=True)
+    runtime_home.mkdir(parents=True, exist_ok=True)
+    config_root = runtime_home / "config"
+    config_root.mkdir(parents=True, exist_ok=True)
+    source_config = Path(__file__).resolve().parents[2] / "config"
+    source_root = Path(__file__).resolve().parents[2]
+    if not source_config.is_dir():
+        raise RuntimeError("Code Mode source configuration is unavailable")
+    selected_policy = _provider_policy_for_profile(source_root, provider_profile_name)
+    selected_profile = str(provider_profile_name or "").strip()
+    discovered_profile_paths = (
+        _discover_provider_profile_paths(SITINA_HOME) if provider is None else {}
+    )
+    if selected_profile and provider is None and selected_profile not in discovered_profile_paths:
+        raise RuntimeError("selected provider profile is not an installed 0600 profile")
+    for source in source_config.iterdir():
+        destination = config_root / source.name
+        if destination.exists() or source.is_symlink() or not source.is_file():
+            continue
+        shutil.copy2(source, destination)
+    if selected_policy is not None:
+        (config_root / "true_multi_agent_policy.json").write_text(
+            json.dumps(selected_policy, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    runtime_keys = InMemoryKeyProvider(environment="code-mode", namespace="cli-runtime")
+    # The attested authority host is a read-only verifier of this exact
+    # runtime. Give it only ephemeral symmetric verification material; the
+    # controller's authority signing key remains separate and is never part
+    # of this bundle.
+    verification_material = runtime_keys.export_read_only_verification_material()
+    # Compute the runtime identity from the source checkout once, before the
+    # host is started.  The host receives this as a launcher-owned bootstrap
+    # fact; a later RPC cannot replace it with caller-selected identity.
+    preview_context = CodeModeRuntimeContext.open(
+        runtime_home,
+        provider=runtime_keys,
+        source_root=source_root,
+        session_instance_id=session_instance_id,
+    )
+    preview_root_stat = os.stat(runtime_home, follow_symlinks=False)
+    workspace_stat = os.stat(selected_workspace, follow_symlinks=False)
+    # The signing key and one-use authority state live in the separately
+    # exec'd host entrypoint.  The imported package contains only a verifier
+    # client; no bool/private method can start an issuer.
+    control_parent, control_child = socket.socketpair()
+    bootstrap_read, bootstrap_write = os.pipe()
+    host_entrypoint = source_root / "scripts" / "code_mode_authority_host.py"
+    if not host_entrypoint.is_file() or host_entrypoint.is_symlink():
+        raise RuntimeError("Code Mode authority host entrypoint is unavailable")
+    # The reviewer is attested before the authority host is bootstrapped so
+    # its verification identity is a fixed launcher input, never a later RPC
+    # claim.  The authority host receives only verification material.
+    reviewer = _launch_code_mode_reviewer(source_root)
+    process = subprocess.Popen(
+        [sys.executable, str(host_entrypoint), "--control-fd", str(control_child.fileno()), "--bootstrap-fd", str(bootstrap_read)],
+        pass_fds=(control_child.fileno(), bootstrap_read), close_fds=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    control_child.close()
+    os.close(bootstrap_read)
+    profile = getattr(provider, "profile", None)
+    profile_paths = discovered_profile_paths
+    challenge_secret = secrets.token_bytes(32)
+    # The controller creates the ephemeral authority key and injects it once
+    # through the bootstrap pipe.  It is never persisted or exposed to the
+    # worker/client; the host uses it only for typed authority envelopes.
+    authority_private_key = secrets.token_bytes(32)
+    controller_capability_private_key = Ed25519PrivateKey.generate()
+    controller_capability_public_key = controller_capability_private_key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw,
+    )
+    bootstrap_payload = {
+        "nonce": secrets.token_hex(32),
+        "challenge_secret": challenge_secret.hex(),
+        "authority_private_key_hex": authority_private_key.hex(),
+        "controller_capability_public_key": controller_capability_public_key.hex(),
+        "state_root": str(runtime_home),
+        "state_root_identity": f"{preview_root_stat.st_dev}:{preview_root_stat.st_ino}",
+        "runtime_state_identity": preview_context.identity.state_identity,
+        "runtime_journal_id": preview_context.identity.journal_id,
+        # This is a process-local session identity, never recovered from the
+        # state directory.  The host must echo the exact launcher value in its
+        # binding; a host-created or caller-supplied identity is not accepted.
+        "session_instance_id": session_instance_id,
+        "workspace": str(selected_workspace),
+        "workspace_identity": f"{workspace_stat.st_dev}:{workspace_stat.st_ino}",
+        "source_root": str(source_root),
+        "source_root_identity": f"{os.stat(source_root, follow_symlinks=False).st_dev}:{os.stat(source_root, follow_symlinks=False).st_ino}",
+        "source_manifest_hash": preview_context.identity.source_manifest_hash,
+        "verification_material": verification_material,
+        "profiles": ({str(profile.name): {
+            "name": str(profile.name), "base_url": str(profile.base_url),
+            "model": str(profile.model),
+            "wire_protocol": str(getattr(profile, "wire_protocol", "") or ""),
+            "adapter_capabilities": list(getattr(profile, "adapter_capabilities", ()) or ()),
+            "allowed_endpoint_hosts": list(getattr(profile, "allowed_endpoint_hosts", ()) or ()),
+        }} if profile is not None else {}),
+        "profile_paths": profile_paths,
+        "reviewer_verification": dict(reviewer.tty_verification_material),
+    }
+    bootstrap = json.dumps(bootstrap_payload, separators=(",", ":")).encode("utf-8")
+    try:
+        os.write(bootstrap_write, bootstrap)
+    finally:
+        os.close(bootstrap_write)
+        del bootstrap, bootstrap_payload, authority_private_key
+    broker = _connect_attested_host(
+        control_parent, process, expected_entrypoint=host_entrypoint, challenge=challenge_secret,
+        controller_capability_private_key=controller_capability_private_key,
+    )
+    del challenge_secret
+    del controller_capability_private_key, controller_capability_public_key
+    runtime_context_factory = broker.context_factory(
+        provider=runtime_keys,
+        source_root=source_root,
+        session_instance_id=session_instance_id,
+    )
+
+    reviewer_holder = {"session": reviewer}
+
+    def open_code_mode_reviewer() -> CodeModeReviewerSession:
+        current = reviewer_holder.get("session")
+        if current is not None and current.is_attested_reviewer():
+            return current
+        current = _launch_code_mode_reviewer(source_root)
+        reviewer_holder["session"] = current
+        setattr(runtime_context_factory, "reviewer_session", current)
+        return current
+
+    def close_code_mode_reviewer() -> None:
+        current = reviewer_holder.pop("session", None)
+        if current is not None:
+            current.close()
+        setattr(runtime_context_factory, "reviewer_session", None)
+
+    def close_code_mode_hosts() -> None:
+        try:
+            close_code_mode_reviewer()
+        finally:
+            broker.close()
+
+    # The factory remains the authority-host context factory, but its close
+    # lifecycle owns the independent reviewer as well.  No reviewer process
+    # or TTY descriptor is passed to the worker.
+    setattr(runtime_context_factory, "reviewer_session", reviewer)
+    setattr(runtime_context_factory, "open_reviewer", open_code_mode_reviewer)
+    setattr(runtime_context_factory, "close_reviewer", close_code_mode_reviewer)
+    setattr(runtime_context_factory, "close", close_code_mode_hosts)
+    try:
+        multi_runtime = TrueMultiAgentProductionRuntime(
+            runtime_home,
+            source_root=source_root,
+            runtime_context_factory=runtime_context_factory,
+            provider_client=provider,
+            provider_profile=getattr(provider, "profile", None),
+        )
+        if selected_policy is not None:
+            # The launcher-selected policy is non-secret configuration.  Keep
+            # its exact hash in the runtime object so activation signs the
+            # selected profile, while the host still resolves credentials from
+            # the forwarded profile path.
+            multi_runtime.policy = selected_policy
+            multi_runtime.policy_hash = hashlib.sha256(
+                json.dumps(selected_policy, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+    except BaseException:
+        close_code_mode_hosts()
+        raise
+    setattr(multi_runtime, "code_mode_reviewer_session", reviewer)
+    return runtime_home, runtime_context_factory, multi_runtime
+
+
+def _launch_code_mode_reviewer(source_root: Path) -> CodeModeReviewerSession:
+    """Launch and attest the production Code Mode reviewer pair.
+
+    This is intentionally kept in the CLI host, not in the test fixtures.
+    The producer owns its signing key and the reviewer host owns the TTY
+    confirmation MAC key; the parent receives only attested client sessions.
+    """
+    def launch(entrypoint: Path, payload: Mapping[str, Any]) -> tuple[socket.socket, subprocess.Popen[bytes], bytes]:
+        parent, child = socket.socketpair()
+        bootstrap_read, bootstrap_write = os.pipe()
+        challenge = secrets.token_bytes(32)
+        bootstrap = dict(payload)
+        bootstrap["challenge_secret"] = challenge.hex()
+        process = subprocess.Popen(
+            [sys.executable, str(entrypoint), "--control-fd", str(child.fileno()), "--bootstrap-fd", str(bootstrap_read)],
+            pass_fds=(child.fileno(), bootstrap_read), close_fds=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        child.close()
+        os.close(bootstrap_read)
+        try:
+            os.write(bootstrap_write, json.dumps(bootstrap, separators=(",", ":")).encode("utf-8"))
+        finally:
+            os.close(bootstrap_write)
+        return parent, process, challenge
+
+    producer_entrypoint = source_root / "scripts" / "code_mode_reviewer_producer.py"
+    reviewer_entrypoint = source_root / "scripts" / "code_mode_reviewer_host.py"
+    if any(not path.is_file() or path.is_symlink() for path in (producer_entrypoint, reviewer_entrypoint)):
+        raise RuntimeError("Code Mode reviewer entrypoint is unavailable")
+    producer_channel = producer_process = producer = None
+    reviewer_channel = reviewer_process = None
+    try:
+        producer_channel, producer_process, producer_challenge = launch(producer_entrypoint, {})
+        producer = CodeModeReviewerProducerSession.connect_host(
+            producer_channel, producer_process,
+            expected_entrypoint=producer_entrypoint, challenge=producer_challenge,
+        )
+        reviewer_channel, reviewer_process, reviewer_challenge = launch(
+            reviewer_entrypoint,
+            {"producer_id": producer.identity["producer_id"], "producer_public_key": producer.identity["public_key"]},
+        )
+        return CodeModeReviewerSession.connect_host(
+            reviewer_channel, reviewer_process,
+            expected_entrypoint=reviewer_entrypoint, challenge=reviewer_challenge,
+            producer_session=producer,
+        )
+    except Exception:
+        for channel in (reviewer_channel, producer_channel):
+            try:
+                if channel is not None:
+                    channel.close()
+            except OSError:
+                pass
+        for process in (reviewer_process, producer_process):
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)
+        raise
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    selected_workspace = (
+        Path(args.workspace).expanduser().resolve(strict=True)
+        if getattr(args, "workspace", None)
+        else SITINA_HOME
+    )
+    runtime_home = SITINA_HOME
+    runtime_context_factory = getattr(args, "runtime_context_factory", None)
+    multi_runtime = getattr(args, "multi_runtime", None)
+    autonomous_runtime = getattr(args, "autonomous_runtime", None)
+    close_broker = None
+    session_instance_id = "session-instance-" + secrets.token_hex(16)
+    # The public CLI always constructs Code Mode dependencies unless a caller
+    # explicitly supplies an already-constructed runtime (used by embedding
+    # applications and tests).  There is no implicit Production/B+ fallback.
+    if runtime_context_factory is None and multi_runtime is None:
+        state_value = getattr(args, "code_mode_state", None)
+        if getattr(args, "offline_scripted", False) and (not state_value or not getattr(args, "workspace", None)):
+            print_json({
+                "status": "blocked",
+                "code_mode_status": "CODE_MODE_BLOCKED",
+                "reason": "--offline-scripted requires explicit --code-mode-state and --workspace",
+                "physical_requests": 0,
+            })
+            return 3
+        provider = CodeModeScriptedProvider(selected_workspace) if getattr(args, "offline_scripted", False) else None
+        runtime_home, runtime_context_factory, multi_runtime = _build_code_mode_runtime(
+            selected_workspace,
+            state_root=state_value,
+            provider=provider,
+            session_instance_id=session_instance_id,
+            provider_profile_name=getattr(args, "profile", None),
+        )
+        autonomous_runtime = None
+        close_broker = getattr(runtime_context_factory, "close", None)
+
+    def finish(exit_code: int) -> int:
+        if callable(close_broker):
+            close_broker()
+        return exit_code
+    try:
+        runtime = ConversationRuntime(
+            runtime_home,
+            approval_callback=_interactive_tool_approval,
+            autonomous_runtime=autonomous_runtime,
+            multi_runtime=multi_runtime,
+            workspace=selected_workspace,
+            live_opt_in=bool(getattr(args, "live", False)),
+            access_mode=getattr(args, "access_mode", "workspace"),
+            runtime_context_factory=runtime_context_factory,
+            # Ordinary Code Mode review is not a Provider canary.  A canary
+            # authorization is issued only by the later accepted Gate path.
+            canary_authorization=None,
+            session_instance_id=session_instance_id,
+        )
+        recovered = runtime.resume_or_create_session()
+    except BaseException as error:
+        finish(3)
+        print(_chat_failure_text(type(error).__name__, str(error)), file=sys.stderr)
+        return 3
     session = recovered if isinstance(recovered, ChatSession) else ChatSession()
-    print("Sitina 交互对话（DeepSeek）")
+    print("Sitina 交互对话（configured Provider）")
+    print("Code Mode：/multi 可写；/fast 只读；Legacy B+：独立状态，不作为 Code Mode 前置条件。")
     print(f"当前模式：{session.mode.value}")
     if session.turn_index or session.history:
         print(f"已恢复会话：{session.session_id}（{len(session.history)} 个成功上下文轮次）")
@@ -799,7 +1284,7 @@ def cmd_chat(_args: argparse.Namespace) -> int:
             message = input(f"你 [{session.mode.prompt_label}] > ").strip()
         except EOFError:
             print()
-            return 0
+            return finish(0)
         except KeyboardInterrupt:
             print("\n已取消当前输入；输入 /exit 退出。")
             continue
@@ -809,7 +1294,7 @@ def cmd_chat(_args: argparse.Namespace) -> int:
         command = message.casefold()
         if command in {"/exit", "/quit", "exit", "quit"}:
             print("再见。")
-            return 0
+            return finish(0)
         if command == "/help":
             _print_chat_help()
             continue
@@ -868,16 +1353,35 @@ def cmd_chat(_args: argparse.Namespace) -> int:
                 message,
                 status_callback=_print_chat_route,
             )
+            # Keep the handoff on the real ConversationRuntime implementation.
+            # Embedding callers may provide a deliberately minimal compatible
+            # runtime object; its absence of this method is not a permission
+            # grant and must not be replaced by a mocked review result.
+            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
+                result = runtime.maybe_confirm_tty_review(result)
+                # The TTY authority is run-scoped.  A later run gets a fresh
+                # attested reviewer through open_reviewer; it never reuses a
+                # consumed nonce or a closed reviewer process.
+                runtime.close_code_mode_reviewer()
         except KeyboardInterrupt:
             session.record_failure(message, run_id=session.active_run_id)
+            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
+                runtime.close_code_mode_reviewer()
             print("\n本轮已取消，未自动重发；可输入 /retry 重试。")
             continue
         except Exception as error:  # noqa: BLE001
             session.record_failure(message, run_id=session.active_run_id)
+            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
+                runtime.close_code_mode_reviewer()
             print(_chat_failure_text(type(error).__name__, str(error)), file=sys.stderr)
             print("本轮未加入对话上下文，可输入 /retry 重试。", file=sys.stderr)
             continue
 
+        if result.get("code_mode_status") == "CODE_MODE_REVIEW_PENDING":
+            run_id = str(result.get("run_id") or "unknown")
+            reason = str(result.get("review_reason_type") or "REVIEW_PENDING")
+            print(f"本轮等待独立审阅（{reason}；run_id: {run_id}），未加入对话上下文。", file=sys.stderr)
+            continue
         response = str(result.get("response") or "").strip()
         if result.get("terminal_state") != "SUCCEEDED" or not response:
             run_id = str(result.get("run_id") or "unknown")
@@ -894,6 +1398,32 @@ def cmd_chat(_args: argparse.Namespace) -> int:
 
 def cmd_ask(args: argparse.Namespace) -> int:
     return cmd_run(args)
+
+
+def cmd_code_mode(args: argparse.Namespace) -> int:
+    """Read-only Code Mode status; it never consults Legacy B+ activation."""
+
+    workspace = Path(args.workspace).expanduser() if getattr(args, "workspace", None) else SITINA_HOME
+    try:
+        candidate = build_candidate_manifest(workspace)
+        result = CodeModeAcceptanceV1(workspace).status_summary(candidate=candidate)
+        result.update({"status": "ok", "read_only": True, "physical_requests": 0})
+        print_json(result)
+        return 0
+    except (OSError, ValueError, RuntimeError) as error:
+        print_json(
+            {
+                "status": "blocked",
+                "read_only": True,
+                "code_mode_status": "CODE_MODE_BLOCKED",
+                "legacy_bplus_status": "LEGACY_BPLUS_BLOCKED",
+                "legacy_foundation_consulted": False,
+                "physical_requests": 0,
+                "reason_type": type(error).__name__,
+                "reason": str(error),
+            }
+        )
+        return 3
 
 
 def _retired_legacy_command(command: str, *, replacement: str | None = None) -> int:
@@ -1871,6 +2401,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("chat", help="enter Journal-native interactive conversation mode")
+    p.add_argument("--workspace", help="workspace that MULTI may modify")
+    p.add_argument("--code-mode-state", help="independent Code Mode state root (required for offline scripted runs)")
+    p.add_argument("--offline-scripted", action="store_true", help="use the explicit zero-network Code Mode scripted provider")
+    p.add_argument("--access-mode", choices=["workspace", "full"], default="workspace")
+    p.add_argument("--profile", help="configured provider profile for this chat session")
+    p.add_argument("--live", action="store_true", help="explicitly opt this chat session into the configured Provider live canary")
     p.set_defaults(func=cmd_chat)
 
     p = sub.add_parser("agent", help="run the Sitina autonomous multi-turn tool loop")
@@ -1946,6 +2482,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile-override", action="append", default=[])
     p.add_argument("goal", nargs="+")
     p.set_defaults(func=cmd_ask)
+
+    p = sub.add_parser("code-mode", help="show read-only Code Mode candidate status")
+    p.add_argument("code_mode_cmd", choices=["status"], nargs="?", default="status")
+    p.add_argument("--workspace", default=str(SITINA_HOME))
+    p.set_defaults(func=cmd_code_mode)
 
     p = sub.add_parser("resume")
     p.add_argument("run_id")
@@ -2290,6 +2831,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _install_legacy_fence_for_explicit_command(home: Path) -> None:
+    """Load the process-global Legacy fence only at an old-command boundary."""
+
+    from sitina.legacy.fence import install_legacy_mutation_guard
+
+    install_legacy_mutation_guard(home)
+
+
 def main(argv: list[str] | None = None) -> int:
     global _LAST_PRINTED_JSON
     _LAST_PRINTED_JSON = None
@@ -2301,6 +2850,7 @@ def main(argv: list[str] | None = None) -> int:
     # builds the Journal/CAS-native AutonomousRuntime and touches none of them.
     # It is now the explicit production coder entry (M1.6, journal-audit-only).
     legacy_only_handlers = {
+        cmd_legacy,
         cmd_goal,
         cmd_backlog,
         cmd_plan,
@@ -2322,6 +2872,8 @@ def main(argv: list[str] | None = None) -> int:
         and args.goal[0] == "graph"
     )
     legacy_mcp_invoke = args.func is cmd_mcp and getattr(args, "mcp_cmd", None) == "invoke"
+    if args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke:
+        _install_legacy_fence_for_explicit_command(SITINA_HOME)
     if policy.protected_environment and policy.fully_disabled and (
         args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke
     ):

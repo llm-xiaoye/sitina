@@ -56,7 +56,14 @@ def redact_text(text: str) -> str:
             r"(?i)(api[_ -]?key|apikey|auth[_ -]?token|token|secret|password)\s*[:=]\s*[\"']?[^\"'\s]+",
             r"\1=<redacted>",
         ),
-        (r"(?i)sk-[A-Za-z0-9_-]{8,}", "<redacted-key>"),
+        # Require a lexical boundary before provider keys.  Without the
+        # boundary, the ``sk-`` suffix in generated identifiers such as
+        # ``handoff-task-tma-run-...`` is mistaken for a secret and causes a
+        # valid handoff CAS publication to fail closed.  The boundary still
+        # catches keys at the start of text or after punctuation/whitespace,
+        # while excluding identifier characters (letters, digits, underscore,
+        # and hyphen).
+        (r"(?i)(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{8,}", "<redacted-key>"),
         (r"(?i)(bearer\s+)[A-Za-z0-9._\-]+", r"\1<redacted>"),
         (
             r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",

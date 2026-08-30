@@ -26,6 +26,92 @@ from sitina.storage import SitinaStore
 from sitina.utils import iso_now, load_json_yaml, redact_text, sha256_text, stable_json, utc_now
 
 
+OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
+ANTHROPIC_MESSAGES = "anthropic_messages"
+SUPPORTED_WIRE_PROTOCOLS = frozenset({OPENAI_CHAT_COMPLETIONS, ANTHROPIC_MESSAGES})
+
+
+def infer_wire_protocol(
+    profile_name: str,
+    base_url: str,
+    explicit: str | None = None,
+) -> str:
+    """Resolve the provider wire adapter without making it core semantics.
+
+    A profile may state the protocol explicitly.  The three well-known
+    provider families are safe to infer for existing installations; an
+    unknown HTTPS endpoint must declare its adapter so a new provider cannot
+    accidentally inherit the wrong request/response contract.
+    """
+
+    value = str(explicit or "").strip().lower()
+    if value:
+        if value not in SUPPORTED_WIRE_PROTOCOLS:
+            raise ProviderError(f"unsupported provider wire protocol: {value}")
+        return value
+    host = (urlparse(str(base_url)).hostname or "").casefold()
+    name = str(profile_name or "").casefold()
+    if "anthropic" in host or "anthropic" in name:
+        return ANTHROPIC_MESSAGES
+    if "deepseek" in host or "deepseek" in name or "openai" in host or "openai" in name:
+        return OPENAI_CHAT_COMPLETIONS
+    raise ProviderError("unknown provider endpoint requires an explicit wire protocol")
+
+
+def provider_adapter_capabilities(
+    profile_name: str,
+    base_url: str,
+    capabilities: Sequence[str] = (),
+) -> frozenset[str]:
+    """Return adapter-only capabilities; never promote them to Agent facts."""
+
+    result = {str(value).strip() for value in capabilities if isinstance(value, str) and value.strip()}
+    host = (urlparse(str(base_url)).hostname or "").casefold()
+    if "deepseek" in host or str(profile_name or "").casefold() == "deepseek":
+        result.add("deepseek_thinking_disabled")
+    return frozenset(result)
+
+
+def provider_endpoint_allowed(
+    base_url: str,
+    *,
+    profile_name: str = "",
+    wire_protocol: str | None = None,
+    allowed_hosts: Sequence[str] = (),
+) -> bool:
+    """Enforce profile-bound HTTPS endpoint admission.
+
+    Loopback is deliberately available only behind both existing test hooks.
+    Production HTTPS admission is driven by the launcher-selected profile's
+    host allowlist; when no explicit list exists, the fixed profile URL is its
+    own host binding.  Unknown hosts still need an explicit wire protocol.
+    """
+
+    parsed = urlparse(str(base_url).rstrip("/"))
+    hostname = (parsed.hostname or "").casefold()
+    if (
+        os.environ.get("SITINA_CODE_MODE_TEST_HOOKS") == "1"
+        and os.environ.get("SITINA_CODE_MODE_LOCAL_PROVIDER_TEST") == "1"
+        and parsed.scheme == "http"
+        and hostname in {"127.0.0.1", "localhost", "::1"}
+        and isinstance(parsed.port, int)
+        and 1 <= parsed.port <= 65535
+    ):
+        return True
+    if parsed.scheme != "https" or not hostname:
+        return False
+    try:
+        infer_wire_protocol(profile_name, base_url, wire_protocol)
+    except ProviderError:
+        return False
+    configured = {
+        str(value).strip().casefold()
+        for value in allowed_hosts
+        if isinstance(value, str) and value.strip()
+    }
+    return hostname in configured if configured else True
+
+
 class ProviderError(RuntimeError):
     error_type = "provider_error"
 
@@ -71,6 +157,222 @@ class ProviderMalformedResponse(ProviderError):
     error_type = "provider_parse_failed"
 
 
+def provider_tools_for_wire(tools: object, wire_protocol: str) -> list[dict[str, Any]]:
+    """Validate and adapt Sitina-neutral tools for one provider wire.
+
+    The neutral form is the only normal input from the execution layer.  The
+    already-published OpenAI function form remains accepted solely for the
+    fixed structured-response tool path.  No aliases, defaults, coercions, or
+    provider-specific names are inferred here.
+    """
+    if wire_protocol not in SUPPORTED_WIRE_PROTOCOLS:
+        raise ProviderError("unsupported provider wire protocol")
+    if not isinstance(tools, (list, tuple)):
+        raise ProviderError("provider tools must be a list")
+    normalized: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, Mapping):
+            raise ProviderError("provider tool must be an object")
+        if set(tool) == {"name", "description", "input_schema"}:
+            name = tool.get("name")
+            description = tool.get("description")
+            input_schema = tool.get("input_schema")
+            strict: bool | None = None
+        elif set(tool) == {"type", "function"} and tool.get("type") == "function":
+            function = tool.get("function")
+            if not isinstance(function, Mapping) or set(function) not in (
+                {"name", "description", "parameters"},
+                {"name", "description", "parameters", "strict"},
+            ):
+                raise ProviderError("provider function tool is malformed")
+            name = function.get("name")
+            description = function.get("description")
+            input_schema = function.get("parameters")
+            strict = function.get("strict") if "strict" in function else None
+            if strict is not None and type(strict) is not bool:
+                raise ProviderError("provider function strict flag is malformed")
+        else:
+            raise ProviderError("provider tool shape is not exact")
+        if (
+            type(name) is not str or not name
+            or type(description) is not str
+            or not isinstance(input_schema, Mapping)
+        ):
+            raise ProviderError("provider tool fields are malformed")
+        normalized_tool = {
+            "name": name,
+            "description": description,
+            "input_schema": dict(input_schema),
+        }
+        if strict is not None:
+            normalized_tool["strict"] = strict
+        normalized.append(normalized_tool)
+    if wire_protocol == OPENAI_CHAT_COMPLETIONS:
+        result = []
+        for tool in normalized:
+            function = {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["input_schema"],
+            }
+            if "strict" in tool:
+                function["strict"] = tool["strict"]
+            result.append({"type": "function", "function": function})
+        return result
+    return [
+        {
+            "name": tool["name"],
+            "description": tool["description"],
+            "input_schema": tool["input_schema"],
+        }
+        for tool in normalized
+    ]
+
+
+def provider_messages_for_wire(messages: object, wire_protocol: str) -> list[dict[str, Any]]:
+    """Validate and adapt neutral multi-turn messages for one provider wire.
+
+    The execution layer uses only ``user``, ``assistant`` and ``tool``
+    records.  Provider-specific function/tool-use envelopes are constructed
+    here so the Host and direct provider client cannot drift.  The conversion
+    is deliberately strict: it validates the neutral record before dropping
+    fields that a target protocol does not carry.
+    """
+    if wire_protocol not in SUPPORTED_WIRE_PROTOCOLS:
+        raise ProviderError("unsupported provider wire protocol")
+    if not isinstance(messages, (list, tuple)):
+        raise ProviderError("provider messages must be a list")
+
+    normalized: list[dict[str, Any]] = []
+    for raw in messages:
+        if not isinstance(raw, Mapping) or type(raw.get("role")) is not str:
+            raise ProviderError("provider message is malformed")
+        role = raw["role"]
+        if role == "user":
+            if set(raw) != {"role", "content"} or type(raw["content"]) is not str:
+                raise ProviderError("provider user message is malformed")
+            normalized.append({"role": "user", "content": raw["content"]})
+            continue
+        if role == "assistant":
+            if set(raw) - {"role", "content", "tool_calls"} or "content" not in raw:
+                raise ProviderError("provider assistant message is malformed")
+            if type(raw["content"]) is not str:
+                raise ProviderError("provider assistant content is malformed")
+            calls = raw.get("tool_calls", [])
+            if type(calls) is not list:
+                raise ProviderError("provider assistant tool calls are malformed")
+            normalized_calls: list[dict[str, Any]] = []
+            for call in calls:
+                if not isinstance(call, Mapping) or set(call) != {"id", "name", "arguments"}:
+                    raise ProviderError("provider assistant tool call is malformed")
+                call_id = call["id"]
+                name = call["name"]
+                arguments = call["arguments"]
+                if (
+                    type(call_id) is not str or not call_id
+                    or type(name) is not str or not name
+                    or not isinstance(arguments, Mapping)
+                ):
+                    raise ProviderError("provider assistant tool call fields are malformed")
+                normalized_calls.append({
+                    "id": call_id,
+                    "name": name,
+                    "arguments": dict(arguments),
+                })
+            normalized.append({
+                "role": "assistant",
+                "content": raw["content"],
+                "tool_calls": normalized_calls,
+            })
+            continue
+        if role == "tool":
+            allowed = {"role", "tool_call_id", "content", "name", "is_error"}
+            if set(raw) - allowed or "tool_call_id" not in raw or "content" not in raw:
+                raise ProviderError("provider tool result is malformed")
+            call_id = raw["tool_call_id"]
+            content = raw["content"]
+            if type(call_id) is not str or not call_id or type(content) is not str:
+                raise ProviderError("provider tool result fields are malformed")
+            name = raw.get("name")
+            if name is not None and (type(name) is not str or not name):
+                raise ProviderError("provider tool result name is malformed")
+            is_error = raw.get("is_error", False)
+            if type(is_error) is not bool:
+                raise ProviderError("provider tool result error flag is malformed")
+            normalized.append({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": content,
+                **({"name": name} if name is not None else {}),
+                "is_error": is_error,
+            })
+            continue
+        raise ProviderError("unsupported provider message role")
+
+    if wire_protocol == OPENAI_CHAT_COMPLETIONS:
+        result: list[dict[str, Any]] = []
+        for message in normalized:
+            if message["role"] == "assistant":
+                result.append({
+                    "role": "assistant",
+                    "content": message["content"],
+                    "tool_calls": [
+                        {
+                            "id": call["id"],
+                            "type": "function",
+                            "function": {
+                                "name": call["name"],
+                                "arguments": stable_json(call["arguments"]),
+                            },
+                        }
+                        for call in message["tool_calls"]
+                    ],
+                })
+            elif message["role"] == "tool":
+                result.append({
+                    "role": "tool",
+                    "tool_call_id": message["tool_call_id"],
+                    "content": message["content"],
+                })
+            else:
+                result.append({"role": "user", "content": message["content"]})
+        return result
+
+    result = []
+    pending_results: list[dict[str, Any]] = []
+
+    def flush_results() -> None:
+        if pending_results:
+            result.append({"role": "user", "content": list(pending_results)})
+            pending_results.clear()
+
+    for message in normalized:
+        if message["role"] == "tool":
+            pending_results.append({
+                "type": "tool_result",
+                "tool_use_id": message["tool_call_id"],
+                "content": message["content"],
+                **({"is_error": True} if message["is_error"] else {}),
+            })
+            continue
+        flush_results()
+        if message["role"] == "user":
+            result.append({"role": "user", "content": message["content"]})
+            continue
+        content_blocks: list[dict[str, Any]] = []
+        if message["content"]:
+            content_blocks.append({"type": "text", "text": message["content"]})
+        content_blocks.extend({
+            "type": "tool_use",
+            "id": call["id"],
+            "name": call["name"],
+            "input": dict(call["arguments"]),
+        } for call in message["tool_calls"])
+        result.append({"role": "assistant", "content": content_blocks})
+    flush_results()
+    return result
+
+
 class _ProviderTotalRequestTimeout(RuntimeError):
     """Internal signal used to interrupt a blocking provider response read."""
 
@@ -81,6 +383,9 @@ class ProviderProfile:
     base_url: str
     auth_token: str = field(repr=False)
     model: str
+    wire_protocol: str = ""
+    adapter_capabilities: tuple[str, ...] = ()
+    allowed_endpoint_hosts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -213,7 +518,8 @@ class RoleProfileResolver:
 
     def profile_name_for_agent(self, agent: str) -> str:
         roles = self.roles()
-        return roles.get(agent, roles.get("default", "deepseek"))
+        configured = self.provider_config().get("default_profile")
+        return roles.get(agent, roles.get("default", str(configured or "configured-provider")))
 
     def provider_config(self) -> dict[str, Any]:
         path = self.home / "config" / "sitina.yaml"
@@ -394,7 +700,7 @@ class ProviderHealthRegistry:
         return [self.status(profile) for profile in profiles]
 
     def known_profiles(self) -> list[str]:
-        preferred = ["gpt", "qwen", "minimax", "deepseek"]
+        preferred = ["gpt", "openai", "anthropic", "configured-provider"]
         profile_dir = self.home / "profiles"
         found = sorted(p.stem for p in profile_dir.glob("*.env") if not p.name.endswith(".template"))
         out: list[str] = []
@@ -565,14 +871,52 @@ class AnthropicCompatibleClient:
 
     def load_profile(self, profile_name: str) -> ProviderProfile:
         env = self.loader.load_env(profile_name)
-        missing = [key for key in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL") if not env.get(key)]
+        base_url = (
+            env.get("SITINA_PROVIDER_BASE_URL")
+            or env.get("ANTHROPIC_BASE_URL")
+            or env.get("OPENAI_BASE_URL")
+            or env.get("DEEPSEEK_BASE_URL")
+        )
+        auth_token = (
+            env.get("SITINA_PROVIDER_AUTH_TOKEN")
+            or env.get("ANTHROPIC_AUTH_TOKEN")
+            or env.get("OPENAI_API_KEY")
+            or env.get("DEEPSEEK_API_KEY")
+        )
+        model = (
+            env.get("SITINA_PROVIDER_MODEL")
+            or env.get("ANTHROPIC_MODEL")
+            or env.get("OPENAI_MODEL")
+            or env.get("DEEPSEEK_MODEL")
+        )
+        missing = [
+            key for key, value in (
+                ("SITINA_PROVIDER_BASE_URL", base_url),
+                ("SITINA_PROVIDER_AUTH_TOKEN", auth_token),
+                ("SITINA_PROVIDER_MODEL", model),
+            ) if not value
+        ]
         if missing:
             raise ProviderError(f"profile {profile_name} missing {', '.join(missing)}")
+        explicit_protocol = (
+            env.get("SITINA_PROVIDER_WIRE_PROTOCOL")
+            or env.get("WIRE_PROTOCOL")
+            or env.get("ANTHROPIC_WIRE_PROTOCOL")
+            or env.get("OPENAI_WIRE_PROTOCOL")
+        )
+        protocol = infer_wire_protocol(profile_name, str(base_url), explicit_protocol)
+        raw_hosts = env.get("SITINA_PROVIDER_ALLOWED_ENDPOINT_HOSTS") or env.get("SITINA_PROVIDER_ENDPOINT_HOSTS") or ""
+        allowed_hosts = tuple(sorted({item.strip().casefold() for item in raw_hosts.split(",") if item.strip()}))
+        raw_capabilities = env.get("SITINA_PROVIDER_ADAPTER_CAPABILITIES") or ""
+        capabilities = tuple(sorted({item.strip() for item in raw_capabilities.split(",") if item.strip()}))
         return ProviderProfile(
             name=profile_name,
-            base_url=env["ANTHROPIC_BASE_URL"].rstrip("/"),
-            auth_token=env["ANTHROPIC_AUTH_TOKEN"],
-            model=env["ANTHROPIC_MODEL"],
+            base_url=str(base_url).rstrip("/"),
+            auth_token=str(auth_token),
+            model=str(model),
+            wire_protocol=protocol,
+            adapter_capabilities=tuple(sorted(provider_adapter_capabilities(profile_name, str(base_url), capabilities))),
+            allowed_endpoint_hosts=allowed_hosts,
         )
 
     def complete(
@@ -628,7 +972,7 @@ class AnthropicCompatibleClient:
         )
         if timeout <= 0:
             raise ProviderDeadlineExceeded("provider request skipped because no request time remains")
-        if expect_json and self._prefers_openai_json(profile):
+        if self._prefers_openai_json(profile):
             try:
                 return self._complete_openai(
                     profile,
@@ -636,7 +980,7 @@ class AnthropicCompatibleClient:
                     user_prompt=user_prompt,
                     max_tokens=max_tokens,
                     request_timeout_seconds=timeout,
-                    expect_json=True,
+                    expect_json=expect_json,
                     json_schema=json_schema,
                     cancel_check=cancel_check,
                 )
@@ -776,15 +1120,8 @@ class AnthropicCompatibleClient:
             "model": profile.model,
             "max_tokens": max_tokens,
             "system": system_prompt,
-            "messages": self._anthropic_tool_messages(messages),
-            "tools": [
-                {
-                    "name": str(tool["name"]),
-                    "description": str(tool.get("description") or ""),
-                    "input_schema": dict(tool.get("input_schema") or {"type": "object", "properties": {}}),
-                }
-                for tool in tools
-            ],
+            "messages": provider_messages_for_wire(messages, ANTHROPIC_MESSAGES),
+            "tools": provider_tools_for_wire(tools, ANTHROPIC_MESSAGES),
         }
         payload, metadata = self._request_json(
             self._messages_url(profile.base_url),
@@ -850,18 +1187,11 @@ class AnthropicCompatibleClient:
             "model": profile.model,
             "max_tokens": max_tokens,
             "temperature": 0.0,
-            "messages": [{"role": "system", "content": system_prompt}, *self._openai_tool_messages(messages)],
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": str(tool["name"]),
-                        "description": str(tool.get("description") or ""),
-                        "parameters": dict(tool.get("input_schema") or {"type": "object", "properties": {}}),
-                    },
-                }
-                for tool in tools
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                *provider_messages_for_wire(messages, OPENAI_CHAT_COMPLETIONS),
             ],
+            "tools": provider_tools_for_wire(tools, OPENAI_CHAT_COMPLETIONS),
         }
         payload, metadata = self._request_json(
             self._chat_completions_url(profile.base_url),
@@ -919,82 +1249,6 @@ class AnthropicCompatibleClient:
                 "tool_call_count": len(calls),
             },
         )
-
-    @staticmethod
-    def _openai_tool_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-        converted: list[dict[str, Any]] = []
-        for raw in messages:
-            role = str(raw.get("role") or "")
-            if role in {"user", "assistant"}:
-                item: dict[str, Any] = {"role": role, "content": str(raw.get("content") or "")}
-                if role == "assistant" and raw.get("tool_calls"):
-                    item["tool_calls"] = [
-                        {
-                            "id": str(call["id"]),
-                            "type": "function",
-                            "function": {
-                                "name": str(call["name"]),
-                                "arguments": stable_json(dict(call.get("arguments") or {})),
-                            },
-                        }
-                        for call in raw["tool_calls"]
-                    ]
-                converted.append(item)
-            elif role == "tool":
-                converted.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": str(raw.get("tool_call_id") or ""),
-                        "content": str(raw.get("content") or ""),
-                    }
-                )
-            else:
-                raise ProviderMalformedResponse(f"unsupported neutral tool message role: {role}")
-        return converted
-
-    @staticmethod
-    def _anthropic_tool_messages(messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-        converted: list[dict[str, Any]] = []
-        pending_results: list[dict[str, Any]] = []
-
-        def flush_results() -> None:
-            if pending_results:
-                converted.append({"role": "user", "content": list(pending_results)})
-                pending_results.clear()
-
-        for raw in messages:
-            role = str(raw.get("role") or "")
-            if role == "tool":
-                pending_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": str(raw.get("tool_call_id") or ""),
-                        "content": str(raw.get("content") or ""),
-                        **({"is_error": True} if raw.get("is_error") else {}),
-                    }
-                )
-                continue
-            flush_results()
-            if role == "user":
-                converted.append({"role": "user", "content": str(raw.get("content") or "")})
-            elif role == "assistant":
-                content: list[dict[str, Any]] = []
-                if str(raw.get("content") or ""):
-                    content.append({"type": "text", "text": str(raw["content"])})
-                content.extend(
-                    {
-                        "type": "tool_use",
-                        "id": str(call["id"]),
-                        "name": str(call["name"]),
-                        "input": dict(call.get("arguments") or {}),
-                    }
-                    for call in raw.get("tool_calls") or []
-                )
-                converted.append({"role": "assistant", "content": content})
-            else:
-                raise ProviderMalformedResponse(f"unsupported neutral tool message role: {role}")
-        flush_results()
-        return converted
 
     def is_retryable_profile_error(self, exc: ProviderError) -> bool:
         if not isinstance(exc, ProviderHTTPError):
@@ -1083,14 +1337,17 @@ class AnthropicCompatibleClient:
         structured_feature_fallback: bool = False,
         cancel_check: Callable[[], bool] | None = None,
     ) -> ProviderCompletion:
-        deepseek_json_object = bool(expect_json and self._prefers_openai_json(profile))
-        deepseek_strict_tool = bool(json_schema and self._prefers_openai_json(profile))
+        openai_json_object = bool(expect_json and not json_schema)
+        openai_strict_tool = bool(json_schema)
+        thinking_disabled = "deepseek_thinking_disabled" in provider_adapter_capabilities(
+            profile.name, profile.base_url, profile.adapter_capabilities
+        )
         url = self._chat_completions_url(profile.base_url)
         schema_instruction = (
             "\nReturn the response only through the required output tool. Do not include comments, analysis, markdown, or a second object. "
             "The tool arguments object must directly contain the schema properties; never wrap it in an extra arguments, input, or payload object. "
             "For nullable fields, JSON null is the unquoted token null; never return the string \"null\"."
-            if deepseek_strict_tool
+            if openai_strict_tool
             else ""
         )
         body = {
@@ -1102,10 +1359,8 @@ class AnthropicCompatibleClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
-        if deepseek_json_object:
+        if thinking_disabled and (openai_json_object or openai_strict_tool):
             body["thinking"] = {"type": "disabled"}
-        if deepseek_strict_tool:
-            body["parallel_tool_calls"] = False
         if json_schema:
             body["tools"] = [
                 {
@@ -1114,7 +1369,7 @@ class AnthropicCompatibleClient:
                         "name": "sitina_structured_response",
                         "description": "Return the complete Sitina agent response directly as these schema-valid function arguments. Do not add an arguments wrapper. This tool is output-only and must not be executed.",
                         "parameters": json_schema,
-                        **({"strict": True} if deepseek_strict_tool else {}),
+                        **({"strict": True} if openai_strict_tool else {}),
                     },
                 }
             ]
@@ -1143,9 +1398,9 @@ class AnthropicCompatibleClient:
                 "token_usage": token_usage_summary(payload),
                 "structured_output_requested": expect_json,
                 "structured_output_enforced": expect_json,
-                "structured_output_method": "strict_tool_call" if deepseek_strict_tool else ("tool_call" if json_schema else ("json_object" if expect_json else "none")),
-                "structured_schema_strict": deepseek_strict_tool,
-                "thinking_mode": "disabled" if deepseek_json_object else "default",
+                "structured_output_method": "strict_tool_call" if openai_strict_tool else ("json_object" if expect_json else "none"),
+                "structured_schema_strict": openai_strict_tool,
+                "thinking_mode": "disabled" if thinking_disabled and (openai_json_object or openai_strict_tool) else "default",
                 "runtime_schema_validation_required": bool(json_schema),
                 "structured_feature_fallback": structured_feature_fallback,
             },
@@ -1158,9 +1413,9 @@ class AnthropicCompatibleClient:
 
     @staticmethod
     def _prefers_openai_json(profile: ProviderProfile) -> bool:
-        """DeepSeek's public endpoint supports JSON-object mode on chat completions."""
+        """Select the OpenAI-compatible adapter from the fixed profile."""
 
-        return urlparse(profile.base_url).hostname in {"api.deepseek.com", "api.deepseek.com.cn"}
+        return infer_wire_protocol(profile.name, profile.base_url, profile.wire_protocol) == OPENAI_CHAT_COMPLETIONS
 
     def _request_json(
         self,

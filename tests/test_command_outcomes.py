@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import shutil
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from sitina.commands.gateway import CommandGateway, CommandPlan, RetryableNotAcc
 from sitina.commands.model import CommandEnvelope, CommandStatus
 from sitina.commands.outcomes import CommandOutcomeResolver
 from sitina.journal.local import LocalJournal
-from sitina.journal.model import EventEnvelope
+from sitina.journal.model import EventEnvelope, canonical_json_bytes
 from sitina.projections.schema import open_projection
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 
@@ -43,6 +44,10 @@ class CommandOutcomeTests(unittest.TestCase):
         rejected_journal = LocalJournal.open(home, JournalAuthProvider(InMemoryKeyProvider()))
         rejected = CommandGateway(rejected_journal).submit(command, 0, lambda _: CommandPlan(rejection_reason="policy-deny"))
         self.assertEqual(rejected.status, CommandStatus.REJECTED)
+        rejected_replay = CommandGateway(rejected_journal).submit(
+            command, 0, lambda _: CommandPlan(rejection_reason="policy-deny")
+        )
+        self.assertEqual(rejected_replay.receipt, rejected.receipt)
         self.assertEqual(CommandGateway(rejected_journal).query(command.command_id, command.command_request_hash).status, CommandStatus.REJECTED)
         rejected_journal.close()
 
@@ -54,14 +59,14 @@ class CommandOutcomeTests(unittest.TestCase):
         self.assertEqual(retry_journal.head_position, 0)
         retry_journal.close()
 
-    def test_lost_ack_retry_does_not_invoke_planner_again(self) -> None:
+    def test_lost_ack_retry_rebuilds_projection_before_journal_replay(self) -> None:
         calls = []
         def planner(command): calls.append(command.command_id); return self.accepted(command)
         command = self.command()
         first = self.gateway.submit(command, 0, planner)
         second = self.gateway.submit(command, 0, planner)
         self.assertEqual(first.receipt, second.receipt)
-        self.assertEqual(calls, ["cmd-1"])
+        self.assertEqual(calls, ["cmd-1", "cmd-1"])
 
     def test_sqlite_cache_miss_or_forged_row_cannot_override_canonical(self) -> None:
         cache = open_projection(self.home / "cache.sqlite")
@@ -78,7 +83,23 @@ class CommandOutcomeTests(unittest.TestCase):
         called = []
         result = self.gateway.submit(self.command({"x": 2}), 1, lambda _: called.append(True) or self.accepted(command))
         self.assertEqual(result.status, CommandStatus.CONFLICT)
-        self.assertEqual(called, [])
+        self.assertEqual(called, [True])
+
+    def test_rejection_replay_uses_stable_event_identity(self) -> None:
+        command = self.command()
+        first = self.gateway.submit(command, 0, lambda _: CommandPlan(rejection_reason="stable-deny"))
+        self.assertEqual(first.status, CommandStatus.REJECTED)
+        events = tuple(self.journal.iter_events())
+        self.assertEqual(len(events), 1)
+        identity = hashlib.sha256(canonical_json_bytes({
+            "command_id": command.command_id,
+            "request_hash": command.command_request_hash,
+            "reason_code": "stable-deny",
+        })).hexdigest()
+        self.assertEqual(events[0].event_id, "event-rejected-" + identity)
+        second = self.gateway.submit(command, 0, lambda _: CommandPlan(rejection_reason="stable-deny"))
+        self.assertEqual(second.receipt, first.receipt)
+        self.assertEqual(tuple(self.journal.iter_events()), events)
 
 
 if __name__ == "__main__": unittest.main()

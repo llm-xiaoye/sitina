@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import json
+import secrets
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -12,14 +14,32 @@ from sitina.conversation.recovery import ConversationReconciler
 from sitina.conversation.state import RollingSummaryRepository, SessionStateError, WorkingStateRepository
 from sitina.conversation.router import ConversationRouter
 from sitina.conversation.routing_policy import RoutingHistoryState
+from sitina.conversation.session_runtime import SessionRuntimeContext
 from sitina.extensions.manager import ExtensionManager
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.extensions.tools import ApprovalCallback
 from sitina.orchestrator.true_multi_agent import TrueMultiAgentProductionRuntime
+from sitina.orchestrator.code_mode_gate import (
+    CodeModeAcceptanceV1,
+    CodeModeRuntimePolicy,
+    classify_code_mode_intent,
+)
 from sitina.utils import iso_now
 
 
 StatusCallback = Callable[[str, Mapping[str, Any]], None]
+
+
+class FastModeMutationDenied(RuntimeError):
+    """A forced FAST turn attempted an operation that requires MULTI."""
+
+
+class CodeModeRuntimeUnavailable(RuntimeError):
+    """Code Mode was not given its independent runtime context."""
+
+
+def _explicit_mutation_intent(message: str) -> bool:
+    return bool(classify_code_mode_intent(message)["explicit_mutation"])
 
 
 def _open_runtime_state_reader(context: Any):
@@ -30,6 +50,36 @@ def _open_runtime_state_reader(context: Any):
 def _open_runtime_writer(context: Any):
     opener = getattr(type(context), "open_runtime_writer", None)
     return context.open_runtime_writer() if callable(opener) else context.open_writer()
+
+
+def _open_session_context(runtime: Any) -> Any:
+    """Open the context used for ordinary session state, not Code Mode writes.
+
+    Code Mode execution remains strict: its write path calls ``_code_mode_context``
+    and therefore requires the independently constructed Code Mode context.  A
+    session can nevertheless be resumed or have its mode persisted before a
+    Code Mode turn is requested.  Those lifecycle-only operations retain the
+    existing ordinary runtime contract instead of accidentally making every
+    FAST startup depend on Code Mode candidate state.
+    """
+
+    factory = getattr(runtime, "runtime_context_factory", None)
+    if callable(factory):
+        return runtime._code_mode_context()
+    provider = getattr(runtime, "session_runtime_provider", None)
+    # Some ordinary-session lifecycle callers are reconstructed with __new__
+    # (for example after a process restart) before ConversationRuntime.__init__
+    # has run.  Give that *current* process a fresh identity rather than
+    # reading one from Journal/CAS or falling back to the legacy context.
+    session_instance_id = getattr(runtime, "session_instance_id", None)
+    if not isinstance(session_instance_id, str) or not session_instance_id.strip():
+        session_instance_id = "session-instance-" + secrets.token_hex(16)
+        runtime.session_instance_id = session_instance_id
+    return SessionRuntimeContext.open(
+        runtime.home,
+        provider=provider,
+        session_instance_id=session_instance_id,
+    )
 
 
 class ConversationRuntime:
@@ -44,11 +94,44 @@ class ConversationRuntime:
         multi_runtime: TrueMultiAgentProductionRuntime | None = None,
         autonomous_runtime: AutonomousRuntime | None = None,
         approval_callback: ApprovalCallback | None = None,
+        workspace: Path | None = None,
+        live_opt_in: bool = False,
+        access_mode: str = "workspace",
+        runtime_context_factory: Any | None = None,
+        canary_authorization: Mapping[str, Any] | None = None,
+        session_runtime_provider: Any | None = None,
+        session_instance_id: str | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
+        # This identity is deliberately process-local and is never restored
+        # from Journal/CAS.  Conversation/session IDs may be recovered for UX,
+        # but authority, capabilities and Code Mode facts cannot cross this
+        # process boundary.
+        self.session_instance_id = str(
+            session_instance_id or ("session-instance-" + secrets.token_hex(16))
+        )
+        self._session_instance_explicit = session_instance_id is not None
+        if not self.session_instance_id.strip():
+            raise ValueError("conversation session instance is missing")
+        selected_workspace = Path(workspace).expanduser() if workspace is not None else self.home
+        self.workspace = selected_workspace.resolve(strict=True)
+        self.live_opt_in = bool(live_opt_in)
+        self.access_mode = access_mode
+        self.code_mode_policy = CodeModeRuntimePolicy()
+        self.runtime_context_factory = runtime_context_factory
+        self.session_runtime_provider = session_runtime_provider
+        self.canary_authorization = dict(canary_authorization) if isinstance(canary_authorization, Mapping) else None
+        self._pending_code_mode_sessions: dict[str, ChatSession] = {}
+        # The conversation runtime owns the first attempt number for each
+        # live conversation.  It is deliberately process-local: a restarted
+        # CLI creates a new session instance and must re-observe/re-plan.
         self.router = router or ConversationRouter.load(self.home)
         self.context = ConversationContext.load(self.home)
-        self.fast_runtime = fast_runtime or FastConversationRuntime(self.home)
+        self.fast_runtime = fast_runtime or FastConversationRuntime(
+            self.home,
+            runtime_context_factory=runtime_context_factory,
+            session_runtime_provider=session_runtime_provider,
+        )
         self.multi_runtime = multi_runtime or TrueMultiAgentProductionRuntime(self.home)
         # Extensions are capabilities available to an admitted Agent runtime;
         # they must never replace Conversation Runtime, routing, or FAST/MULTI
@@ -63,21 +146,196 @@ class ConversationRuntime:
                 if not item.get("disabled")
             )
         )
-        self.autonomous_runtime = None
+        # Preserve injected execution dependencies.  They are deliberately
+        # capability inputs, not routing overrides: MULTI still owns the
+        # reviewed execution chain, while the selected workspace and the
+        # current user intent are bound per run.
+        self.autonomous_runtime = autonomous_runtime
+        self.approval_callback = approval_callback
         self._injected_extension_adapter = autonomous_runtime
-        del approval_callback
+        # The public chat owns the lifecycle of the CLI-attested reviewer host.
+        # An injected runtime may omit it; that is an ordinary non-authoritative
+        # embedding and must never be upgraded by this attribute.
+        self.code_mode_reviewer_session = (
+            getattr(runtime_context_factory, "reviewer_session", None)
+            if runtime_context_factory is not None else None
+        ) or getattr(multi_runtime, "code_mode_reviewer_session", None)
+        if hasattr(self.multi_runtime, "bind_conversation_dependencies"):
+            self.multi_runtime.bind_conversation_dependencies(
+                autonomous_runtime=autonomous_runtime,
+                approval_callback=approval_callback,
+            )
+        if hasattr(self.multi_runtime, "bind_code_mode_authorizer"):
+            self.multi_runtime.bind_code_mode_authorizer(self.code_mode_policy)
 
     @staticmethod
     def _emit(callback: StatusCallback | None, event: str, value: Mapping[str, Any]) -> None:
         if callback is not None:
             callback(event, value)
 
+    def _code_mode_context(self) -> Any:
+        factory = getattr(self, "runtime_context_factory", None)
+        if not callable(factory):
+            raise CodeModeRuntimeUnavailable(
+                "Code Mode execution has no independent runtime context factory"
+            )
+        try:
+            context = factory(self.home)
+        except Exception as error:  # noqa: BLE001
+            raise CodeModeRuntimeUnavailable(
+                "Code Mode independent runtime construction failed"
+            ) from error
+        context_type = type(context)
+        if (
+            context_type.__name__ != "CodeModeRuntimeContext"
+            or context_type.__module__ != "sitina.orchestrator.code_mode_runtime"
+        ):
+            raise CodeModeRuntimeUnavailable(
+                "Code Mode factory returned a non-Code-Mode runtime context"
+            )
+        context_instance = getattr(context, "session_instance_id", None)
+        if context_instance != self.session_instance_id:
+            # Directly opened contexts are deliberately non-authoritative test
+            # seams. Bind them to this live runtime for local execution, while
+            # an attested broker context must never be rebound by its caller.
+            if getattr(context, "_broker_client", None) is None:
+                context.session_instance_id = self.session_instance_id
+            elif not self._session_instance_explicit and not getattr(self, "_bound_code_mode_context_instance", None):
+                # Embedding integrations that provide one already-attested
+                # factory may omit the optional constructor id. Adopt the
+                # factory's stable session identity once; subsequent contexts
+                # must match it. The public CLI always supplies the id
+                # explicitly and therefore never uses this compatibility seam.
+                self.session_instance_id = str(context_instance or "")
+                self._bound_code_mode_context_instance = self.session_instance_id
+            else:
+                raise CodeModeRuntimeUnavailable(
+                    "Code Mode context belongs to a different CLI session instance"
+                )
+        return context
+
+    def maybe_confirm_tty_review(self, result: Mapping[str, Any]) -> dict[str, Any]:
+        """Complete the real CLI TTY handoff when a run is review-pending.
+
+        The execution result is only a set of locators emitted by the
+        controller.  This method never builds a candidate, test receipt, or
+        review request from scalar fields, and it never accepts a caller
+        supplied decision/summary/TTY path.  If the controller did not emit a
+        complete Review V2 handoff, or the controlling terminal is absent,
+        the safe result is ``REVIEW_PENDING`` with no success promotion.
+        """
+        if not isinstance(result, Mapping):
+            return {"code_mode_status": "CODE_MODE_REVIEW_PENDING", "review_status": "REVIEW_PENDING"}
+        pending = bool(result.get("headless_review_pending")) or str(
+            result.get("review_status") or ""
+        ) in {"REVIEW_PENDING", "REVIEW_REQUIRED", "HEADLESS_REVIEW_PENDING"}
+        if not pending:
+            return dict(result)
+
+        updated = dict(result)
+        updated.update({
+            "code_mode_status": "CODE_MODE_REVIEW_PENDING",
+            "review_status": "REVIEW_PENDING",
+            "review_authority": "TTY_REVIEW_AUTHORITY",
+        })
+        request = result.get("review_request") or result.get("code_mode_review_request")
+        candidate_locator = result.get("candidate_locator")
+        candidate = result.get("candidate")
+        test_receipt = result.get("test_receipt") or result.get("machine_check_receipt")
+        reviewer = getattr(self, "code_mode_reviewer_session", None)
+        if reviewer is None or not callable(getattr(reviewer, "is_attested_reviewer", None)) or not reviewer.is_attested_reviewer():
+            reopen = getattr(self.runtime_context_factory, "open_reviewer", None)
+            if callable(reopen):
+                try:
+                    reviewer = reopen()
+                    self.code_mode_reviewer_session = reviewer
+                except Exception:
+                    reviewer = None
+        if not all(isinstance(item, Mapping) for item in (request, candidate_locator, test_receipt)):
+            updated["review_reason_type"] = "MISSING_CONTROLLER_REVIEW_HANDOFF"
+            return updated
+        if reviewer is None or not callable(getattr(reviewer, "confirm_tty", None)):
+            updated["review_reason_type"] = "REVIEWER_HOST_UNAVAILABLE"
+            return updated
+
+        try:
+            context = self._code_mode_context()
+            candidate = context.reopen_candidate_manifest(
+                dict(candidate_locator), run_id=str(result.get("run_id") or "")
+            )
+            receipt = context.confirm_tty(
+                review=request,
+                candidate=dict(candidate),
+                reviewer_session=reviewer,
+            )
+            if not isinstance(receipt, Mapping):
+                raise PermissionError("TTY reviewer returned no durable receipt locator")
+            gate = CodeModeAcceptanceV1(self.workspace)
+            gate_result = gate.evaluate_offline(
+                candidate=dict(candidate),
+                runtime_context=context,
+                test_receipt=dict(test_receipt),
+                reviewer_receipt=dict(receipt),
+                test_inventory=result.get("test_inventory"),
+            )
+        except (EOFError, OSError, PermissionError, TimeoutError, RuntimeError, ValueError) as error:
+            # TTY absence, EOF, timeout, stale evidence, and any controller
+            # failure are review-pending.  Do not expose exception text, which
+            # could contain paths or provider details.
+            updated["review_reason_type"] = type(error).__name__
+            return updated
+
+        updated["tty_review_receipt"] = dict(receipt)
+        updated["code_mode_gate"] = dict(gate_result)
+        if gate_result.get("status") == "CODE_MODE_READY":
+            finalizer = getattr(self.multi_runtime, "finalize_code_mode_review", None)
+            if not callable(finalizer):
+                updated["review_reason_type"] = "CONTROLLER_REOPEN_UNAVAILABLE"
+                return updated
+            try:
+                finalized = finalizer(
+                    run_id=str(result.get("run_id") or ""),
+                    review_receipt=dict(receipt),
+                    gate_result=dict(gate_result),
+                    conversation_message=str(result.get("conversation_message") or ""),
+                    conversation_session_id=str(result.get("conversation_session_id") or ""),
+                    conversation_turn_index=int(result.get("conversation_turn_index")),
+                )
+                if not isinstance(finalized, Mapping) or finalized.get("terminal_state") != "SUCCEEDED":
+                    raise RuntimeError("controller did not commit a successful reviewed terminal")
+                updated = dict(finalized)
+                updated["code_mode_status"] = "CODE_MODE_READY"
+                updated["review_status"] = "ACCEPT"
+                session = self._pending_code_mode_sessions.pop(str(result.get("run_id") or ""), None)
+                if session is not None:
+                    response = str(updated.get("response") or "").strip()
+                    if response:
+                        session.record_success(
+                            str(updated.get("conversation_message") or "reviewed Code Mode change"),
+                            response,
+                            max_turns=self.context.policy.max_recent_turns,
+                        )
+            except (EOFError, OSError, PermissionError, TimeoutError, RuntimeError, ValueError) as error:
+                updated = dict(result)
+                updated["code_mode_status"] = "CODE_MODE_REVIEW_PENDING"
+                updated["review_status"] = "REVIEW_PENDING"
+                updated["review_reason_type"] = type(error).__name__
+                return updated
+        else:
+            updated["review_reason_type"] = "CODE_MODE_GATE_BLOCKED"
+        return updated
+
+    def close_code_mode_reviewer(self) -> None:
+        """Close the run-scoped reviewer without closing the authority host."""
+        closer = getattr(self.runtime_context_factory, "close_reviewer", None)
+        if callable(closer):
+            closer()
+        self.code_mode_reviewer_session = None
+
     def resume_or_create_session(self) -> ChatSession:
         """Rebuild the latest chat session from verified Journal/CAS state."""
 
-        from sitina.orchestrator.bplus_production import ProductionRuntimeContext
-
-        context = ProductionRuntimeContext.load(self.home)
+        context = _open_session_context(self)
         journal = _open_runtime_state_reader(context)
         historical_events = tuple(journal.iter_events(0))
         incomplete = FastConversationRuntime.incomplete_committed_runs(historical_events)
@@ -97,7 +355,7 @@ class ConversationRuntime:
                     )
             finally:
                 writer.close()
-            context = ProductionRuntimeContext.load(self.home)
+            context = _open_session_context(self)
             journal = _open_runtime_state_reader(context)
         cas = context.open_cas_reader()
         try:
@@ -125,7 +383,7 @@ class ConversationRuntime:
             # discover the reconciliation gap.  Reload authority before the
             # final read so the newly appended assistant/reconciled facts are
             # visible in this same startup call.
-            context = ProductionRuntimeContext.load(self.home)
+            context = _open_session_context(self)
         journal = _open_runtime_state_reader(context)
         try:
             return self._recover_session(journal, context.open_cas_reader(), context.provider)
@@ -135,13 +393,11 @@ class ConversationRuntime:
     def persist_mode(self, session: ChatSession, mode: ChatMode) -> None:
         """Commit an interactive mode selection without invoking a Provider."""
 
-        from sitina.orchestrator.bplus_production import ProductionRuntimeContext
-
         if not isinstance(session, ChatSession):
             raise TypeError("mode persistence requires a ChatSession")
         if not isinstance(mode, ChatMode):
             raise TypeError("mode persistence requires a ChatMode")
-        context = ProductionRuntimeContext.load(self.home)
+        context = _open_session_context(self)
         journal = _open_runtime_writer(context)
         try:
             repository = JournalSessionRepository(journal, context.open_cas(), context.provider)
@@ -280,6 +536,12 @@ class ConversationRuntime:
         *,
         escalated: bool,
     ) -> dict[str, Any]:
+        def observed_count(name: str) -> int | None:
+            value = result.get(name)
+            if value is None:
+                return None
+            return int(value)
+
         return {
             **dict(result),
             "session_id": session.session_id,
@@ -289,10 +551,10 @@ class ConversationRuntime:
             "route_decision": decision.mapping(),
             "escalated": escalated,
             "external_mutation_count": int(result.get("external_mutation_count", 0) or 0),
-            "legacy_read_count": int(result.get("legacy_read_count", 0) or 0),
-            "legacy_write_count": int(result.get("legacy_write_count", 0) or 0),
-            "sqlite_connect_count": int(result.get("sqlite_connect_count", 0) or 0),
-            "sqlite_write_count": int(result.get("sqlite_write_count", 0) or 0),
+            "legacy_read_count": observed_count("legacy_read_count"),
+            "legacy_write_count": observed_count("legacy_write_count"),
+            "sqlite_connect_count": observed_count("sqlite_connect_count"),
+            "sqlite_write_count": observed_count("sqlite_write_count"),
         }
 
     def execute_turn(
@@ -301,6 +563,7 @@ class ConversationRuntime:
         message: str,
         *,
         status_callback: StatusCallback | None = None,
+        workspace: Path | None = None,
     ) -> dict[str, Any]:
         message = message.strip()
         if not message:
@@ -331,10 +594,122 @@ class ConversationRuntime:
             ),
             subject_id=session.session_id,
         )
+        # AUTO must not let a classifier/SLA downgrade an explicit code
+        # mutation into FAST.  This is a route decision only; the selected
+        # MULTI path still performs the normal tool authorization and review.
+        intent = classify_code_mode_intent(message)
+        if session.mode is ChatMode.AUTO and intent["explicit_mutation"] and initial.resolved_mode is ChatMode.FAST:
+            initial = dataclasses.replace(
+                initial,
+                resolved_mode=ChatMode.MULTI,
+                reasons=("明确代码修改意图",),
+                decision_path="AUTO_EXPLICIT_MUTATION_MULTI",
+                upgrade_reason="明确代码修改意图需要 MULTI 工具执行与独立审阅",
+            )
         session.last_route_decision = initial
         self._emit(status_callback, "route", initial.mapping())
         try:
+            if session.mode is ChatMode.FAST and _explicit_mutation_intent(message):
+                raise FastModeMutationDenied("FAST 只读；明确的代码修改请求请切换到 /multi 后重试")
+            selected_workspace = (
+                Path(workspace).expanduser().resolve(strict=True)
+                if workspace is not None
+                else self.workspace
+            )
+            code_mode_authorization = self.code_mode_policy.authorize(
+                mode=session.mode.value,
+                message=message,
+                session_id=session.session_id,
+                workspace=selected_workspace,
+                access_mode=self.access_mode,
+            )
+            policy_authorization_allowed = code_mode_authorization.get("allowed") is True
+            external_action_confirmation_required = bool(
+                code_mode_authorization.get("external_action_confirmation_required")
+            )
+            # Candidate identity is an execution handoff input, not a pre-tool
+            # permission gate.  Capture it from the selected workspace after
+            # the intent decision so ordinary Code Mode can seal a durable,
+            # review-pending handoff even when no canary is enabled.
+            # A policy mapping is produced for every message so that the
+            # router can explain a read-only decision.  Only an explicit
+            # mutation is Code Mode execution and may construct a candidate or
+            # require the independent Code Mode context.  Ordinary FAST and
+            # read-only MULTI paths must not be coupled to that write context.
+            code_mode_execution = bool(
+                policy_authorization_allowed
+                and intent.get("explicit_mutation") is True
+            )
+            if code_mode_execution:
+                from sitina.orchestrator.code_mode_gate import build_candidate_manifest
+                # This is the baseline identity used only to authorize the
+                # starting workspace.  It must not be reused as the output
+                # candidate after Forge has changed the workspace.
+                code_mode_candidate = build_candidate_manifest(selected_workspace)
+                # Generation is part of the current Code Mode runtime
+                # identity.  It is an execution/review binding, not a
+                # pre-tool acceptance gate; a candidate without it cannot be
+                # promoted by the post-execution Gate.
+                runtime_identity_context = self._code_mode_context()
+                generation = str(
+                    getattr(getattr(runtime_identity_context, "identity", None), "epoch_root", "")
+                    or ""
+                )
+                if not generation:
+                    raise CodeModeRuntimeUnavailable(
+                        "Code Mode runtime has no current authority generation"
+                    )
+                code_mode_candidate = {
+                    **code_mode_candidate,
+                    "generation": generation,
+                }
+                # A fresh TrueMulti run owns attempt one.  Only that run's
+                # bounded rework owner may advance the attempt.
+                next_attempt = 1
+                baseline_authorization_identity = {
+                    "workspace": code_mode_candidate["workspace"],
+                    "candidate_id": code_mode_candidate["candidate_id"],
+                    "tree_hash": code_mode_candidate["tree_hash"],
+                    "source_manifest_hash": code_mode_candidate["source_manifest_hash"],
+                    "worktree_digest": code_mode_candidate["worktree_digest"],
+                    "generation": generation,
+                    "run_attempt": next_attempt,
+                }
+                code_mode_authorization = {
+                    **code_mode_authorization,
+                    "session_instance_id": self.session_instance_id,
+                    "candidate_id": code_mode_candidate["candidate_id"],
+                    "tree_hash": code_mode_candidate["tree_hash"],
+                    "source_manifest_hash": code_mode_candidate["source_manifest_hash"],
+                    "worktree_digest": code_mode_candidate["worktree_digest"],
+                    "generation": generation,
+                    "run_attempt": next_attempt,
+                }
+            else:
+                code_mode_candidate = None
+                baseline_authorization_identity = None
+                code_mode_authorization = None
+            if not policy_authorization_allowed:
+                raise FastModeMutationDenied(
+                    str((code_mode_authorization or {}).get("reasons", [])[0])
+                    if (code_mode_authorization or {}).get("reasons")
+                    else "Code Mode request denied"
+                )
             if initial.resolved_mode is ChatMode.MULTI:
+                if code_mode_execution:
+                    # Keep the concrete context out of persisted controls and
+                    # Journal JSON. TrueMulti consumes this ephemeral handoff
+                    # only for this synchronous call; the caller cannot turn
+                    # it into a serializable authority fact.
+                    setattr(self.multi_runtime, "_active_code_mode_context", runtime_identity_context)
+                if (
+                    code_mode_execution
+                    and isinstance(self.multi_runtime, TrueMultiAgentProductionRuntime)
+                    and not callable(getattr(self, "runtime_context_factory", None))
+                ):
+                    raise CodeModeRuntimeUnavailable(
+                        "Code Mode MULTI requires an explicitly constructed independent runtime"
+                    )
                 result = self.multi_runtime.execute(
                     self._multi_goal(message, snapshot=snapshot),
                     label="cli-interactive-chat-multi",
@@ -344,6 +719,34 @@ class ConversationRuntime:
                         "conversation_session_id": session.session_id,
                         "conversation_turn_index": session.turn_index,
                         "conversation_route_decision": initial.canonical_mapping(),
+                        "execution_workspace": str(selected_workspace),
+                        "execution_access_mode": self.access_mode,
+                        "live_opt_in": self.live_opt_in,
+                        "code_mode_authorization": code_mode_authorization,
+                        "code_mode_candidate": code_mode_candidate,
+                        "baseline_authorization_identity": baseline_authorization_identity,
+                        "code_mode_intent": (
+                            code_mode_authorization["intent"]
+                            if isinstance(code_mode_authorization, Mapping)
+                            else intent
+                        ),
+                        "intent_authorized": bool(
+                            isinstance(code_mode_authorization, Mapping)
+                            and code_mode_authorization.get("intent_authorized") is True
+                        ),
+                        "explicit_external_action": external_action_confirmation_required,
+                        "canary_authorization": dict(self.canary_authorization)
+                        if self.canary_authorization is not None else None,
+                        "session_instance_id": self.session_instance_id,
+                        # Ordinary reviewed MULTI has no Code Mode
+                        # authorization.  Do not dereference or synthesize
+                        # its attempt identity here; the Code Mode producer
+                        # validates run_attempt from its issued binding.
+                        "run_attempt": (
+                            baseline_authorization_identity["run_attempt"]
+                            if isinstance(baseline_authorization_identity, Mapping)
+                            else None
+                        ),
                     },
                 )
                 session.active_run_id = str(result.get("run_id") or "") or None
@@ -373,6 +776,14 @@ class ConversationRuntime:
                     and bool(fast_result.get("escalation_recommended"))
                 )
                 if should_escalate:
+                    if (
+                        code_mode_execution
+                        and isinstance(self.multi_runtime, TrueMultiAgentProductionRuntime)
+                        and not callable(getattr(self, "runtime_context_factory", None))
+                    ):
+                        raise CodeModeRuntimeUnavailable(
+                            "Code Mode AUTO escalation requires an explicitly constructed independent runtime"
+                        )
                     escalation_reasons = list(fast_result.get("escalation_reasons") or ())
                     final_decision = RouteDecision.escalation(
                         initial,
@@ -396,6 +807,22 @@ class ConversationRuntime:
                             "conversation_turn_index": session.turn_index,
                             "conversation_route_decision": final_decision.canonical_mapping(),
                             "prior_fast_summary": self._safe_fast_summary(fast_result),
+                            "execution_workspace": str(selected_workspace),
+                            "execution_access_mode": self.access_mode,
+                            "live_opt_in": self.live_opt_in,
+                            "code_mode_authorization": code_mode_authorization,
+                            "code_mode_candidate": code_mode_candidate,
+                            "baseline_authorization_identity": baseline_authorization_identity,
+                            "code_mode_intent": (
+                                code_mode_authorization["intent"]
+                                if isinstance(code_mode_authorization, Mapping)
+                                else intent
+                            ),
+                            "intent_authorized": bool(
+                                isinstance(code_mode_authorization, Mapping)
+                                and code_mode_authorization.get("intent_authorized") is True
+                            ),
+                            "explicit_external_action": external_action_confirmation_required,
                         },
                     )
                     session.active_run_id = str(multi_result.get("run_id") or "") or None
@@ -433,8 +860,17 @@ class ConversationRuntime:
                         bool(fast_result.get("needs_multi")) or fast_result.get("confidence") == "low"
                     ):
                         final["forced_fast_low_confidence"] = True
+            if final.get("code_mode_status") == "CODE_MODE_REVIEW_PENDING":
+                run_key = str(final.get("run_id") or "")
+                if run_key:
+                    self._pending_code_mode_sessions[run_key] = session
             response = str(final.get("response") or "").strip()
-            if final.get("terminal_state") == "SUCCEEDED" and response:
+            if final.get("code_mode_status") == "CODE_MODE_REVIEW_PENDING":
+                # Review-pending is neither success nor failure.  In
+                # particular, do not persist an assistant message or mark the
+                # turn failed before the controller receives TTY acceptance.
+                pass
+            elif final.get("terminal_state") == "SUCCEEDED" and response:
                 session.record_success(message, response, max_turns=self.context.policy.max_recent_turns)
                 session.working_state = json.dumps(
                     {

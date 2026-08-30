@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from sitina.constants import SITINA_HOME
+from sitina.legacy.fence import authorized_extension_effect
 from sitina.storage import SitinaStore
 from sitina.utils import ensure_dir, iso_now, new_id, sha256_text
 
@@ -16,9 +18,57 @@ class GitWorktreeManager:
         self.home = home
         self.store = store or SitinaStore(home)
 
+    def _remove_worktree(self, repo_path: Path, worktree_dir: Path) -> dict[str, Any]:
+        """Remove exactly one managed worktree registration.
+
+        Worktree creation is an external filesystem mutation, so its cleanup
+        is kept in this manager and is always attempted by the caller after a
+        post-create failure.  The command is deliberately argv-based and
+        bounded to the repository/worktree pair supplied by the execution
+        binding; no global prune is used here.
+        """
+        with authorized_extension_effect(
+            permission="shell", approval_granted=True,
+            purpose="sitina-authorized-worktree-cleanup",
+        ):
+            proc = subprocess.run(
+                ["git", "-C", str(repo_path), "worktree", "remove", "--force", str(worktree_dir)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        return {
+            "status": "ok" if proc.returncode == 0 and not worktree_dir.exists() else "failed",
+            "repo": str(repo_path),
+            "worktree": str(worktree_dir),
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-1000:],
+            "stderr": proc.stderr[-1000:],
+            "removed": proc.returncode == 0 and not worktree_dir.exists(),
+            "path_absent": not worktree_dir.exists(),
+        }
+
+    def _worktree_porcelain(self, repo_path: Path) -> tuple[str, int]:
+        with authorized_extension_effect(
+            permission="shell", approval_granted=True,
+            purpose="sitina-authorized-worktree-audit",
+        ):
+            proc = subprocess.run(
+                ["git", "-C", str(repo_path), "worktree", "list", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        return proc.stdout, proc.returncode
+
     def prepare(self, repo: str, run_id: str) -> dict[str, Any]:
         repo_path = Path(repo).expanduser().resolve(strict=False)
-        check = subprocess.run(["git", "-C", str(repo_path), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
+        porcelain_before, _ = self._worktree_porcelain(repo_path)
+        with authorized_extension_effect(
+            permission="shell", approval_granted=True,
+            purpose="sitina-authorized-worktree-prepare",
+        ):
+            check = subprocess.run(["git", "-C", str(repo_path), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
         if check.returncode != 0:
             result = {"status": "not_git", "repo": str(repo_path), "reason": "repo is not a git worktree"}
             self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="not_git")
@@ -29,10 +79,92 @@ class GitWorktreeManager:
             result = {"status": "ok", "repo": str(repo_path), "worktree": str(worktree_dir), "note": "already exists"}
             self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="ok")
             return result
-        proc = subprocess.run(["git", "-C", str(repo_path), "worktree", "add", "--detach", str(worktree_dir), "HEAD"], capture_output=True, text=True)
+        with authorized_extension_effect(
+            permission="shell", approval_granted=True,
+            purpose="sitina-authorized-worktree-prepare",
+        ):
+            proc = subprocess.run(["git", "-C", str(repo_path), "worktree", "add", "--detach", str(worktree_dir), "HEAD"], capture_output=True, text=True)
         status = "ok" if proc.returncode == 0 else "failed"
+        porcelain_after, _ = self._worktree_porcelain(repo_path)
         result = {"status": status, "repo": str(repo_path), "worktree": str(worktree_dir), "stdout": proc.stdout[-1000:], "stderr": proc.stderr[-1000:]}
-        self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status=status)
+        result.update(
+            {
+                "registration_before_sha256": hashlib.sha256(porcelain_before.encode()).hexdigest(),
+                "registration_after_sha256": hashlib.sha256(porcelain_after.encode()).hexdigest(),
+                "registration_created": str(worktree_dir) in porcelain_after and str(worktree_dir) not in porcelain_before,
+            }
+        )
+        try:
+            self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status=status)
+        except Exception as error:
+            # The audit write is part of the creation transaction.  If it
+            # fails after git has registered the worktree, remove this exact
+            # registration before surfacing the original failure.  A caller
+            # must never receive an un-audited successful prepare.
+            cleanup = self._remove_worktree(repo_path, worktree_dir)
+            if cleanup["status"] != "ok":
+                raise RuntimeError(
+                    "worktree audit failed and exact cleanup failed: "
+                    + str(cleanup.get("stderr") or "unknown cleanup error")
+                ) from error
+            raise
+        return result
+
+    def cleanup(self, repo: str, worktree: str, run_id: str) -> dict[str, Any]:
+        """Clean one prepared worktree and return auditable final state."""
+        repo_path = Path(repo).expanduser().resolve(strict=False)
+        worktree_path = Path(worktree).expanduser().resolve(strict=False)
+        result = self._remove_worktree(repo_path, worktree_path)
+        try:
+            self.store.record_audit("git_worktree_cleanup", result, run_id=run_id, exit_status=result["status"])
+            result["audit_recorded"] = True
+        except Exception as error:
+            # Removal may have succeeded, but an unrecorded cleanup is still
+            # not a successful execution terminal.  Preserve that distinction
+            # for the caller instead of reporting removed=true as acceptance.
+            result["audit_recorded"] = False
+            result["audit_error_type"] = type(error).__name__
+            result["physical_removed"] = bool(result.get("removed"))
+            result["removed"] = False
+            result["status"] = "failed"
+        return result
+
+    def cleanup_for_run(self, repo: str, run_id: str) -> dict[str, Any]:
+        """Reconcile the exact worktree path allocated for ``run_id``.
+
+        This is the outer execution finally-guard.  It is intentionally
+        idempotent and does not prune unrelated repositories or worktrees.
+        The porcelain hashes make create/remove registration observable in the
+        run evidence even when the worktree directory was already deleted.
+        """
+        repo_path = Path(repo).expanduser().resolve(strict=False)
+        expected = (self.home / "artifacts" / "worktrees" / run_id).resolve(strict=False)
+
+        before, _ = self._worktree_porcelain(repo_path)
+        before_hash = hashlib.sha256(before.encode()).hexdigest()
+        registered_before = str(expected) in before
+        if registered_before or expected.exists():
+            result = self.cleanup(str(repo_path), str(expected), run_id)
+        else:
+            result = {
+                "status": "not_present",
+                "repo": str(repo_path),
+                "worktree": str(expected),
+                "removed": True,
+                "audit_recorded": True,
+            }
+        after, _ = self._worktree_porcelain(repo_path)
+        result.update(
+            {
+                "run_id": run_id,
+                "registered_before": registered_before,
+                "registered_after": str(expected) in after,
+                "porcelain_before_sha256": before_hash,
+                "porcelain_after_sha256": hashlib.sha256(after.encode()).hexdigest(),
+            }
+        )
+        if result.get("registered_after") or not result.get("removed") or not result.get("audit_recorded"):
+            result["status"] = "failed"
         return result
 
     def generate_patch(self, repo: str, run_id: str, *, source: str | None = None) -> dict[str, Any]:

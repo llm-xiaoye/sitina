@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from sitina.runners.provider import AnthropicCompatibleClient, ProviderProfile, ScriptedMockToolClient
+from sitina.runners.provider import AnthropicCompatibleClient, ProviderError, ProviderProfile, ScriptedMockToolClient
 
 
 class CapturingClient(AnthropicCompatibleClient):
@@ -81,6 +81,14 @@ class ProviderToolProtocolTests(unittest.TestCase):
         )
         self.assertEqual(first.tool_calls[0].name, "read_fact")
         self.assertEqual(first.tool_calls[0].arguments, {"path": "/tmp/f"})
+        self.assertEqual(client.requests[0]["body"]["tools"], [{
+            "type": "function",
+            "function": {
+                "name": "read_fact",
+                "description": "Read one fact.",
+                "parameters": TOOLS[0]["input_schema"],
+            },
+        }])
         messages = [
             {"role": "user", "content": "read it"},
             {
@@ -98,6 +106,18 @@ class ProviderToolProtocolTests(unittest.TestCase):
         )
         self.assertEqual(second.text, "confirmed")
         wire_messages = client.requests[1]["body"]["messages"]
+        self.assertEqual(wire_messages[2], {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "read_fact",
+                    "arguments": '{"path":"/tmp/f"}',
+                },
+            }],
+        })
         self.assertEqual(wire_messages[-1]["role"], "tool")
         self.assertEqual(wire_messages[-1]["tool_call_id"], "call-1")
 
@@ -129,6 +149,7 @@ class ProviderToolProtocolTests(unittest.TestCase):
         )
         self.assertEqual(first.text, "checking")
         self.assertEqual(first.tool_calls[0].call_id, "use-1")
+        self.assertEqual(client.requests[0]["body"]["tools"], TOOLS)
         second = client.complete_tool_turn(
             profile,
             system_prompt="system",
@@ -145,9 +166,48 @@ class ProviderToolProtocolTests(unittest.TestCase):
         )
         self.assertEqual(second.text, "confirmed")
         wire_messages = client.requests[1]["body"]["messages"]
+        self.assertEqual(wire_messages[1], {
+            "role": "assistant",
+            "content": [{
+                "type": "text",
+                "text": "checking",
+            }, {
+                "type": "tool_use",
+                "id": "use-1",
+                "name": "read_fact",
+                "input": {"path": "/tmp/f"},
+            }],
+        })
         self.assertEqual(wire_messages[-1]["role"], "user")
         self.assertEqual(wire_messages[-1]["content"][0]["type"], "tool_result")
         self.assertEqual(wire_messages[-1]["content"][0]["tool_use_id"], "use-1")
+
+    def test_tool_wire_adapter_rejects_extra_or_malformed_shapes(self) -> None:
+        client = CapturingClient(self.home, [])
+        profile = ProviderProfile("custom", "https://custom.example.test/v1", "secret", "model", "openai_chat_completions")
+        for malformed in (
+            {**TOOLS[0], "extra": True},
+            {"type": "function", "function": {"name": "read_fact", "description": "Read one fact.", "parameters": {}, "extra": True}},
+        ):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(ProviderError):
+                    client.complete_tool_turn(
+                        profile, system_prompt="system", messages=[], tools=[malformed],
+                    )
+
+        malformed_messages = (
+            [{"role": "system", "content": "not allowed"}],
+            [{"role": "assistant", "content": "", "tool_calls": [{"id": "", "name": "read_fact", "arguments": {}}]}],
+            [{"role": "assistant", "content": "", "tool_calls": [{"id": "call", "name": "read_fact", "arguments": [], "extra": True}]}],
+            [{"role": "tool", "tool_call_id": "call"}],
+            [{"role": "tool", "tool_call_id": "call", "content": "fact", "is_error": 1}],
+        )
+        for messages in malformed_messages:
+            with self.subTest(messages=messages):
+                with self.assertRaises(ProviderError):
+                    client.complete_tool_turn(
+                        profile, system_prompt="system", messages=messages, tools=TOOLS,
+                    )
 
     def test_scripted_mock_provider_supports_offline_multi_turn_tools(self) -> None:
         script = self.home / "mock.json"

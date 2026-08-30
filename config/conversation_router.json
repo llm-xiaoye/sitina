@@ -31,9 +31,10 @@
     "重命名", "安装这", "帮我安装", "部署到", "生成文件", "改代码", "操作电脑",
     "跑一下", "跑测试", "运行测试", "运行脚本", "执行脚本", "执行命令",
     "帮我写", "帮我修复", "帮我重构",
-    "create a ", "fix the ", "refactor the", "implement a ", "write a ",
-    "delete the ", "install the ", "deploy the", "commit the", "edit the ",
-    "build the ", "run the tests", "run the script"
+    "create a ", "create ", "fix the ", "refactor the", "refactor ", "implement a ", "implement ",
+    "write a ", "write ", "update ", "change ", "add ", "append ", "modify ", "remove ",
+    "rename ", "move ", "delete the ", "delete ", "install the ", "install ", "deploy the", "deploy ",
+    "commit the", "edit the ", "edit ", "build the ", "build ", "run the tests", "run tests", "run the script"
   ],
   "conflicting_constraint_markers": [
     "冲突约束", "互相冲突", "既要", "同时满足", "conflicting constraints"

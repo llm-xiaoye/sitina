@@ -32,7 +32,8 @@ class FrozenHomeFixtureTests(unittest.TestCase):
                 [
                     sys.executable, "-c",
                     f"import os; os.environ['SITINA_HOME']='{frozen_home}'; "
-                    f"import sitina; import subprocess; "
+                    f"import sitina; from sitina.legacy.fence import install_legacy_mutation_guard; "
+                    f"install_legacy_mutation_guard('{frozen_home}'); import subprocess; "
                     f"subprocess.run(['{sys.executable}', '--version'], capture_output=True)"
                 ],
                 capture_output=True,

@@ -36,9 +36,11 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from sitina.evidence.isolation_provider import ReplayIsolationProvider
 from sitina.legacy.fence import (
+    CodeModeSandboxExecutionCapability,
     FrozenSandboxExecutionCapability,
     LegacyWriteGate,
     authorized_frozen_sandbox_execution,
+    authorized_code_mode_sandbox_execution,
     frozen_sandbox_profile,
     issue_frozen_sandbox_execution_capability,
 )
@@ -686,6 +688,11 @@ class ExecutionSandboxRunner:
         identity_binding: ExecutionIdentityBinding | None = None,
         agent_registry: object | None = None,
         execution_policy_hash: str = "",
+        code_mode_authorization: Mapping[str, Any] | bool = False,
+        code_mode_parent_authority: Any | None = None,
+        code_mode_parent: Any | None = None,
+        code_mode_attempt: int = 1,
+        code_mode_scratch_root: Path | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.authority_resolution = authority_resolution
@@ -711,6 +718,29 @@ class ExecutionSandboxRunner:
         self.identity = identity_binding
         self.agent_registry = agent_registry
         self.execution_policy_hash = execution_policy_hash
+        self.code_mode_authorization = code_mode_authorization
+        self.code_mode_parent_authority = code_mode_parent_authority
+        self.code_mode_parent = code_mode_parent
+        self.code_mode_attempt = int(code_mode_attempt)
+        self.code_mode_scratch_root = (
+            Path(code_mode_scratch_root).expanduser().resolve(strict=False)
+            if code_mode_scratch_root is not None
+            else None
+        )
+        token = (
+            code_mode_authorization.get("authorization_token")
+            if isinstance(code_mode_authorization, Mapping)
+            else None
+        )
+        if self.code_mode_authorization and self.worker_path != Path(__file__).with_name("execution_sandbox_worker.py").resolve(strict=True):
+            raise ExecutionSandboxUnavailable(
+                "Code Mode sandbox admits only the bundled trusted worker"
+            )
+        self.code_mode_parent_authorization_hash = (
+            str(getattr(self.code_mode_parent, "parent_hash", "")) or None
+            if self.code_mode_parent is not None
+            else None
+        )
         if platform.system() != "Darwin" or self.sandbox_executable != Path("/usr/bin/sandbox-exec"):
             raise ExecutionSandboxUnavailable("qualified macOS sandbox-exec is unavailable")
         for candidate in (self.sandbox_executable, self.python_executable, self.worker_path):
@@ -753,7 +783,36 @@ class ExecutionSandboxRunner:
         read_roots: tuple[Path, ...],
         write_roots: tuple[Path, ...],
         policy_hash: str,
-    ) -> FrozenSandboxExecutionCapability | None:
+    ) -> FrozenSandboxExecutionCapability | CodeModeSandboxExecutionCapability | None:
+        if self.code_mode_authorization:
+            if (
+                not isinstance(self.code_mode_authorization, Mapping)
+                or not self.code_mode_parent_authorization_hash
+                or self.code_mode_parent_authority is None
+                or self.code_mode_parent is None
+            ):
+                raise ExecutionSandboxUnavailable(
+                    "Code Mode sandbox requires a trusted parent authorization"
+                )
+            issuer = getattr(self.code_mode_parent_authority, "issue_sandbox_child_capability", None)
+            if not callable(issuer):
+                raise ExecutionSandboxUnavailable(
+                    "Code Mode sandbox parent issuer is not trusted"
+                )
+            return issuer(
+                self.code_mode_parent,
+                run_id=run_id,
+                attempt=self.code_mode_attempt,
+                diff_hash=diff_hash,
+                test_plan_hash=test_plan_hash,
+                runner_executable=self.python_executable,
+                worker_path=self.worker_path,
+                cwd=cwd,
+                read_roots=read_roots,
+                write_roots=write_roots,
+                argv=argv,
+                expires_at=int(time.time()) + min(120, self.limits.wall_seconds + 30),
+            )
         if LegacyWriteGate(self.home).status().state != "FROZEN_NO_WRITER":
             return None
         return issue_frozen_sandbox_execution_capability(
@@ -862,17 +921,31 @@ class ExecutionSandboxRunner:
         timed_out = False
         stdout = b""
         with stderr_path.open("wb") as stderr_handle:
-            with authorized_frozen_sandbox_execution(
-                capability,
-                argv=argv,
-                cwd=cwd,
-                diff_hash=diff_hash,
-                test_plan_hash=test_plan_hash,
-                authority_resolution=self.authority_resolution,
-                identity_binding=self.identity,
-                agent_registry=self.agent_registry,
-                execution_policy_hash=self.execution_policy_hash,
-            ):
+            if self.code_mode_authorization:
+                execution_scope = authorized_code_mode_sandbox_execution(
+                    capability,
+                    argv=argv,
+                    cwd=cwd,
+                    attempt=self.code_mode_attempt,
+                    diff_hash=diff_hash,
+                    test_plan_hash=test_plan_hash,
+                    parent_authorization_hash=capability.parent_authorization_hash,
+                    read_roots=read_roots,
+                    write_roots=write_roots,
+                )
+            else:
+                execution_scope = authorized_frozen_sandbox_execution(
+                    capability,
+                    argv=argv,
+                    cwd=cwd,
+                    diff_hash=diff_hash,
+                    test_plan_hash=test_plan_hash,
+                    authority_resolution=self.authority_resolution,
+                    identity_binding=self.identity,
+                    agent_registry=self.agent_registry,
+                    execution_policy_hash=self.execution_policy_hash,
+                )
+            with execution_scope:
                 try:
                     process = subprocess.Popen(
                         list(argv),
@@ -1136,7 +1209,16 @@ class ExecutionSandboxRunner:
         if any(not _inside(path, cwd) for path in targets):
             raise ExecutionSandboxError("sandbox targets do not share a confined workspace")
         read_roots = (cwd,)
-        scratch = Path(tempfile.mkdtemp(prefix="sitina-test-sandbox-")).resolve(strict=True)
+        if self.code_mode_scratch_root is not None:
+            scratch = self.code_mode_scratch_root
+            if scratch.exists():
+                if scratch.is_symlink() or not scratch.is_dir() or any(scratch.iterdir()):
+                    raise ExecutionSandboxError("Code Mode scratch root is not fresh and regular")
+            else:
+                scratch.mkdir(parents=True, mode=0o700)
+            scratch = scratch.resolve(strict=True)
+        else:
+            scratch = Path(tempfile.mkdtemp(prefix="sitina-test-sandbox-")).resolve(strict=True)
         write_roots = (scratch,)
         started_at = _utc_now()
         total_started = time.monotonic()

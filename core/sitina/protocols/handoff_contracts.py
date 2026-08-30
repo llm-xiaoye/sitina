@@ -166,6 +166,9 @@ class HandoffContract:
     def offered_fact(self, *, contract_object_ref: str) -> dict[str, Any]:
         if not contract_object_ref.startswith("cas:"):
             raise HandoffContractError("Handoff contract must be published to CAS")
+        # Keep the complete contract under the ordinary fail-closed boundary
+        # scan.  Generated task IDs are handled by the scanner's lexical
+        # boundary rules; no field-specific allowlist is permitted here.
         boundary = redact_boundary_value(self.mapping(), boundary="handoff")
         if boundary.redacted_paths:
             raise HandoffContractError("Handoff contract contains sensitive content at the persistence boundary")

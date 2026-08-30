@@ -484,6 +484,7 @@ class ExecutionResult:
     notes: tuple[str, ...] = ()
     patch_manifest_ref: str | None = None
     patch_manifest_hash: str | None = None
+    attempt_ledger: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.binding) is not ExecutionBinding:
@@ -521,6 +522,7 @@ class ExecutionResult:
                 "verification_verdict_hash": self.verification.verdict_hash
                 if self.verification
                 else None,
+                "attempt_ledger": [dict(item) for item in self.attempt_ledger],
                 "execution_identity_hash": self.binding.identity.binding_hash,
             }
         )
@@ -553,6 +555,7 @@ class ExecutionResult:
             "execution_identity": self.binding.identity.mapping(),
             "execution_identity_hash": self.binding.identity.binding_hash,
             "notes": list(self.notes),
+            "attempt_ledger": [dict(item) for item in self.attempt_ledger],
         }
 
     @property
@@ -573,6 +576,7 @@ def run_safe_execution(
     verifier: Callable[[Sequence[str], Mapping[str, Any]], VerificationVerdict],
     rollback: Callable[[int], None],
     max_attempts: int = 2,
+    replan: Callable[[int, Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> ExecutionResult:
     """Deterministic safe-execution orchestrator. All effects are injected so
     this is fully unit-testable without a provider.
@@ -606,24 +610,180 @@ def run_safe_execution(
 
     notes: list[str] = []
     last_diff: tuple[str, ...] = ()
+    attempt_ledger: list[dict[str, Any]] = []
+    last_failure: dict[str, Any] | None = None
+
+    def _make_result(**kwargs: Any) -> ExecutionResult:
+        return ExecutionResult(
+            **kwargs,
+            attempt_ledger=tuple(dict(item) for item in attempt_ledger),
+        )
+
+    def _record_failure(
+        attempt: int,
+        *,
+        plan_hash: str,
+        failure_type: str,
+        failure_hash: str,
+        replan_result: Mapping[str, Any],
+        stage: str,
+    ) -> None:
+        """Append the immutable per-attempt failure record.
+
+        The ledger is the source of truth for rework decisions.  In
+        particular, callers must not infer a repeated failure from an
+        incidental note string: the consecutive type/hash signature is
+        recorded explicitly and is what the execution event consumes.
+        """
+        previous = last_failure
+        same_failure = bool(
+            previous
+            and str(previous.get("failure_type") or "") == failure_type
+            and str(previous.get("failure_hash") or "") == failure_hash
+        )
+        attempt_ledger.append(
+            {
+                "attempt": attempt,
+                "plan_hash": plan_hash,
+                "result": "FAILED",
+                "stage": stage,
+                "failure_type": failure_type,
+                "failure_hash": failure_hash,
+                "prior_failure_type": str(previous.get("failure_type")) if previous else None,
+                "prior_failure_hash": str(previous.get("failure_hash")) if previous else None,
+                "same_failure": same_failure,
+                "replan": bool(replan_result),
+                "rollback": "pending",
+            }
+        )
+        last_failure_update = {
+            "failure_type": failure_type,
+            "failure_hash": failure_hash,
+            "plan_hash": plan_hash,
+        }
+        # Python closures cannot rebind a local without nonlocal.  Mutate a
+        # stable holder instead so every later stage sees the latest signature.
+        failure_holder[0] = last_failure_update
+
+    failure_holder: list[dict[str, Any] | None] = [None]
+
+    def _rollback_or_fail(attempt: int) -> str | None:
+        try:
+            rollback(attempt)
+            if attempt_ledger and attempt_ledger[-1].get("attempt") == attempt:
+                attempt_ledger[-1]["rollback"] = "ok"
+            return None
+        except Exception as error:
+            # A rollback failure is an external safety failure, not a reason
+            # to continue another Forge attempt.  Preserve only typed identity
+            # and a hash; callers must terminalize FAILED, never ACCEPTED.
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            notes.append(f"attempt{attempt}:rollback_failed:{type(error).__name__}:{error_hash}")
+            if attempt_ledger and attempt_ledger[-1].get("attempt") == attempt:
+                attempt_ledger[-1]["rollback"] = "failed"
+                attempt_ledger[-1]["rollback_failure_type"] = type(error).__name__
+                attempt_ledger[-1]["rollback_failure_hash"] = error_hash
+            return error_hash
 
     for attempt in range(1, max_attempts + 1):
-        forge_result = forge_runner(attempt, workspace)
+        # Rework always receives the prior typed failure.  The resulting plan
+        # hash is stored on this attempt; it is never an unbound blind retry.
+        last_failure = failure_holder[0]
+        replan_result: Mapping[str, Any] = {}
+        if attempt > 1 and last_failure is not None and replan is not None:
+            try:
+                replan_result = dict(replan(attempt, dict(last_failure)))
+                notes.append(
+                    f"attempt{attempt}:replanned:{replan_result.get('plan_hash') or 'unhashed'}"
+                )
+            except Exception as error:
+                error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+                attempt_ledger.append(
+                    {
+                        "attempt": attempt,
+                        "plan_hash": str(last_failure.get("plan_hash") or binding.winner_output_hash),
+                        "result": "FAILED",
+                        "failure_type": type(error).__name__,
+                        "failure_hash": error_hash,
+                        "stage": "Planner",
+                        "replan": False,
+                        "same_failure": False,
+                        "rollback": "not_started",
+                    }
+                )
+                notes.append(f"attempt{attempt}:replan_failed:{type(error).__name__}:{error_hash}")
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, redaction_ok=False, notes=tuple(notes),
+                )
+        plan_hash = str(replan_result.get("plan_hash") or binding.winner_output_hash)
+        try:
+            forge_result = forge_runner(attempt, workspace)
+            # Bind the verifier/sandbox child to the actual bounded attempt;
+            # this is metadata supplied by the controller, never a model
+            # assertion.
+            forge_result = dict(forge_result)
+            forge_result.setdefault("attempt", attempt)
+        except Exception as error:
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            forge_result = {
+                "terminal_state": "FAILED",
+                "attempt": attempt,
+                "error_type": type(error).__name__,
+                "error_hash": error_hash,
+                "secret_values_included": False,
+            }
         # If the Forge loop itself failed/hit its guards, isolate and retry.
         if str(forge_result.get("terminal_state")) != "SUCCEEDED":
-            notes.append(f"attempt{attempt}:forge_not_succeeded:{forge_result.get('terminal_state')}")
-            rollback(attempt)
+            failure_hash = str(forge_result.get("error_hash") or "")
+            failure_type = str(forge_result.get("error_type") or "ForgeFailure")
+            suffix = f":{failure_hash}" if failure_hash else ""
+            notes.append(f"attempt{attempt}:forge_not_succeeded:{forge_result.get('terminal_state')}{suffix}")
+            failure_hash = failure_hash or hashlib.sha256(failure_type.encode("utf-8")).hexdigest()
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type=failure_type,
+                failure_hash=failure_hash, replan_result=replan_result, stage="Forge",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, redaction_ok=False, notes=tuple(notes),
+                )
             continue
 
-        diff_paths = tuple(str(value) for value in collect_diff())
+        try:
+            diff_paths = tuple(str(value) for value in collect_diff())
+        except Exception as error:
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            notes.append(f"attempt{attempt}:diff_collection_failed:{type(error).__name__}:{error_hash}")
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="DiffCollectionError",
+                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, redaction_ok=False, notes=tuple(notes),
+                )
+            continue
         last_diff = diff_paths
 
         if not diff_paths or len(set(diff_paths)) != len(diff_paths) or any(
             not _approved(value) for value in diff_paths
         ):
             notes.append(f"attempt{attempt}:scope_blocked")
-            rollback(attempt)
-            return ExecutionResult(
+            scope_hash = hashlib.sha256(",".join(sorted(diff_paths)).encode("utf-8")).hexdigest()
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="ScopeBlocked",
+                failure_hash=scope_hash, replan_result=replan_result, stage="Boundary",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
+            return _make_result(
                 status="blocked", accepted=False, binding=binding, attempts=attempt,
                 workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
                 notes=tuple(notes),
@@ -631,29 +791,84 @@ def run_safe_execution(
 
         # H4: sensitive-content hard gate on the deliverable/diff BEFORE accept.
         # SL1 already blocks per-write; this is the deliverable-level boundary.
-        sensitive = tuple(boundary_check(diff_paths))
+        try:
+            sensitive = tuple(boundary_check(diff_paths))
+        except Exception as error:
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            notes.append(f"attempt{attempt}:boundary_check_failed:{type(error).__name__}:{error_hash}")
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="BoundaryCheckError",
+                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
+            continue
         if sensitive:
             notes.append(f"attempt{attempt}:boundary_blocked:{','.join(sensitive)}")
-            rollback(attempt)
+            sensitive_hash = hashlib.sha256(",".join(sorted(sensitive)).encode("utf-8")).hexdigest()
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="SensitiveBoundaryBlocked",
+                failure_hash=sensitive_hash, replan_result=replan_result, stage="Boundary",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
             # sensitive content is not a "try again differently" condition;
             # fail-closed immediately rather than loop.
-            return ExecutionResult(
+            return _make_result(
                 status="blocked", accepted=False, binding=binding, attempts=attempt,
                 workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
                 notes=tuple(notes),
             )
 
         # H11: executor must not be its own verifier.
-        verdict = verifier(diff_paths, forge_result)
-        if verdict.identity != binding.identity:
-            raise ExecutionBridgeError("verdict execution identity binding differs")
-        if verdict.verifier_id == executor_id:
-            raise ExecutionBridgeError(
-                f"executor and verifier must differ (both {executor_id})"
+        try:
+            verdict = verifier(diff_paths, forge_result)
+        except Exception as error:
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            notes.append(f"attempt{attempt}:tester_failed:{type(error).__name__}:{error_hash}")
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="TesterExecutionError",
+                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
             )
-        # H12: verifier must have actually inspected the diff (not text self-report).
-        if not verdict.checked_diff:
-            raise ExecutionBridgeError("verifier did not inspect the actual diff")
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
+            continue
+        try:
+            if verdict.identity != binding.identity:
+                raise ExecutionBridgeError("verdict execution identity binding differs")
+            if verdict.verifier_id == executor_id:
+                raise ExecutionBridgeError(
+                    f"executor and verifier must differ (both {executor_id})"
+                )
+            # H12: verifier must have actually inspected the diff (not text self-report).
+            if not verdict.checked_diff:
+                raise ExecutionBridgeError("verifier did not inspect the actual diff")
+        except Exception as error:
+            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+            notes.append(f"attempt{attempt}:tester_failed:{type(error).__name__}:{error_hash}")
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="TesterBindingError",
+                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
+            continue
         # H12 (test evidence): an ACCEPT is only valid with real executed-test
         # evidence. Syntax-only ("checked_tests=False") must never be accepted —
         # that was the hollow-acceptance bug. Fail-closed: downgrade to reject.
@@ -673,12 +888,36 @@ def run_safe_execution(
             evidence_bound = False
         if verdict.accepted and (not verdict.checked_tests or not evidence_bound):
             notes.append(f"attempt{attempt}:rejected:accept_without_test_evidence")
-            rollback(attempt)
+            failure_hash = hashlib.sha256(b"accept_without_test_evidence").hexdigest()
+            _record_failure(
+                attempt, plan_hash=plan_hash, failure_type="TesterEvidenceMissing",
+                failure_hash=failure_hash, replan_result=replan_result, stage="Tester",
+            )
+            if _rollback_or_fail(attempt) is not None:
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
             continue
 
         if verdict.accepted:
+            attempt_ledger.append(
+                {
+                    "attempt": attempt,
+                    "plan_hash": plan_hash,
+                    "result": "ACCEPTED",
+                    "failure_type": None,
+                    "failure_hash": None,
+                    "prior_failure_type": str(last_failure.get("failure_type")) if last_failure else None,
+                    "prior_failure_hash": str(last_failure.get("failure_hash")) if last_failure else None,
+                    "same_failure": False,
+                    "replan": bool(replan_result),
+                    "rollback": "not_required",
+                }
+            )
             notes.append(f"attempt{attempt}:accepted")
-            return ExecutionResult(
+            return _make_result(
                 status="accepted", accepted=True, binding=binding, attempts=attempt,
                 workspace=workspace, diff_paths=diff_paths, verification=verdict,
                 redaction_ok=True, notes=tuple(notes),
@@ -686,10 +925,25 @@ def run_safe_execution(
 
         # H6: rejected -> isolate this attempt and rework (bounded).
         notes.append(f"attempt{attempt}:rejected:{';'.join(verdict.reasons) or 'no-reason'}")
-        rollback(attempt)
+        failure_hash = verdict.verdict_hash
+        reviewer_rejected = "post_execution_reviewer_rejected" in verdict.reasons
+        _record_failure(
+            attempt,
+            plan_hash=plan_hash,
+            failure_type=("PostExecutionReviewerRejected" if reviewer_rejected else "TesterRejected"),
+            failure_hash=failure_hash,
+            replan_result=replan_result,
+            stage=("Reviewer" if reviewer_rejected else "Tester"),
+        )
+        if _rollback_or_fail(attempt) is not None:
+            return _make_result(
+                status="failed", accepted=False, binding=binding, attempts=attempt,
+                workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                notes=tuple(notes),
+            )
 
     # Bounded rework exhausted -> fail-closed.
-    return ExecutionResult(
+    return _make_result(
         status="rejected", accepted=False, binding=binding, attempts=max_attempts,
         workspace=workspace, diff_paths=last_diff, redaction_ok=True,
         notes=tuple(notes) + ("rework_exhausted_fail_closed",),

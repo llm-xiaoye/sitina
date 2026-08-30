@@ -20,7 +20,7 @@ from sitina.journal.fast_start import (
     RolloverPolicy,
 )
 from sitina.journal.local import LocalJournal
-from sitina.journal.model import EventEnvelope
+from sitina.journal.model import EventEnvelope, event_replay_projection_hash
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 from sitina.security.macos_keychain import MemoryKeychainBackend
 
@@ -108,6 +108,86 @@ class JournalFastStartV2Tests(unittest.TestCase):
         self.assertTrue(fast.fast_start_checkpoint_used)
         self.assertEqual(checkpoint["schema"], "SITINA_AUTHORITY_CHECKPOINT_V1")
         self.assertFalse(any("projection" in key.lower() for key in checkpoint))
+
+    def test_fast_start_exact_replay_uses_checkpoint_projection(self) -> None:
+        self._sealed_fixture()
+        report = FastStartLoader(
+            self.home,
+            journal_authenticator=self.auth,
+            authority_key_provider=self.keys,
+            rollback_anchor=self.anchor,
+        ).load()
+        reopened = LocalJournal.open(self.home, self.auth, fast_start_report=report)
+        try:
+            command = CommandEnvelope(
+                "cmd-1", "tenant-1", "stream-1", "fixture.change", "actor-1",
+                "2026-07-18T00:00:00Z", {"index": 1},
+            )
+            event = EventEnvelope(
+                "event-1", "fixture.changed", "tenant-1", "stream-1", 0, 0,
+                "2026-07-18T00:00:00Z", {"index": 1},
+            )
+            replay = reopened.append(command, 0, (event,))
+            self.assertEqual(replay.transaction_id, next(
+                value["transaction_id"] for value in report.command_receipts if value["command_id"] == "cmd-1"
+            ))
+            with self.assertRaises(Exception):
+                reopened.append(command, 0, (EventEnvelope(
+                    "event-1", "fixture.changed", "tenant-1", "stream-1", 0, 0,
+                    "2026-07-18T00:00:00Z", {"index": True},
+                ),))
+        finally:
+            reopened.close()
+
+    def test_second_rollover_carries_prior_projection_when_history_is_not_materialized(self) -> None:
+        journal = LocalJournal.open(self.home, self.auth)
+        self._append(journal, 1)
+        self._append(journal, 2)
+        maintainer = JournalFastStartMaintainer(
+            self.home,
+            journal_authenticator=self.auth,
+            authority_key_provider=self.keys,
+            rollback_anchor=self.anchor,
+            schema_registry_hash="a" * 64,
+        )
+        maintainer.rollover_and_checkpoint(
+            journal,
+            created_at="2026-07-18T00:01:00Z",
+            verified_at="2026-07-18T00:01:00Z",
+            authority_control_state_hash="b" * 64,
+            active_format_capabilities_hash="c" * 64,
+            fencing_state_hash="d" * 64,
+            minimum_writer_version="2",
+            rollback_floor_version="2",
+        )
+        self._append(journal, 3)
+        # Model a Fast Start writer whose sealed history is represented only
+        # by the authenticated prior checkpoint projection.  The on-disk
+        # segment still contains commands 1 and 2; they must not be replaced
+        # with an empty projection during the next rollover.
+        journal._events = [event for event in journal._events if event.event_id == "event-3"]
+        second = maintainer.rollover_and_checkpoint(
+            journal,
+            created_at="2026-07-18T00:02:00Z",
+            verified_at="2026-07-18T00:02:00Z",
+            authority_control_state_hash="b" * 64,
+            active_format_capabilities_hash="c" * 64,
+            fencing_state_hash="d" * 64,
+            minimum_writer_version="2",
+            rollback_floor_version="2",
+        )
+        command_index_path = self.home / "journal/indexes" / (
+            "authority-command-idempotency-" + second["command_idempotency_index_commitment"] + ".json"
+        )
+        values = json.loads(command_index_path.read_text(encoding="utf-8"))["data"]
+        self.assertEqual(values["cmd-1"]["event_projection"][0]["event_id"], "event-1")
+        self.assertEqual(values["cmd-2"]["event_projection"][0]["event_id"], "event-2")
+        self.assertEqual(values["cmd-3"]["event_projection"][0]["event_id"], "event-3")
+        self.assertEqual(
+            values["cmd-1"]["event_projection_hash"],
+            event_replay_projection_hash(values["cmd-1"]["event_projection"]),
+        )
+        journal.close()
 
     def test_typed_semantic_roots_are_checkpoint_bound_and_tail_ready(self) -> None:
         journal = LocalJournal.open(self.home, self.auth)

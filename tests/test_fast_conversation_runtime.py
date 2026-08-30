@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,44 @@ class FastConversationRuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.policy["max_provider_requests_per_run"], 1)
         forge = runtime.registry.get("agent-forge")
         self.assertTrue({"proposal", "synthesis", "read-only"}.issubset(forge.capabilities))
+
+    def test_ordinary_session_mode_persistence_uses_current_context_across_restart(self) -> None:
+        """FAST/session lifecycle must not load Legacy B+ state."""
+        home = Path(tempfile.mkdtemp(prefix="sitina-session-runtime-"))
+        try:
+            (home / "config").mkdir()
+            source_root = Path(__file__).resolve().parents[1]
+            for name in (
+                "context_policy.json", "conversation_router.json",
+                "true_multi_agent_agents.json", "true_multi_agent_policy.json",
+            ):
+                shutil.copy2(source_root / "config" / name, home / "config" / name)
+            keys = InMemoryKeyProvider(environment="session", namespace="restart")
+
+            def fresh_runtime() -> ConversationRuntime:
+                runtime = ConversationRuntime.__new__(ConversationRuntime)
+                runtime.home = home
+                runtime.context = ConversationContext.load(home)
+                runtime.runtime_context_factory = None
+                runtime.session_runtime_provider = keys
+                runtime.fast_runtime = FastConversationRuntime(
+                    home, session_runtime_provider=keys,
+                )
+                return runtime
+
+            with patch.dict(sys.modules, {"sitina.orchestrator.bplus_production": None}):
+                first = fresh_runtime()
+                original = ChatSession(session_id="session-without-bplus", mode=ChatMode.FAST)
+                first.persist_mode(original, ChatMode.AUTO)
+                second = fresh_runtime()
+                recovered = second.resume_or_create_session()
+
+            self.assertEqual(recovered.session_id, original.session_id)
+            self.assertIs(recovered.mode, ChatMode.AUTO)
+            self.assertFalse((home / ".sitina-bplus-disposable-v1").exists())
+            self.assertTrue((home / ".sitina-session-runtime-v1").is_file())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
 
     def test_router_uses_frozen_defaults_for_older_v1_configs(self) -> None:
         legacy_config = dict(self.router.config)
@@ -416,7 +455,7 @@ class FastConversationRuntimeTests(unittest.TestCase):
         executor.call.return_value.output_object_ref = Mock()
         lifecycle = Mock()
         with (
-            patch("sitina.conversation.fast_runtime.ProductionRuntimeContext.load", return_value=context_runtime),
+            patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context_runtime),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
             patch("sitina.conversation.fast_runtime.ProviderExecutor", return_value=executor),
             patch("sitina.conversation.fast_runtime.ConversationLifecycle", return_value=lifecycle),
@@ -464,7 +503,7 @@ class FastConversationRuntimeTests(unittest.TestCase):
         lifecycle.complete_turn.side_effect = RuntimeError("session finalization failed")
         terminalize = Mock(return_value={"terminal_state": "SUCCEEDED", "response": "durable answer"})
         with (
-            patch("sitina.conversation.fast_runtime.ProductionRuntimeContext.load", return_value=context_runtime),
+            patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context_runtime),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
             patch("sitina.conversation.fast_runtime.ProviderExecutor", return_value=executor),
             patch("sitina.conversation.fast_runtime.ConversationLifecycle", return_value=lifecycle),

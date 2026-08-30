@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -65,6 +66,21 @@ class InteractiveChatCliTests(unittest.TestCase):
         self.assertEqual(user_input.call_args_list[0].args[0], "你 [auto] > ")
         self.assertIn("当前模式：AUTO", output.getvalue())
         self.assertIn("→ FAST · 单 Agent", output.getvalue())
+
+    @patch("sitina.cli._is_production_home", return_value=False)
+    @patch("sitina.cli._bplus_installed", return_value=False)
+    @patch("sitina.cli.ConversationRuntime")
+    def test_code_mode_chat_start_is_not_gated_by_legacy_bplus(
+        self, runtime_type: Mock, _installed: Mock, _production: Mock
+    ) -> None:
+        runtime_type.return_value.resume_or_create_session.return_value = None
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as workspace, patch("builtins.input", side_effect=["/exit"]), patch(
+            "sys.stdout", output
+        ):
+            self.assertEqual(cli.cmd_chat(argparse.Namespace(workspace=workspace)), 0)
+        self.assertIn("Code Mode：/multi 可写", output.getvalue())
+        runtime_type.assert_called_once()
 
     @patch("sitina.cli._is_production_home", return_value=True)
     @patch("sitina.cli._bplus_installed", return_value=True)

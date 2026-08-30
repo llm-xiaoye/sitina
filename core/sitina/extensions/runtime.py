@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import json
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,10 @@ from sitina.extensions.tools import (
 )
 from sitina.runners.provider import (
     AnthropicCompatibleClient,
+    ProviderConnectTimeout,
+    ProviderDeadlineExceeded,
+    ProviderHTTPError,
+    ProviderReadTimeout,
     ProviderProfile,
     ProviderToolCall,
     ProviderToolTurn,
@@ -29,8 +34,12 @@ from sitina.security.redaction import redact_boundary_value
 from sitina.security.tool_security import summarize_tool_arguments, summarize_tool_result
 from sitina.runners.tool_executor import ToolExecutor
 from sitina.legacy.fence import issue_frozen_network_egress_capability
-from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 from sitina.utils import iso_now, redact_text, stable_json
+
+
+def _canonical(value: Any) -> bytes:
+    """Canonical bytes used only for host request binding hashes."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 class ToolTurnClient(Protocol):
@@ -47,6 +56,172 @@ class ToolTurnClient(Protocol):
         request_timeout_seconds: float | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> ProviderToolTurn: ...
+
+
+class BoundedToolTurnClient:
+    """Policy-bound provider transport for the Forge embedded tool loop.
+
+    ``AnthropicCompatibleClient`` intentionally performs one tool-turn
+    request.  Forge is still a real provider consumer, so it must use the
+    same retry/fallback limits and actual-profile accounting as the main
+    multi-agent calls.  This adapter is injected only by the execution bridge;
+    ordinary scripted/test clients remain untouched.
+    """
+
+    def __init__(
+        self,
+        client: ToolTurnClient,
+        primary_profile: ProviderProfile,
+        *,
+        run_id: str = "",
+        authoritative_physical: bool = False,
+        transport_ledger: Any | None = None,
+        transport_ledger_capability: object | None = None,
+        receipt_sink: Callable[[Mapping[str, Any]], None] | None = None,
+        retry_limit: int = 0,
+        fallback_profiles: Sequence[ProviderProfile] = (),
+        fallback_allowed: bool = False,
+        max_fallbacks: int = 0,
+        backoff_seconds: float = 0.25,
+    ):
+        self.client = client
+        self.primary_profile = primary_profile
+        self.run_id = str(run_id)
+        self.authoritative_physical = bool(authoritative_physical)
+        self.transport_ledger = transport_ledger
+        self.transport_ledger_capability = transport_ledger_capability
+        self.receipt_sink = receipt_sink
+        self.transport_receipts: list[dict[str, Any]] = []
+        self.last_profile = primary_profile
+        self.retry_limit = min(3, max(0, int(retry_limit)))
+        self.fallback_allowed = bool(fallback_allowed)
+        self.fallback_profiles = tuple(fallback_profiles)
+        self.max_fallbacks = min(1, max(0, int(max_fallbacks)), len(self.fallback_profiles)) if self.fallback_allowed else 0
+        self.backoff_seconds = max(0.0, float(backoff_seconds))
+        self._logical_turn_index = 0
+
+    def load_profile(self, profile_name: str) -> ProviderProfile:
+        return self.client.load_profile(profile_name)
+
+    @staticmethod
+    def _retryable(error: BaseException) -> bool:
+        if isinstance(error, (ProviderConnectTimeout, ProviderReadTimeout, ProviderDeadlineExceeded)):
+            return True
+        return isinstance(error, ProviderHTTPError) and error.status_code in {408, 429, 500, 502, 503, 504}
+
+    def complete_tool_turn(self, profile: ProviderProfile, **kwargs: Any) -> ProviderToolTurn:
+        del profile  # the bound primary/fallback profiles are the capability scope
+        active_profiles = [self.primary_profile, *self.fallback_profiles[: self.max_fallbacks]]
+        profile_index = 0
+        retries = 0
+        fallbacks = 0
+        physical_attempts = 0
+        self._logical_turn_index += 1
+        logical_call_id = f"{self.run_id}:embedded-call:{self._logical_turn_index}"
+        while True:
+            active_profile = active_profiles[profile_index]
+            self.last_profile = active_profile
+            try:
+                physical_attempts += 1
+                if self.authoritative_physical:
+                    if self.transport_ledger is None or self.transport_ledger_capability is None:
+                        raise RuntimeError("authoritative Forge send requires the issuer-bound transport ledger")
+                    host_body = self.transport_ledger.complete_tool_turn(
+                        self.transport_ledger_capability,
+                        run_id=self.run_id,
+                        effect_attempt_id=logical_call_id,
+                        provider_call_id=logical_call_id,
+                        provider_profile=active_profile.name,
+                        provider_model=active_profile.model,
+                        system_prompt=str(kwargs.get("system_prompt") or ""),
+                        messages=[dict(item) for item in (kwargs.get("messages") or ())],
+                        tools=[dict(item) for item in (kwargs.get("tools") or ())],
+                        system_prompt_hash=hashlib.sha256(str(kwargs.get("system_prompt") or "").encode()).hexdigest(),
+                        messages_hash=hashlib.sha256(_canonical(kwargs.get("messages") or ())).hexdigest(),
+                        tools_hash=hashlib.sha256(_canonical(kwargs.get("tools") or ())).hexdigest(),
+                        max_tokens=int(kwargs.get("max_tokens") or 0),
+                        timeout=float(kwargs.get("request_timeout_seconds") or 60),
+                    )
+                    raw_calls = host_body.get("tool_calls") or ()
+                    calls = []
+                    for item in raw_calls:
+                        if not isinstance(item, Mapping):
+                            raise RuntimeError("authoritative host returned an invalid tool call")
+                        arguments = item.get("arguments")
+                        if not isinstance(arguments, Mapping):
+                            raise RuntimeError("authoritative host returned invalid tool arguments")
+                        calls.append(ProviderToolCall(
+                            str(item.get("id") or ""),
+                            str(item.get("name") or ""),
+                            dict(arguments),
+                        ))
+                    metadata = dict(host_body.get("metadata") or {})
+                    turn = ProviderToolTurn(
+                        str(host_body.get("completion_text") or ""),
+                        tuple(calls),
+                        str(host_body.get("stop_reason") or "stop"),
+                        metadata,
+                    )
+                else:
+                    turn = self.client.complete_tool_turn(active_profile, **kwargs)
+                metadata = dict(turn.metadata)
+                if metadata.get("protocol_fallback_used") or metadata.get("structured_feature_fallback"):
+                    raise RuntimeError("provider protocol fallback is outside the signed Forge contract")
+                metadata.update(
+                    {
+                        # Scripted/injected clients never cross the
+                        # controller-owned network boundary.  Their logical
+                        # retry activity is useful for local budgeting, but
+                        # it cannot mint a canary-grade physical send.
+                        "physical_send_count": physical_attempts if self.authoritative_physical else 0,
+                        "retry_count": retries,
+                        "fallback_count": fallbacks,
+                        "sitina_provider_profile": active_profile.name,
+                        "sitina_provider_model": active_profile.model,
+                    }
+                )
+                if self.authoritative_physical:
+                    # The host already observed and atomically settled this
+                    # response.  Do not accept worker-reported usage or call a
+                    # worker-side settlement API.
+                    receipt = host_body.get("receipt")
+                    if not isinstance(receipt, Mapping):
+                        raise RuntimeError("authoritative host returned no transport receipt")
+                    self.transport_receipts.append(dict(receipt))
+                    if self.receipt_sink is not None:
+                        self.receipt_sink(dict(receipt))
+                return ProviderToolTurn(turn.text, turn.tool_calls, turn.stop_reason, metadata)
+            except BaseException as error:
+                # Preserve bounded physical-send accounting on the original
+                # provider exception.  The runtime's fail event can then
+                # audit failed/recovered sends without persisting exception
+                # text or changing the provider exception contract.
+                try:
+                    setattr(
+                        error,
+                        "sitina_physical_send_count",
+                        physical_attempts if self.authoritative_physical else 0,
+                    )
+                    setattr(error, "sitina_retry_count", retries)
+                    setattr(error, "sitina_fallback_count", fallbacks)
+                    setattr(error, "sitina_provider_profile", active_profile.name)
+                    setattr(error, "sitina_provider_model", active_profile.model)
+                except Exception:
+                    pass
+                if not self._retryable(error):
+                    raise
+                if retries < self.retry_limit:
+                    retries += 1
+                    if self.backoff_seconds:
+                        time.sleep(min(8.0, self.backoff_seconds * (2 ** (retries - 1))))
+                    continue
+                if not self.fallback_allowed or fallbacks >= self.max_fallbacks:
+                    raise
+                profile_index += 1
+                fallbacks += 1
+                # Retry budget is per logical request, not per provider
+                # profile.  A fallback is a provider switch, never a new
+                # allowance to resend three more times.
 
 
 class AutonomousRuntimeError(RuntimeError):
@@ -140,6 +315,33 @@ def _provider_usage_totals(
 def _mutation_evidence(
     tool_results: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    def is_external_mutation(item: Mapping[str, Any]) -> bool:
+        permission = str(item.get("permission") or "")
+        value = item.get("result")
+        if permission == "shell" and isinstance(value, Mapping) and value.get("unregistered_paths"):
+            return True
+        if str(item.get("status") or "") != "ok":
+            return False
+        arguments = item.get("arguments")
+        args = arguments if isinstance(arguments, Mapping) else {}
+        if permission == "external_service":
+            return True
+        if permission == "network":
+            return str(args.get("method") or "GET").upper() in {"POST", "PUT", "PATCH", "DELETE"}
+        if permission != "shell":
+            return False
+        command = str(args.get("command") or "").casefold()
+        # Test/build/install commands are local workspace activity.  Count
+        # only commands with a clear external or irreversible side effect.
+        markers = (
+            "git push", "git commit", "git tag", "docker push", "docker deploy",
+            "kubectl apply", "helm upgrade", "terraform apply", "pulumi up",
+            "deploy", "publish", "release", "drop database", "drop table",
+            "alter database", "alembic upgrade", "prisma migrate deploy",
+            "curl -x post", "curl --request post", "wget --post-data",
+        )
+        return any(marker in command for marker in markers)
+
     events: list[dict[str, Any]] = []
     denied_attempts = 0
     external_mutations = 0
@@ -151,10 +353,10 @@ def _mutation_evidence(
         value = item.get("result")
         arguments_map = arguments if isinstance(arguments, Mapping) else {}
         value_map = value if isinstance(value, Mapping) else {}
-        denied = status != "ok" and decision == "denied"
-        if denied and permission in {"write", "shell", "network", "external_service"}:
+        denied = status != "ok" and permission in {"write", "shell", "network", "external_service"}
+        if denied:
             denied_attempts += 1
-        if status == "ok" and permission in {"shell", "network", "external_service"}:
+        if is_external_mutation(item):
             external_mutations += 1
         if permission != "write":
             continue
@@ -164,20 +366,28 @@ def _mutation_evidence(
             normalized_path = str(Path(raw_path).expanduser().resolve(strict=False))
         before_hash = value_map.get("before_hash")
         after_hash = value_map.get("after_hash")
-        operation = "denied_write" if denied else "append" if value_map.get("append") else (
-            "create" if before_hash is None else "modify"
-        )
+        operation = str(value_map.get("operation") or (
+            "denied_write" if denied else "append" if value_map.get("append") else (
+                "create" if before_hash is None else "modify"
+            )
+        ))
         events.append(
             {
                 "schema": "SITINA_FILE_MUTATION_EVENT_V1",
                 "sequence": sequence,
                 "operation": operation,
                 "path": normalized_path,
+                "destination": (
+                    str(Path(str(value_map["destination"])).expanduser().resolve(strict=False))
+                    if isinstance(value_map.get("destination"), str) else None
+                ),
                 "before_hash": before_hash if isinstance(before_hash, str) else None,
                 "after_hash": after_hash if isinstance(after_hash, str) else None,
                 "authorization_ref": item.get("authorization_ref"),
                 "tool_call_id": item.get("call_id"),
                 "tool_name": item.get("name"),
+                "worker_observed": value_map.get("worker_observed") is True,
+                "worker_binding_hash": value_map.get("worker_binding_hash"),
                 "status": status,
                 "denied": denied,
             }
@@ -217,55 +427,78 @@ class JournalAutonomousAudit:
         self.object_refs: list[str] = []
         self.event_ids: list[str] = []
         self.positions: list[int] = []
+        self._append_lock = threading.RLock()
 
     def append(self, event: str, payload: Mapping[str, Any]) -> None:
-        from sitina.cas.crypto import encrypt_object
-        from sitina.journal.model import canonical_json_bytes
+        # CAS publication, canonical stream append, and the in-memory receipt
+        # projections form one writer-critical section.  Tool reads may run
+        # concurrently, but audit facts must never race the stream frontier.
+        with self._append_lock:
+            from sitina.cas.crypto import encrypt_object
+            from sitina.journal.model import canonical_json_bytes
 
-        clean = _redact_audit_payload(payload)
-        record = {
-            "schema": "SITINA_AUTONOMOUS_RUN_RECORD_V2",
-            "timestamp": iso_now(),
-            "run_id": self.run_id,
-            "event": event,
-            "payload": clean,
-        }
-        raw = canonical_json_bytes(record)
-        proof = self.cas.publish_verified(
-            encrypt_object(raw, self.keys, tenant_id=self.TENANT, purpose="autonomous-run-record")
-        )
-        record_hash = hashlib.sha256(raw).hexdigest()
-        safe_metadata = {
-            key: clean[key]
-            for key in (
-                "turn",
-                "call_id",
-                "name",
-                "permission",
-                "status",
-                "stop_reason",
-                "physical_send_count",
+            clean = _redact_audit_payload(payload)
+            record = {
+                "schema": "SITINA_AUTONOMOUS_RUN_RECORD_V2",
+                "timestamp": iso_now(),
+                "run_id": self.run_id,
+                "event": event,
+                "payload": clean,
+            }
+            raw = canonical_json_bytes(record)
+            proof = self.cas.publish_verified(
+                encrypt_object(raw, self.keys, tenant_id=self.TENANT, purpose="autonomous-run-record")
             )
-            if key in clean and isinstance(clean[key], (str, int, bool))
-        }
-        _receipt, references = self.stream.append(
-            "autonomous-" + event.replace("_", "-"),
-            (
-                {
-                    "schema": "SITINA_AUTONOMOUS_RUN_EVENT_V2",
-                    "event_type": "autonomous." + event.replace("_", "-"),
-                    "record_ref": proof.object_ref.reference_id,
-                    "record_hash": record_hash,
-                    **safe_metadata,
-                    "_object_refs": [proof.object_ref.reference_id],
-                },
-            ),
-            actor="autonomous-conversation-runtime",
-            proofs=(proof,),
-        )
-        self.object_refs.append(proof.object_ref.reference_id)
-        self.event_ids.extend(str(item["event_id"]) for item in references)
-        self.positions.extend(int(item["position"]) for item in references)
+            record_hash = hashlib.sha256(raw).hexdigest()
+            safe_metadata = {
+                key: clean[key]
+                for key in (
+                    "turn",
+                    "call_id",
+                    "name",
+                    "permission",
+                    "status",
+                    "stop_reason",
+                    "physical_send_count",
+                    "embedded_call_id",
+                    "effect_id",
+                    "effect_attempt_id",
+                    "provider_request_id",
+                    "provider_response_id",
+                    "provider_profile",
+                    "provider_model",
+                    "retry_count",
+                    "fallback_count",
+                    "retry_limit",
+                    "fallback_limit",
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_read_tokens",
+                    "cache_write_tokens",
+                    "total_tokens",
+                    "error_type",
+                    "error_hash",
+                )
+                if key in clean and isinstance(clean[key], (str, int, bool))
+            }
+            _receipt, references = self.stream.append(
+                "autonomous-" + event.replace("_", "-"),
+                (
+                    {
+                        "schema": "SITINA_AUTONOMOUS_RUN_EVENT_V2",
+                        "event_type": "autonomous." + event.replace("_", "-"),
+                        "record_ref": proof.object_ref.reference_id,
+                        "record_hash": record_hash,
+                        **safe_metadata,
+                        "_object_refs": [proof.object_ref.reference_id],
+                    },
+                ),
+                actor="autonomous-conversation-runtime",
+                proofs=(proof,),
+            )
+            self.object_refs.append(proof.object_ref.reference_id)
+            self.event_ids.extend(str(item["event_id"]) for item in references)
+            self.positions.extend(int(item["position"]) for item in references)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -298,8 +531,15 @@ class AutonomousRuntime:
         max_tokens: int = 4096,
         max_turns: int = 50,
         enforce_write_boundary: bool = False,
+        before_hashes: Mapping[str, str | None] | None = None,
+        strict_workspace: bool = False,
+        managed_process_manager: Any | None = None,
+        authorization_binding: Mapping[str, Any] | None = None,
+        authorization_authority: Any | None = None,
         provider_preflight: Callable[[int], None] | None = None,
         provider_settlement: Callable[[Mapping[str, Any]], None] | None = None,
+        provider_failure_settlement: Callable[[Mapping[str, Any]], None] | None = None,
+        write_executor: Any | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.manager = manager or ExtensionManager(self.home)
@@ -311,6 +551,8 @@ class AutonomousRuntime:
             base_client = AnthropicCompatibleClient(self.home)
             self.profile = profile or base_client.load_profile(selected_profile)
             if (self.home / "state/.legacy-control/frozen.json").is_file():
+                from sitina.orchestrator.bplus_production import ProductionRuntimeContext
+
                 context = ProductionRuntimeContext.load(
                     self.home,
                     allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
@@ -338,13 +580,22 @@ class AutonomousRuntime:
             self.manager,
             approval_callback=approval_callback,
             workspace=workspace or self.home,
-            write_executor=ToolExecutor(self.home, enforce_write_boundary=enforce_write_boundary),
+            write_executor=write_executor or ToolExecutor(
+                self.home,
+                enforce_write_boundary=enforce_write_boundary,
+                authorization_binding=authorization_binding,
+                authorization_authority=authorization_authority,
+            ),
+            before_hashes=before_hashes,
+            strict_workspace=strict_workspace,
+            managed_process_manager=managed_process_manager,
         )
         self.hooks = HookRunner(self.catalog)
         self.max_tokens = max_tokens
         self.max_turns = max(1, int(max_turns))
         self.provider_preflight = provider_preflight
         self.provider_settlement = provider_settlement
+        self.provider_failure_settlement = provider_failure_settlement
         self._journal_audit: JournalAutonomousAudit | None = None
 
     def globally_enabled(self) -> bool:
@@ -483,7 +734,10 @@ class AutonomousRuntime:
                     pass
             raise
         finally:
-            finish()
+            try:
+                self._cleanup_managed_processes()
+            finally:
+                finish()
 
     def run_embedded(
         self,
@@ -526,7 +780,36 @@ class AutonomousRuntime:
                 status_callback=status_callback,
             )
         finally:
-            self._journal_audit = None
+            try:
+                self._cleanup_managed_processes()
+            finally:
+                self._journal_audit = None
+
+    def _cleanup_managed_processes(self) -> None:
+        manager = getattr(self.catalog, "_managed_process_manager", None)
+        if manager is None:
+            return
+        try:
+            reconcile = getattr(self.catalog, "reconcile_managed_processes", None)
+            try:
+                if callable(reconcile):
+                    reconcile()
+            finally:
+                # Even when reconciliation raises because an async process
+                # dirtied the workspace, the process itself must still be
+                # stopped before the error leaves the runtime.
+                manager.cleanup()
+        except Exception as error:
+            if self._journal_audit is not None:
+                self._journal_audit.append(
+                    "managed_process_cleanup_failed",
+                    {
+                        "error_type": type(error).__name__,
+                        "error_hash": hashlib.sha256(str(error).encode()).hexdigest(),
+                        "success_claimed": False,
+                    },
+                )
+            raise
 
     def _run_active(
         self,
@@ -559,6 +842,7 @@ class AutonomousRuntime:
         )
         self.hooks.run("before_agent", {"run_id": run_id, "task": task})
         recent_signatures: list[str] = []
+        empty_final_repair_used = False
         while True:
             # M1.5 loop robustness: hard turn cap — graceful stop, not a crash.
             if provider_turns >= self.max_turns:
@@ -605,11 +889,23 @@ class AutonomousRuntime:
                 )
             if status_callback:
                 status_callback("model_turn", {"run_id": run_id, "turn": provider_turns + 1})
+            embedded_call_id = f"{run_id}:embedded-call:{provider_turns + 1}"
+            effect_id = f"{run_id}:embedded-effect:{provider_turns + 1}"
+            effect_attempt_id = f"{effect_id}:attempt:1"
+            provider_profile = str(getattr(self.profile, "name", "unknown"))
+            provider_model = str(getattr(self.profile, "model", "unknown"))
             self._audit(
                 run_id,
                 "provider_call_intended",
                 {
                     "turn": provider_turns + 1,
+                    "embedded_call_id": embedded_call_id,
+                    "effect_id": effect_id,
+                    "effect_attempt_id": effect_attempt_id,
+                    "provider_profile": provider_profile,
+                    "provider_model": provider_model,
+                    "retry_limit": int(getattr(self.client, "retry_limit", 0) or 0),
+                    "fallback_limit": int(getattr(self.client, "max_fallbacks", 0) or 0),
                     "system_prompt": system_prompt,
                     "messages": messages,
                     "tools": tool_schemas,
@@ -628,19 +924,63 @@ class AutonomousRuntime:
                     cancel_check=cancel_check,
                 )
             except BaseException as error:
+                physical_send_count = int(getattr(error, "sitina_physical_send_count", 0) or 0)
+                retry_count = int(getattr(error, "sitina_retry_count", 0) or 0)
+                fallback_count = int(getattr(error, "sitina_fallback_count", 0) or 0)
+                failure_metadata = {
+                    "embedded_call_id": embedded_call_id,
+                    "effect_id": effect_id,
+                    "effect_attempt_id": effect_attempt_id,
+                    "provider_profile": str(getattr(error, "sitina_provider_profile", provider_profile)),
+                    "provider_model": str(getattr(error, "sitina_provider_model", provider_model)),
+                    "physical_send_count": physical_send_count,
+                    "retry_count": retry_count,
+                    "fallback_count": fallback_count,
+                    "usage_status": "unknown",
+                    "usage_unsettled": bool(physical_send_count),
+                }
+                if self.provider_failure_settlement is not None:
+                    self.provider_failure_settlement(failure_metadata)
                 self._audit(
                     run_id,
                     "provider_call_failed",
                     {
                         "turn": provider_turns + 1,
+                        **failure_metadata,
                         "error_type": type(error).__name__,
                         "error_hash": hashlib.sha256(str(error).encode()).hexdigest(),
-                        "automatic_retry_performed": False,
+                        "automatic_retry_performed": bool(retry_count or fallback_count),
                     },
                 )
                 raise
             provider_turns += 1
-            provider_metadata.append(dict(turn.metadata))
+            turn_metadata = dict(turn.metadata)
+            usage = _provider_usage_totals((turn_metadata,))
+            provider_profile = str(turn_metadata.get("sitina_provider_profile") or provider_profile)
+            provider_model = str(turn_metadata.get("sitina_provider_model") or provider_model)
+            provider_request_id = turn_metadata.get("provider_request_id")
+            provider_response_id = turn_metadata.get("provider_response_id")
+            if not isinstance(provider_request_id, str) or not provider_request_id:
+                provider_request_id = provider_response_id if isinstance(provider_response_id, str) else None
+            if not isinstance(provider_response_id, str) or not provider_response_id:
+                provider_response_id = provider_request_id
+            turn_metadata.update(
+                {
+                    "embedded_call_id": embedded_call_id,
+                    "effect_id": effect_id,
+                    "effect_attempt_id": effect_attempt_id,
+                    "provider_profile": provider_profile,
+                    "provider_model": provider_model,
+                    "input_tokens": usage["input_tokens"],
+                    "output_tokens": usage["output_tokens"],
+                    "cache_read_tokens": usage["cache_read_tokens"],
+                    "cache_write_tokens": usage["cache_write_tokens"],
+                    "total_tokens": usage["total_tokens"],
+                    **({"provider_request_id": provider_request_id} if provider_request_id else {}),
+                    **({"provider_response_id": provider_response_id} if provider_response_id else {}),
+                }
+            )
+            provider_metadata.append(turn_metadata)
             if self.provider_settlement is not None:
                 self.provider_settlement(turn.metadata)
             assistant_calls = [
@@ -653,15 +993,44 @@ class AutonomousRuntime:
                 "model_turn_completed",
                 {
                     "turn": provider_turns,
+                    "embedded_call_id": embedded_call_id,
+                    "effect_id": effect_id,
+                    "effect_attempt_id": effect_attempt_id,
+                    "provider_profile": provider_profile,
+                    "provider_model": provider_model,
+                    "provider_request_id": provider_request_id,
+                    "provider_response_id": provider_response_id,
+                    "input_tokens": usage["input_tokens"],
+                    "output_tokens": usage["output_tokens"],
+                    "cache_read_tokens": usage["cache_read_tokens"],
+                    "cache_write_tokens": usage["cache_write_tokens"],
+                    "total_tokens": usage["total_tokens"],
                     "stop_reason": turn.stop_reason,
                     "tool_calls": assistant_calls,
                     "text": turn.text,
-                    "metadata": turn.metadata,
+                    "metadata": turn_metadata,
                 },
             )
             if not turn.tool_calls:
                 response = turn.text.strip()
                 if not response:
+                    if not empty_final_repair_used:
+                        empty_final_repair_used = True
+                        self._audit(
+                            run_id,
+                            "empty_final_response_repair_requested",
+                            {"turn": provider_turns, "attempt": 1},
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Previous turn ended without content. Return one concise final result now; "
+                                    "do not call tools."
+                                ),
+                            }
+                        )
+                        continue
                     raise AutonomousRuntimeError("provider ended the tool loop without a final response")
                 self.hooks.run("after_agent", {"run_id": run_id, "task": task, "response": response})
                 if lifecycle is not None:
@@ -781,6 +1150,25 @@ class AutonomousRuntime:
                 read_calls.append(call)
             else:
                 gated_calls.append(call)
+        # Intended facts are provider-call ordered and must be committed by
+        # this coordinator before any read worker starts.  The workers still
+        # execute the read tools concurrently; they do not write Journal/CAS.
+        for call in calls:
+            definition = self.catalog.get(call.name)
+            self._audit(
+                run_id,
+                "tool_call_intended",
+                {
+                    "call_id": call.call_id,
+                    "name": call.name,
+                    "argument_summary": summarize_tool_arguments(
+                        definition.origin,
+                        call.name,
+                        call.arguments,
+                    ),
+                    "permission": definition.permission,
+                },
+            )
         results: dict[str, ToolResult] = {}
         if read_calls:
             # This pool is sized to the model's current request, not to a fixed
@@ -795,20 +1183,6 @@ class AutonomousRuntime:
 
     def _execute_one(self, run_id: str, call: ProviderToolCall) -> ToolResult:
         definition = self.catalog.get(call.name)
-        self._audit(
-            run_id,
-            "tool_call_intended",
-            {
-                "call_id": call.call_id,
-                "name": call.name,
-                "argument_summary": summarize_tool_arguments(
-                    definition.origin,
-                    call.name,
-                    call.arguments,
-                ),
-                "permission": definition.permission,
-            },
-        )
         self.hooks.run(
             "before_tool",
             {"run_id": run_id, "tool": call.name, "permission": definition.permission, "arguments": call.arguments},
@@ -889,6 +1263,18 @@ class AutonomousRuntime:
     ) -> dict[str, Any]:
         usage = _provider_usage_totals(provider_metadata)
         mutations = _mutation_evidence(tool_results)
+        retry_count = sum(int(item.get("retry_count", 0) or 0) for item in provider_metadata)
+        fallback_count = sum(int(item.get("fallback_count", 0) or 0) for item in provider_metadata)
+        actual_profiles = [
+            str(item["sitina_provider_profile"])
+            for item in provider_metadata
+            if isinstance(item.get("sitina_provider_profile"), str)
+        ]
+        actual_models = [
+            str(item["sitina_provider_model"])
+            for item in provider_metadata
+            if isinstance(item.get("sitina_provider_model"), str)
+        ]
         return {
             "status": status,
             "terminal_state": terminal_state,
@@ -898,6 +1284,12 @@ class AutonomousRuntime:
             "provider_physical_send_count": sum(
                 int(item.get("physical_send_count", 1)) for item in provider_metadata
             ),
+            "provider_retry_count": retry_count,
+            "provider_fallback_count": fallback_count,
+            "provider_profile": actual_profiles[-1] if actual_profiles else None,
+            "provider_model": actual_models[-1] if actual_models else None,
+            "provider_profiles": list(dict.fromkeys(actual_profiles)),
+            "provider_models": list(dict.fromkeys(actual_models)),
             "provider_input_tokens": usage["input_tokens"],
             "provider_output_tokens": usage["output_tokens"],
             "provider_cache_read_tokens": usage["cache_read_tokens"],
@@ -910,8 +1302,8 @@ class AutonomousRuntime:
             "selected_plugin_agents": [f"{item.plugin_name}:{item.name}" for item in agents],
             "provider_metadata": [dict(item) for item in provider_metadata],
             "mutation_events": mutations["events"],
-            "accepted_file_operation_contract": ["create", "modify", "append"],
-            "unsupported_file_operations": ["delete", "rename"],
+            "accepted_file_operation_contract": ["create", "modify", "append", "rename", "delete"],
+            "unsupported_file_operations": [],
             "file_mutation_event_count": mutations["file_mutation_event_count"],
             "unique_mutated_path_count": mutations["unique_mutated_path_count"],
             "denied_effect_attempt_count": mutations["denied_effect_attempt_count"],

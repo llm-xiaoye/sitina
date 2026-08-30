@@ -110,6 +110,9 @@ class PublishedObjectReceipt:
     durability_profile: str
     fresh_verified: bool
     no_replace_published: bool
+    # Stable purpose identity for Journal replay.  It is derived from the
+    # authenticated CAS envelope, never supplied by a Journal caller.
+    purpose_class: str | None = None
     _issuer: object = field(repr=False, compare=False, default=None)
 
     def __post_init__(self) -> None:
@@ -153,4 +156,3 @@ class ExistingDurableObjectRootProof:
     @classmethod
     def _issue(cls, **values: Any) -> "ExistingDurableObjectRootProof":
         return cls(**values, _issuer=_ROOT_PROOF_ISSUER)
-

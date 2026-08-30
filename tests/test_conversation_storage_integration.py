@@ -23,6 +23,7 @@ from sitina.effects.results import ResultPipeline, ResultPolicy
 from sitina.journal.local import LocalJournal
 from sitina.orchestrator.bplus_production import VerifiedJournalReadView
 from sitina.orchestrator.true_multi_agent_runtime import (
+    AgentIdentity,
     ProviderExecutor,
     RuntimeActivation,
     TrueMultiAgentRuntimeError,
@@ -37,14 +38,15 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 class ControlledProviderTransport:
     """One-send deterministic transport behind the real EffectGateway."""
 
-    def __init__(self) -> None:
+    def __init__(self, outputs: list[dict[str, object]] | None = None) -> None:
         self.profile = SimpleNamespace(name="deepseek", model="deepseek-v4-pro")
         self.prompts: dict[str, tuple[str, str]] = {}
         self.physical_send_count = 0
+        self.outputs = list(outputs or [])
 
     def send_once(self, request, effect_attempt_id: str) -> dict[str, object]:
         self.physical_send_count += 1
-        value = {
+        value = dict(self.outputs.pop(0)) if self.outputs else {
             "agent_id": str(request.request["agent_id"]),
             "kind": "conversation_answer",
             "answer": "The controlled storage path recovered this exact answer.",
@@ -52,6 +54,7 @@ class ControlledProviderTransport:
             "needs_multi": False,
             "escalation_reasons": [],
         }
+        value.setdefault("agent_id", str(request.request["agent_id"]))
         return {
             "raw_text": json.dumps(value, sort_keys=True),
             "metadata": {
@@ -101,6 +104,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
                 "output_micro_usd_per_million_tokens": 2_000_000,
             },
         }
+        executor.run_id = "run-1"
         executor.call_count = 0
         executor.embedded_call_count = 0
         executor.embedded_physical_send_count = 0
@@ -112,6 +116,11 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         executor.cost_total_micro_usd = 0
         executor.unsettled_usage_count = 0
         executor.transport = SimpleNamespace(physical_send_count=0)
+        executor.canary_authorization = None
+        executor._transport_authorization_id = ""
+        executor._transport_authorization_run_id = "run-1"
+        executor._embedded_transport_receipt_seen = set()
+        executor._embedded_transport_receipts_by_identity = {}
         return executor
 
     def test_unified_budget_records_embedded_cache_usage_and_cost(self) -> None:
@@ -139,10 +148,121 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
                 "total_tokens": 20,
                 "cost_micro_usd": 28,
                 "unsettled_usage_count": 0,
+                "retry_count": 0,
+                "fallback_count": 0,
             },
         )
         self.assertEqual(executor.provider_call_total(), 1)
+        # This fixture is a scripted/injected client.  Its self-reported
+        # physical_send_count cannot mint a canary-grade send; it is still a
+        # real logical embedded call for budget accounting.
+        self.assertEqual(executor.embedded_call_count, 1)
+        self.assertEqual(executor.physical_send_total(), 0)
+
+    def test_authoritative_embedded_receipt_is_the_only_physical_send_source(self) -> None:
+        executor = self._budget_only_executor()
+
+        class IssuerBoundLedger:
+            @staticmethod
+            def contains(receipt):
+                return receipt.get("receipt_id") == "issuer-receipt-1"
+
+        executor.transport = SimpleNamespace(
+            physical_send_count=0,
+            authoritative_physical=True,
+            transport_ledger=IssuerBoundLedger(),
+        )
+        executor._transport_authorization_id = "auth-current"
+        executor._transport_authorization_run_id = "run-1"
+        executor._embedded_transport_receipts = []
+        executor._settled_embedded_transport_receipt_count = 0
+        receipt = {
+            "receipt_id": "issuer-receipt-1",
+            "receipt_hash": "a" * 64,
+            "authorization_id": "auth-current",
+            "run_id": "run-1",
+        }
+        executor.record_embedded_transport_receipt(
+            receipt
+        )
+        # Redelivery of the exact host receipt is idempotent and cannot
+        # increase the physical-send cursor.
+        executor.record_embedded_transport_receipt(dict(receipt))
+        executor.settle_embedded_provider_call(
+            {
+                # Deliberately contradictory client metadata must be ignored.
+                "physical_send_count": 99,
+                "token_usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        )
+        self.assertEqual(executor.embedded_call_count, 1)
         self.assertEqual(executor.physical_send_total(), 1)
+
+    def test_embedded_receipt_rejects_foreign_run_or_authorization(self) -> None:
+        executor = self._budget_only_executor()
+
+        class IssuerBoundLedger:
+            @staticmethod
+            def contains(receipt):
+                return receipt.get("receipt_hash") in {"b" * 64, "c" * 64}
+
+        executor.transport = SimpleNamespace(
+            physical_send_count=0,
+            authoritative_physical=True,
+            transport_ledger=IssuerBoundLedger(),
+        )
+        executor._transport_authorization_id = "auth-current"
+        executor._transport_authorization_run_id = "run-1"
+        executor._embedded_transport_receipts = []
+        executor._settled_embedded_transport_receipt_count = 0
+        with self.assertRaises(PermissionError):
+            executor.record_embedded_transport_receipt({
+                "receipt_hash": "b" * 64,
+                "authorization_id": "auth-other",
+                "run_id": "run-1",
+            })
+        with self.assertRaises(PermissionError):
+            executor.record_embedded_transport_receipt({
+                "receipt_hash": "c" * 64,
+                "authorization_id": "auth-current",
+                "run_id": "run-other",
+            })
+        self.assertEqual(executor.physical_send_total(), 0)
+
+    def test_authoritative_embedded_metadata_without_receipt_is_not_physical(self) -> None:
+        executor = self._budget_only_executor()
+        executor.transport = SimpleNamespace(
+            physical_send_count=0,
+            authoritative_physical=True,
+            transport_ledger=object(),
+        )
+        executor._embedded_transport_receipts = []
+        executor._settled_embedded_transport_receipt_count = 0
+        executor.settle_embedded_provider_call(
+            {
+                "physical_send_count": 1,
+                "token_usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        )
+        self.assertEqual(executor.embedded_call_count, 1)
+        self.assertEqual(executor.physical_send_total(), 0)
+
+    def test_non_authoritative_embedded_failure_metadata_cannot_mint_physical_send(self) -> None:
+        executor = self._budget_only_executor()
+        executor.settle_failed_embedded_provider_call(
+            {"physical_send_count": 7, "retry_count": 3, "fallback_count": 1}
+        )
+        self.assertEqual(executor.embedded_call_count, 1)
+        self.assertEqual(executor.physical_send_total(), 0)
+        self.assertEqual(executor.unsettled_usage_count, 1)
 
     def test_post_response_budget_overrun_preserves_actual_usage(self) -> None:
         executor = self._budget_only_executor(max_tokens=20)
@@ -204,7 +324,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         process_one.context = ConversationContext.load(self.home)
         original = ChatSession(session_id="session-durable-auto", mode=ChatMode.FAST)
         with patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
+            "sitina.conversation.runtime.SessionRuntimeContext.open",
             return_value=context,
         ):
             process_one.persist_mode(original, ChatMode.AUTO)
@@ -252,6 +372,123 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         )
         return executor
 
+    def test_parent_contract_rejection_precedes_task_accept_and_can_repair_once(self) -> None:
+        """A wrong parent is recorded as a rejection, never as an accepted call."""
+
+        from sitina.orchestrator.true_multi_agent import _require_exact_parent_output_hash
+
+        cas = LocalCAS.open(self.home, self.keys)
+        activation_receipt = cas.publish_verified(
+            encrypt_object(b"controlled-parent-contract-activation", self.keys, tenant_id="default")
+        )
+        activation = RuntimeActivation(
+            {"schema": "CONTROLLED_RUNTIME_ACTIVATION_V1", "provider": {"base_url_host": "api.deepseek.com"}},
+            "a" * 64,
+            activation_receipt,
+        )
+
+        class ControlledContext:
+            provider = self.keys
+            events: tuple[object, ...] = ()
+
+        context = ControlledContext()
+        journal = LocalJournal.open(self.home, self.auth)
+        policy = {
+            "provider_profile": "deepseek",
+            "max_provider_requests_per_run": 4,
+            "max_output_tokens_per_request": 32,
+            "max_total_tokens_per_run": 1000,
+            "max_total_cost_micro_usd_per_run": 1000,
+            "pricing": {
+                "input_micro_usd_per_million_tokens": 1,
+                "output_micro_usd_per_million_tokens": 1,
+            },
+        }
+        expected = "sha256:" + "c" * 64
+        wrong = {
+            "agent_id": "agent-atlas",
+            "kind": "proposal",
+            "summary": "wrong binding",
+            "parent_output_hash": "sha256:" + "d" * 64,
+        }
+        exact = {
+            "agent_id": "agent-atlas",
+            "kind": "proposal",
+            "summary": "exact binding",
+            "parent_output_hash": expected,
+        }
+        executor = self._controlled_executor(
+            self.home, context, "run-parent-contract", "b" * 64,
+            policy, activation, journal, cas,
+        )
+        executor.transport = ControlledProviderTransport([wrong, exact])
+        executor.gateway = EffectGateway(executor.transport)
+        agent = AgentIdentity(
+            "agent-atlas", "analyst", ("goal-analysis",), "deepseek", 1, ("low",)
+        )
+        def validate(value):
+            _require_exact_parent_output_hash(value, expected)
+            if not isinstance(value.get("summary"), str) or not value["summary"].strip():
+                raise TrueMultiAgentRuntimeError("summary is required")
+        try:
+            with self.assertRaises(TrueMultiAgentRuntimeError):
+                executor.call(
+                    agent,
+                    task_id="negotiation-round-2-1",
+                    kind="proposal",
+                    system_prompt="system",
+                    user_prompt="wrong then exact",
+                    input_context={"parent_output_hash": expected},
+                    validate=validate,
+                )
+            self.assertEqual(len(executor.results), 0)
+            self.assertEqual(len(executor.rejected_calls), 1)
+            rejection = executor.rejected_calls[0]
+            self.assertEqual(rejection["reason_code"], "PARENT_OUTPUT_HASH_MISMATCH")
+            self.assertEqual(rejection["expected_binding_hash"], expected)
+            self.assertEqual(rejection["result_admission"], "REJECTED")
+            self.assertTrue(
+                any(
+                    event.payload.get("schema") == "AGENT_OUTPUT_CONTRACT_REJECTED_V1"
+                    for event in journal.iter_events(0)
+                )
+            )
+            accepted = executor.call(
+                agent,
+                task_id="negotiation-round-2-1",
+                kind="proposal",
+                system_prompt="system",
+                user_prompt="exact repair",
+                input_context={"parent_output_hash": expected},
+                validate=validate,
+            )
+            self.assertEqual(accepted.value["parent_output_hash"], expected)
+            self.assertEqual(len(executor.results), 1)
+            self.assertEqual(len(executor.rejected_calls), 1)
+            executor.results.clear()
+            executor.rejected_calls.clear()
+            executor.transport = ControlledProviderTransport([wrong, wrong])
+            executor.gateway = EffectGateway(executor.transport)
+            for _ in range(2):
+                with self.assertRaises(TrueMultiAgentRuntimeError):
+                    executor.call(
+                        agent,
+                        task_id="negotiation-round-2-continuous-mismatch",
+                        kind="proposal",
+                        system_prompt="system",
+                        user_prompt="wrong again",
+                        input_context={"parent_output_hash": expected},
+                        validate=validate,
+                    )
+            self.assertEqual(len(executor.results), 0)
+            self.assertEqual(len(executor.rejected_calls), 2)
+            self.assertTrue(all(
+                item["reason_code"] == "PARENT_OUTPUT_HASH_MISMATCH"
+                for item in executor.rejected_calls
+            ))
+        finally:
+            journal.close()
+
     def test_fast_turn_restarts_from_journal_cas_without_sqlite_or_body_leakage(self) -> None:
         cas = LocalCAS.open(self.home, self.keys)
         activation_receipt = cas.publish_verified(
@@ -287,7 +524,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         )
         decision = router.decide(ChatMode.FAST, "Prove restart storage closure.", snapshot)
         with (
-            patch("sitina.conversation.fast_runtime.ProductionRuntimeContext.load", return_value=context),
+            patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
             patch("sitina.conversation.fast_runtime.ProviderExecutor", side_effect=self._controlled_executor),
         ):
@@ -350,7 +587,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         runtime.home = self.home
         runtime.context = renderer
         with patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
+            "sitina.conversation.runtime.SessionRuntimeContext.open",
             return_value=ReaderContext(),
         ):
             session = runtime.resume_or_create_session()
@@ -406,7 +643,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         )
         decision = router.decide(ChatMode.FAST, message, snapshot)
         with (
-            patch("sitina.conversation.fast_runtime.ProductionRuntimeContext.load", return_value=context),
+            patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
             patch("sitina.conversation.fast_runtime.ProviderExecutor", side_effect=self._controlled_executor),
             patch.object(
@@ -445,7 +682,7 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
         runtime.home = self.home
         runtime.context = renderer
         with patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
+            "sitina.conversation.runtime.SessionRuntimeContext.open",
             return_value=context,
         ):
             recovered = runtime.resume_or_create_session()

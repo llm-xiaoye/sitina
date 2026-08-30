@@ -5,6 +5,16 @@
   "provider_model_allowlist": [
     "deepseek-v4-pro"
   ],
+  "provider_test_no_fallback": true,
+  "provider_profiles": {
+    "deepseek": {
+      "wire_protocol": "openai_chat_completions",
+      "provider_model_allowlist": ["deepseek-v4-pro"],
+      "adapter_capabilities": ["deepseek_thinking_disabled"]
+    }
+  },
+  "provider_fallback_profiles": [],
+  "live_opt_in_required": true,
   "allowed_protocols": [
     "proposal",
     "review",
@@ -22,15 +32,15 @@
   "max_rework_rounds": 2,
   "max_provider_requests_per_run": 32,
   "max_output_tokens_per_request": 1400,
-  "max_total_tokens_per_run": 48000,
+  "max_total_tokens_per_run": 192000,
   "max_total_cost_micro_usd_per_run": 12000000,
   "request_timeout_seconds": 90,
-  "transport_retries": 0,
+  "transport_retries": 3,
   "sdk_retries": 0,
-  "fallbacks": 0,
+  "fallbacks": 1,
   "tool_calls_allowed": false,
   "external_mutation_allowed": false,
-  "execution_bridge_enabled": false,
+  "execution_bridge_enabled": true,
   "execution_handoff_bypass_enabled": false,
   "max_execution_attempts": 2,
   "proposal_minimum_score": 70,

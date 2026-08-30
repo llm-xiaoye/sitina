@@ -12,10 +12,10 @@ from unittest.mock import Mock, patch
 from sitina import cli
 from sitina.cas.local import LocalCAS
 from sitina.extensions.manager import ExtensionInstallError, ExtensionManager, PermissionGrantRequired
-from sitina.extensions.runtime import AutonomousRuntime, JournalAutonomousAudit
+from sitina.extensions.runtime import AutonomousRuntime, AutonomousRuntimeError, BoundedToolTurnClient, JournalAutonomousAudit
 from sitina.extensions.tools import ToolApprovalDenied, ToolCatalog
 from sitina.journal.local import LocalJournal
-from sitina.runners.provider import ProviderProfile, ProviderToolCall, ProviderToolTurn
+from sitina.runners.provider import ProviderHTTPError, ProviderProfile, ProviderToolCall, ProviderToolTurn
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 
 
@@ -262,6 +262,53 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(second_messages[-1]["role"], "tool")
         self.assertIn("confirmed fact", str(second_messages[-1]["content"]))
 
+    def test_empty_final_response_gets_one_bounded_repair_without_tool_replay(self) -> None:
+        client = FakeToolClient(
+            [
+                ProviderToolTurn("", (), "stop", {"protocol": "mock"}),
+                ProviderToolTurn("Final result", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        result = runtime.run_embedded("finish the task", run_id="empty-final-repair")
+        self.assertEqual(result["terminal_state"], "SUCCEEDED")
+        self.assertEqual(result["response"], "Final result")
+        self.assertEqual(result["provider_call_count"], 2)
+        self.assertEqual(len(client.messages), 2)
+        self.assertEqual(client.messages[1][-1]["role"], "user")
+        self.assertIn("do not call tools", client.messages[1][-1]["content"])
+        self.assertFalse(any(item.get("role") == "tool" for item in client.messages[1]))
+        audit = (self.manager.root / "runs" / "empty-final-repair.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(audit.count("empty_final_response_repair_requested"), 1)
+
+    def test_second_empty_final_response_remains_fail_closed(self) -> None:
+        client = FakeToolClient(
+            [
+                ProviderToolTurn("", (), "stop", {"protocol": "mock"}),
+                ProviderToolTurn("", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        with self.assertRaisesRegex(
+            AutonomousRuntimeError,
+            "provider ended the tool loop without a final response",
+        ):
+            runtime.run_embedded("finish the task", run_id="empty-final-fail-closed")
+        self.assertEqual(len(client.messages), 2)
+        self.assertFalse(any(item.get("role") == "tool" for item in client.messages[1]))
+        audit = (self.manager.root / "runs" / "empty-final-fail-closed.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(audit.count("empty_final_response_repair_requested"), 1)
+
     def test_embedded_runtime_reports_full_provider_usage_and_budget_callbacks(self) -> None:
         events: list[tuple[str, object]] = []
         client = FakeToolClient(
@@ -301,6 +348,199 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(result["provider_cache_write_tokens"], 2)
         self.assertEqual(result["provider_token_total"], 18)
         self.assertEqual(result["provider_cost_micro_usd"], 9)
+
+    def test_embedded_provider_audit_has_call_effect_model_and_usage_lineage(self) -> None:
+        class CaptureAudit:
+            def __init__(self):
+                self.events: list[tuple[str, dict[str, object]]] = []
+
+            def append(self, event, payload):
+                self.events.append((event, dict(payload)))
+
+        audit = CaptureAudit()
+        client = FakeToolClient(
+            [ProviderToolTurn(
+                "done", (), "stop",
+                {
+                    "provider_response_id": "response-fixture-1",
+                    "physical_send_count": 1,
+                    "token_usage": {"input_tokens": 4, "output_tokens": 3, "total_tokens": 7},
+                },
+            )]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("fixture-profile", "https://example.invalid", "none", "fixture-model"),
+        )
+        runtime.run_embedded("report usage", run_id="embedded-lineage", journal_audit=audit)
+        intended = next(payload for event, payload in audit.events if event == "provider_call_intended")
+        completed = next(payload for event, payload in audit.events if event == "model_turn_completed")
+        self.assertEqual(intended["embedded_call_id"], "embedded-lineage:embedded-call:1")
+        self.assertEqual(completed["embedded_call_id"], intended["embedded_call_id"])
+        self.assertEqual(completed["effect_attempt_id"], "embedded-lineage:embedded-effect:1:attempt:1")
+        self.assertEqual(completed["provider_profile"], "fixture-profile")
+        self.assertEqual(completed["provider_model"], "fixture-model")
+        self.assertEqual(completed["provider_response_id"], "response-fixture-1")
+        self.assertEqual(completed["input_tokens"], 4)
+        self.assertEqual(completed["output_tokens"], 3)
+        self.assertEqual(completed["total_tokens"], 7)
+
+    def test_embedded_provider_transport_retries_then_records_actual_fallback_profile(self) -> None:
+        primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
+        fallback = ProviderProfile("fallback", "https://api.deepseek.com", "none", "model-b")
+
+        class FlakyClient:
+            def __init__(self):
+                self.calls: list[str] = []
+
+            def load_profile(self, name):
+                return primary if name == "primary" else fallback
+
+            def complete_tool_turn(self, profile, **_kwargs):
+                self.calls.append(profile.name)
+                if len(self.calls) <= 4:
+                    raise ProviderHTTPError(503, "temporary fixture outage")
+                return ProviderToolTurn("done", (), "stop", {"provider_response_id": "fallback-response"})
+
+        client = FlakyClient()
+        bounded = BoundedToolTurnClient(
+            client,
+            primary,
+            retry_limit=3,
+            fallback_profiles=(fallback,),
+            fallback_allowed=True,
+            max_fallbacks=1,
+            backoff_seconds=0,
+        )
+        turn = bounded.complete_tool_turn(primary, system_prompt="", messages=[], tools=[], max_tokens=1)
+        self.assertEqual(client.calls, ["primary", "primary", "primary", "primary", "fallback"])
+        self.assertEqual(turn.metadata["physical_send_count"], 0)
+        self.assertEqual(turn.metadata["retry_count"], 3)
+        self.assertEqual(turn.metadata["fallback_count"], 1)
+        self.assertEqual(turn.metadata["sitina_provider_profile"], "fallback")
+        self.assertEqual(turn.metadata["sitina_provider_model"], "model-b")
+
+    def test_autonomous_runtime_promotes_fallback_lineage_to_run_result(self) -> None:
+        primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
+        fallback = ProviderProfile("fallback", "https://api.deepseek.com", "none", "model-b")
+
+        class FlakyClient:
+            def __init__(self):
+                self.calls = 0
+
+            def complete_tool_turn(self, _profile, **_kwargs):
+                self.calls += 1
+                if self.calls <= 4:
+                    raise ProviderHTTPError(503, "temporary fixture outage")
+                return ProviderToolTurn(
+                    "done", (), "stop", {"provider_response_id": "fallback-response"}
+                )
+
+        bounded = BoundedToolTurnClient(
+            FlakyClient(), primary, retry_limit=3, fallback_profiles=(fallback,),
+            fallback_allowed=True, max_fallbacks=1, backoff_seconds=0,
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home, manager=self.manager, client=bounded, profile=primary
+        )
+        result = runtime.run_embedded("report fallback lineage", run_id="embedded-fallback-result")
+        self.assertEqual(result["provider_physical_send_count"], 0)
+        self.assertEqual(result["provider_retry_count"], 3)
+        self.assertEqual(result["provider_fallback_count"], 1)
+        self.assertEqual(result["provider_profile"], "fallback")
+        self.assertEqual(result["provider_model"], "model-b")
+        self.assertEqual(result["provider_profiles"], ["fallback"])
+
+    def test_deepseek_token_transport_forbids_fallback_after_bounded_retries(self) -> None:
+        primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
+        fallback = ProviderProfile("fallback", "https://api.deepseek.com", "none", "model-b")
+
+        class AlwaysFlaky:
+            def __init__(self):
+                self.calls: list[str] = []
+
+            def load_profile(self, name):
+                return primary if name == "primary" else fallback
+
+            def complete_tool_turn(self, profile, **_kwargs):
+                self.calls.append(profile.name)
+                raise ProviderHTTPError(503, "temporary fixture outage")
+
+        client = AlwaysFlaky()
+        bounded = BoundedToolTurnClient(
+            client,
+            primary,
+            retry_limit=3,
+            fallback_profiles=(fallback,),
+            fallback_allowed=False,
+            max_fallbacks=1,
+            backoff_seconds=0,
+        )
+        with self.assertRaises(ProviderHTTPError):
+            bounded.complete_tool_turn(primary, system_prompt="", messages=[], tools=[], max_tokens=1)
+        self.assertEqual(client.calls, ["primary", "primary", "primary", "primary"])
+
+    def test_fallback_shares_global_retry_budget_when_both_profiles_fail(self) -> None:
+        primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
+        fallback = ProviderProfile("fallback", "https://api.deepseek.com", "none", "model-b")
+
+        class AlwaysFlaky:
+            def __init__(self):
+                self.calls: list[str] = []
+
+            def complete_tool_turn(self, profile, **_kwargs):
+                self.calls.append(profile.name)
+                raise ProviderHTTPError(503, "temporary fixture outage")
+
+        client = AlwaysFlaky()
+        bounded = BoundedToolTurnClient(
+            client,
+            primary,
+            retry_limit=3,
+            fallback_profiles=(fallback,),
+            fallback_allowed=True,
+            max_fallbacks=1,
+            backoff_seconds=0,
+        )
+        with self.assertRaises(ProviderHTTPError) as caught:
+            bounded.complete_tool_turn(primary, system_prompt="", messages=[], tools=[], max_tokens=1)
+        self.assertEqual(client.calls, ["primary", "primary", "primary", "primary", "fallback"])
+        self.assertEqual(getattr(caught.exception, "sitina_physical_send_count"), 0)
+        self.assertEqual(getattr(caught.exception, "sitina_retry_count"), 3)
+        self.assertEqual(getattr(caught.exception, "sitina_fallback_count"), 1)
+
+    def test_embedded_provider_failure_settles_physical_sends_without_fake_usage(self) -> None:
+        primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
+
+        class AlwaysFlaky:
+            def complete_tool_turn(self, _profile, **_kwargs):
+                raise ProviderHTTPError(503, "temporary fixture outage")
+
+        bounded = BoundedToolTurnClient(
+            AlwaysFlaky(), primary, retry_limit=3, fallback_allowed=False, backoff_seconds=0
+        )
+        settled: list[dict[str, object]] = []
+        audit = type("CaptureAudit", (), {"events": []})()
+        audit.append = lambda event, payload: audit.events.append((event, dict(payload)))
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=bounded,
+            profile=primary,
+            provider_failure_settlement=lambda metadata: settled.append(dict(metadata)),
+        )
+        with self.assertRaises(ProviderHTTPError):
+            runtime.run_embedded("exercise bounded failure", run_id="embedded-failed-usage", journal_audit=audit)
+        self.assertEqual(len(settled), 1)
+        self.assertEqual(settled[0]["physical_send_count"], 0)
+        self.assertEqual(settled[0]["retry_count"], 3)
+        self.assertEqual(settled[0]["usage_status"], "unknown")
+        failed = next(payload for event, payload in audit.events if event == "provider_call_failed")
+        self.assertEqual(failed["physical_send_count"], 0)
+        self.assertEqual(failed["retry_count"], 3)
+        self.assertTrue(failed["automatic_retry_performed"])
 
     def test_autonomous_audit_redacts_structured_payload_without_corrupting_json(self) -> None:
         client = FakeToolClient(
@@ -358,9 +598,9 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertRegex(event["after_hash"], r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(
             result["accepted_file_operation_contract"],
-            ["create", "modify", "append"],
+            ["create", "modify", "append", "rename", "delete"],
         )
-        self.assertEqual(result["unsupported_file_operations"], ["delete", "rename"])
+        self.assertEqual(result["unsupported_file_operations"], [])
 
     def test_embedded_runtime_routes_append_through_strong_mutation_evidence(self) -> None:
         target = self.root / "execution" / "append.txt"
@@ -459,6 +699,68 @@ class ExtensionManagerTests(unittest.TestCase):
         object_ref = cas.resolve_reference(event.object_refs[0])
         self.assertIn(b"private provider input body", cas.open_verified(object_ref))
         journal.close()
+
+    def test_parallel_read_tools_commit_intended_and_completed_in_call_order(self) -> None:
+        """Read workers may overlap, while the real audit stream stays ordered."""
+        first = self.root / "parallel-first.txt"
+        second = self.root / "parallel-second.txt"
+        first.write_text("first", encoding="utf-8")
+        second.write_text("second", encoding="utf-8")
+        authority_home = self.root / "parallel-authority"
+        authority_home.mkdir()
+        (authority_home / ".sitina-bplus-disposable-v1").write_text("fixture\n", encoding="utf-8")
+        keys = InMemoryKeyProvider()
+        journal = LocalJournal.open(authority_home, JournalAuthProvider(keys))
+        cas = LocalCAS.open(authority_home, keys)
+        audit = JournalAutonomousAudit(
+            journal,
+            cas,
+            keys,
+            run_id="parallel-read-audit",
+            policy_hash="b" * 64,
+        )
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "",
+                    (
+                        ProviderToolCall("read-1", "sitina_read_file", {"path": str(first)}),
+                        ProviderToolCall("read-2", "sitina_read_file", {"path": str(second)}),
+                    ),
+                    "tool_use",
+                    {"protocol": "mock"},
+                ),
+                ProviderToolTurn("done", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            workspace=self.root,
+        )
+        try:
+            result = runtime.run_embedded(
+                "read both files",
+                run_id="parallel-read-audit",
+                journal_audit=audit,
+            )
+            self.assertEqual(result["terminal_state"], "SUCCEEDED")
+            events = list(journal.iter_events(0))
+            intended = [
+                event for event in events if event.event_type == "autonomous.tool-call-intended"
+            ]
+            completed = [
+                event for event in events if event.event_type == "autonomous.tool-completed"
+            ]
+            self.assertEqual([event.payload["call_id"] for event in intended], ["read-1", "read-2"])
+            self.assertEqual([event.payload["call_id"] for event in completed], ["read-1", "read-2"])
+            self.assertEqual(len(intended), 2)
+            self.assertEqual(len(completed), 2)
+            self.assertFalse(any(event.event_type == "autonomous.run-failed" for event in events))
+        finally:
+            journal.close()
 
     def test_production_autonomous_hook_failure_records_failure_and_closes_writer(self) -> None:
         (self.sitina_home / "state/.legacy-control").mkdir(parents=True)

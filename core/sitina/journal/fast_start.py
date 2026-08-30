@@ -11,7 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from sitina.journal.model import EventEnvelope, canonical_json_bytes
+from sitina.journal.model import (
+    EventEnvelope,
+    canonical_json_bytes,
+    event_replay_projection,
+    event_replay_projection_hash,
+    proof_manifest_hash,
+)
 from sitina.compatibility.feature_flags import FeatureActivationRegistry
 from sitina.security.key_provider import InMemoryKeyProvider, KeyPurpose, JournalAuthProvider
 from sitina.security.macos_keychain import KeychainBackend, MemoryKeychainBackend
@@ -652,6 +658,15 @@ class JournalFastStartMaintainer:
         certificates = _certificate_values(self.home, self.provider)
         last = certificates[-1]
         sealed_frontier = last.last_position
+        previous_command_values: Mapping[str, Any] = {}
+        checkpoint_paths = sorted((self.home / "journal/checkpoints").glob("checkpoint-*.json"))
+        if checkpoint_paths:
+            previous_checkpoint, _previous_commitment = _latest_checkpoint(self.home, self.provider)
+            previous_command_values = _load_index(
+                self.home,
+                "command-idempotency",
+                str(previous_checkpoint["command_idempotency_index_commitment"]),
+            )
         commands = {
             command_id: {
                 "request_hash": request_hash,
@@ -664,10 +679,51 @@ class JournalFastStartMaintainer:
                 "last_stream_version": receipt.last_stream_version,
                 "object_reference_manifest_hash": receipt.object_reference_manifest_hash,
                 "object_refs": [],
+                "proof_manifest": [
+                    dict(item) for item in getattr(
+                        getattr(journal, "_transactions", {}).get(command_id), "proof_manifest", ()
+                    )
+                ],
+                "proof_manifest_hash": proof_manifest_hash([
+                    dict(item) for item in getattr(
+                        getattr(journal, "_transactions", {}).get(command_id), "proof_manifest", ()
+                    )
+                ]),
+                "authenticated_seal_stream_id": (
+                    receipt.stream_id
+                    if command_id in getattr(journal, "_authenticated_seal_command_ids", set())
+                    else None
+                ),
             }
             for command_id, (request_hash, receipt) in journal._commands.items()
             if receipt.last_position <= sealed_frontier
         }
+        for _command_id, value in commands.items():
+            projection = [
+                event_replay_projection(event)
+                for event in journal._events
+                if (
+                    event.stream_id == value["stream_id"]
+                    and value["first_position"] <= event.position <= value["last_position"]
+                )
+            ]
+            value["event_projection"] = projection
+            value["event_projection_hash"] = event_replay_projection_hash(projection)
+            expected_count = int(value["last_position"]) - int(value["first_position"]) + 1
+            if len(projection) != expected_count:
+                previous = previous_command_values.get(_command_id)
+                previous_projection = previous.get("event_projection") if isinstance(previous, Mapping) else None
+                previous_hash = previous.get("event_projection_hash") if isinstance(previous, Mapping) else None
+                if (
+                    not isinstance(previous_projection, list)
+                    or len(previous_projection) != expected_count
+                    or previous_hash != event_replay_projection_hash(previous_projection)
+                ):
+                    raise FastStartError(
+                        "cannot checkpoint a historical command without its authenticated event projection"
+                    )
+                value["event_projection"] = [dict(item) for item in previous_projection]
+                value["event_projection_hash"] = str(previous_hash)
         stream_heads: dict[str, int] = {}
         for value in commands.values():
             stream_id = str(value["stream_id"])
