@@ -42,6 +42,58 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
+_WORKSPACE_PATH_IDENTITY_PREFIX = "~"
+
+
+def _validate_workspace_relative_path(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("workspace-relative path is empty")
+    candidate = Path(value)
+    if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+        raise ValueError("workspace-relative path is not unambiguous")
+    normalized = candidate.as_posix()
+    if not normalized or normalized == ".":
+        raise ValueError("workspace-relative path is empty")
+    return normalized
+
+
+def encode_workspace_relative_path(value: str) -> str:
+    """Encode a relative path into a redaction-stable Journal identity.
+
+    The serialized token intentionally contains only ``!`` and ``~``.  It
+    therefore cannot match the phone-number, base64, email, or provider-key
+    redaction patterns, even when a filename contains a long digit run.
+    """
+    normalized = _validate_workspace_relative_path(value)
+    raw = normalized.encode("utf-8")
+    bits = "".join(
+        "~" if byte & mask else "!"
+        for byte in raw
+        for mask in (128, 64, 32, 16, 8, 4, 2, 1)
+    )
+    return _WORKSPACE_PATH_IDENTITY_PREFIX + bits
+
+
+def decode_workspace_relative_path(identity: str) -> str:
+    """Decode and validate a redaction-stable workspace path identity."""
+    if not isinstance(identity, str) or not identity.startswith(_WORKSPACE_PATH_IDENTITY_PREFIX):
+        raise ValueError("workspace path identity prefix is invalid")
+    encoded = identity[len(_WORKSPACE_PATH_IDENTITY_PREFIX):]
+    if not encoded or len(encoded) % 8 or any(character not in "!~" for character in encoded):
+        raise ValueError("workspace path identity encoding is invalid")
+    values = bytearray()
+    for offset in range(0, len(encoded), 8):
+        byte = 0
+        for character in encoded[offset:offset + 8]:
+            byte = (byte << 1) | (character == "~")
+        values.append(byte)
+    try:
+        decoded = bytes(values).decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("workspace path identity is not UTF-8") from error
+    return _validate_workspace_relative_path(decoded)
+
+
 class ToolTurnClient(Protocol):
     def load_profile(self, profile_name: str) -> ProviderProfile: ...
 
@@ -1189,8 +1241,35 @@ class AutonomousRuntime:
             results[call.call_id] = self._execute_one(run_id, call)
         return results
 
-    @staticmethod
-    def _mutation_fact(call: ProviderToolCall, result: ToolResult) -> dict[str, Any] | None:
+    def _workspace_relative_path(self, raw_path: Any) -> str | None:
+        """Return a stable identity for a path inside this run's workspace.
+
+        Journal audit payloads are redacted at the boundary, so an absolute
+        temporary workspace path is not a safe identity: a timestamp-like
+        component can be replaced before the parent reopens the record.  The
+        workspace root is already bound by ``ToolCatalog``; emit only its
+        normalized relative path for mutation facts.  Resolution is performed
+        before ``relative_to`` so symlink/path escapes fail closed.
+        """
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return None
+        try:
+            workspace = self.catalog.workspace.expanduser().resolve(strict=False)
+            candidate = Path(raw_path).expanduser()
+            if not candidate.is_absolute():
+                candidate = workspace / candidate
+            candidate = candidate.resolve(strict=False)
+            relative = candidate.relative_to(workspace)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        # Empty, dot, and parent components are never valid mutation
+        # identities.  ``resolve`` normally removes them, but rejecting them
+        # explicitly keeps the serialized identity unambiguous.
+        if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+            return None
+        return relative.as_posix()
+
+    def _mutation_fact(self, call: ProviderToolCall, result: ToolResult) -> dict[str, Any] | None:
         if result.permission != "write":
             return None
         value = result.value if isinstance(result.value, Mapping) else {}
@@ -1198,14 +1277,39 @@ class AutonomousRuntime:
         before_hash = value.get("before_hash") if isinstance(value.get("before_hash"), str) else None
         after_hash = value.get("after_hash") if isinstance(value.get("after_hash"), str) else None
         path = arguments.get("path") or value.get("path")
+        relative_path = self._workspace_relative_path(path)
+        destination = value.get("destination") if isinstance(value.get("destination"), str) else arguments.get("destination")
+        relative_destination = self._workspace_relative_path(destination)
         if not isinstance(path, str) or not path:
-            return {"status": str(result.status), "denied": result.status != "ok", "path": None}
+            return {
+                "status": str(result.status),
+                "denied": result.status != "ok",
+                "path": None,
+                "path_identity": None,
+                "workspace_relative_path": None,
+                "destination": None,
+                "destination_identity": None,
+                "workspace_relative_destination": None,
+            }
+        path_identity = encode_workspace_relative_path(relative_path) if relative_path else None
+        destination_identity = (
+            encode_workspace_relative_path(relative_destination)
+            if relative_destination
+            else None
+        )
         return {
             "status": str(result.status),
             "denied": result.status != "ok",
             "operation": str(value.get("operation") or ("create" if before_hash is None else "modify")),
-            "path": str(path),
-            "destination": value.get("destination") if isinstance(value.get("destination"), str) else arguments.get("destination"),
+            # ``path`` is intentionally the workspace-relative identity.  Do
+            # not persist an absolute temporary path as a business key: the
+            # Journal redaction boundary may rewrite it before replay.
+            "path": path_identity,
+            "path_identity": path_identity,
+            "workspace_relative_path": path_identity,
+            "destination": destination_identity,
+            "destination_identity": destination_identity,
+            "workspace_relative_destination": destination_identity,
             "before_hash": before_hash,
             "after_hash": after_hash,
             "authorization_ref": result.authorization_ref,

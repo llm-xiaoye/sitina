@@ -12,7 +12,13 @@ from unittest.mock import Mock, patch
 from sitina import cli
 from sitina.cas.local import LocalCAS
 from sitina.extensions.manager import ExtensionInstallError, ExtensionManager, PermissionGrantRequired
-from sitina.extensions.runtime import AutonomousRuntime, AutonomousRuntimeError, BoundedToolTurnClient, JournalAutonomousAudit
+from sitina.extensions.runtime import (
+    AutonomousRuntime,
+    AutonomousRuntimeError,
+    BoundedToolTurnClient,
+    JournalAutonomousAudit,
+    decode_workspace_relative_path,
+)
 from sitina.extensions.tools import ToolApprovalDenied, ToolCatalog
 from sitina.journal.local import LocalJournal
 from sitina.runners.provider import ProviderHTTPError, ProviderProfile, ProviderToolCall, ProviderToolTurn
@@ -601,6 +607,52 @@ class ExtensionManagerTests(unittest.TestCase):
             ["create", "modify", "append", "rename", "delete"],
         )
         self.assertEqual(result["unsupported_file_operations"], [])
+
+    def test_mutation_journal_identity_survives_digit_redaction(self) -> None:
+        workspace = self.root / "workspace-1788122400"
+        workspace.mkdir()
+        target = workspace / "1788122400" / "hello.py"
+        client = FakeToolClient(
+            [
+                ProviderToolTurn(
+                    "",
+                    (
+                        ProviderToolCall(
+                            "write-digit-path",
+                            "sitina_write_file",
+                            {"path": str(target), "content": "hello = 'world'\n"},
+                        ),
+                    ),
+                    "tool_use",
+                    {"protocol": "mock"},
+                ),
+                ProviderToolTurn("done", (), "stop", {"protocol": "mock"}),
+            ]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+            approval_callback=lambda request: request.permission == "write",
+            workspace=workspace,
+            enforce_write_boundary=True,
+        )
+        runtime.run_embedded("write the digit-named fixture file", run_id="digit-path-ledger")
+        records = [
+            json.loads(line)
+            for line in (self.manager.root / "runs" / "digit-path-ledger.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        completed = next(record for record in records if record["event"] == "tool_completed")
+        fact = completed["mutation_fact"]
+        identity = fact["path_identity"]
+        self.assertTrue(identity)
+        self.assertRegex(identity, r"^[!~]+$")
+        self.assertNotIn("1788122400", json.dumps(fact, ensure_ascii=False))
+        self.assertEqual(decode_workspace_relative_path(identity), "1788122400/hello.py")
+        self.assertEqual(fact["path"], identity)
 
     def test_embedded_runtime_routes_append_through_strong_mutation_evidence(self) -> None:
         target = self.root / "execution" / "append.txt"

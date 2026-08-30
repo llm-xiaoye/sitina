@@ -3648,6 +3648,20 @@ class CodeModeScriptedProvider:
                 "requires_reassignment": False, "requires_provider_unknown": False,
                 "rationale": "A bounded offline Code Mode workspace change.",
             }
+        if (
+            "Produce a new implementation plan after a failed execution attempt" in user_prompt
+            or "Re-plan the requested code change" in user_prompt
+        ):
+            # The offline fixture must exercise the same strict replan
+            # contract as a real Provider.  Do not fall through to the
+            # generic proposal envelope: execution-replan-* is a critical
+            # call and requires kind=replan plus both non-empty plan fields.
+            return {
+                "agent_id": agent_id,
+                "kind": "replan",
+                "approach": "Repeat the bounded workspace change and verify the exact resulting diff.",
+                "acceptance_checks": ["focused test passes"],
+            }
         if "Review only the completed Forge execution" in user_prompt or "Independently review this execution evidence" in user_prompt:
             return {
                 "agent_id": agent_id, "kind": "review", "decision": "accept",

@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import route_decision_from_mapping
 from sitina.contracts.models import BlackboardDocumentRecord, SourceDescriptor
+from sitina.extensions.runtime import decode_workspace_relative_path
 from sitina.journal.model import (
     EventEnvelope,
     FrontierRef,
@@ -8225,7 +8226,11 @@ class TrueMultiAgentProductionRuntime:
         attempt_workers: dict[int, Any] = {}
         replan_context: dict[int, Mapping[str, Any]] = {}
 
-        def child_journal_facts(audit: Any, child_run_id: str) -> dict[str, Any]:
+        def child_journal_facts(
+            audit: Any,
+            child_run_id: str,
+            execution_root: Path,
+        ) -> dict[str, Any]:
             """Rebuild completed tool/mutation facts from the child Journal.
 
             ``AutonomousRuntime`` may raise while asking for its next model
@@ -8238,6 +8243,29 @@ class TrueMultiAgentProductionRuntime:
             child_journal = getattr(stream, "journal", None)
             if child_journal is None:
                 raise DynamicCollaborationError("Forge child audit has no bound Journal")
+            authorized_root = execution_root.expanduser().resolve(strict=False)
+
+            def resolve_workspace_relative(value: Any, *, field: str) -> tuple[str, str]:
+                if not isinstance(value, str) or not value.strip():
+                    raise DynamicCollaborationError(
+                        f"Forge child Journal mutation {field} identity is missing"
+                    )
+                try:
+                    relative_value = decode_workspace_relative_path(value)
+                except (TypeError, ValueError) as error:
+                    raise DynamicCollaborationError(
+                        f"Forge child Journal mutation {field} identity is not redaction-stable"
+                    ) from error
+                relative = Path(relative_value)
+                resolved = (authorized_root / relative).resolve(strict=False)
+                try:
+                    resolved.relative_to(authorized_root)
+                except ValueError as error:
+                    raise DynamicCollaborationError(
+                        f"Forge child Journal mutation {field} escapes execution root"
+                    ) from error
+                return relative.as_posix(), str(resolved)
+
             completed: list[Mapping[str, Any]] = []
             mutations: list[dict[str, Any]] = []
             for event in child_journal.iter_events(0):
@@ -8251,11 +8279,48 @@ class TrueMultiAgentProductionRuntime:
                 if not isinstance(fact, Mapping):
                     continue
                 item = dict(fact)
-                path = item.get("path")
-                if item.get("denied") is False and (not isinstance(path, str) or not path):
-                    raise DynamicCollaborationError("Forge child Journal has an incomplete successful mutation fact")
-                if isinstance(path, str) and path:
-                    item["path"] = str(Path(path).expanduser().resolve(strict=False))
+                relative_path = item.get("path_identity")
+                if not isinstance(relative_path, str) or not relative_path:
+                    relative_path = item.get("workspace_relative_path")
+                if not isinstance(relative_path, str) or not relative_path:
+                    # ``path`` is the compact identity field in the Journal
+                    # record.  It is encoded by AutonomousRuntime and must
+                    # not be treated as a legacy absolute display path.
+                    relative_path = item.get("path")
+                if item.get("denied") is False:
+                    normalized_relative, resolved_path = resolve_workspace_relative(
+                        relative_path,
+                        field="path",
+                    )
+                    item["path_identity"] = relative_path
+                    item["workspace_relative_path"] = relative_path
+                    item["path_relative_display"] = normalized_relative
+                    item["path"] = resolved_path
+                elif isinstance(relative_path, str) and relative_path:
+                    # Denied effects are retained as facts, but a supplied
+                    # path still cannot be allowed to escape the bound root.
+                    normalized_relative, resolved_path = resolve_workspace_relative(
+                        relative_path,
+                        field="path",
+                    )
+                    item["path_identity"] = relative_path
+                    item["workspace_relative_path"] = relative_path
+                    item["path_relative_display"] = normalized_relative
+                    item["path"] = resolved_path
+                destination = item.get("destination_identity")
+                if not isinstance(destination, str) or not destination:
+                    destination = item.get("workspace_relative_destination")
+                if not isinstance(destination, str) or not destination:
+                    destination = item.get("destination")
+                if isinstance(destination, str) and destination:
+                    normalized_destination, resolved_destination = resolve_workspace_relative(
+                        destination,
+                        field="destination",
+                    )
+                    item["destination_identity"] = destination
+                    item["workspace_relative_destination"] = destination
+                    item["destination_relative_display"] = normalized_destination
+                    item["destination"] = resolved_destination
                 item["sequence"] = len(mutations) + 1
                 item["tool_call_id"] = payload.get("call_id")
                 item["tool_name"] = payload.get("name")
@@ -8918,31 +8983,80 @@ class TrueMultiAgentProductionRuntime:
             # activity, including the prefix of a run that failed on a later
             # Provider turn.  A nonzero runtime summary must agree with it;
             # an exception summary of zero must never erase it.
-            child_facts = child_journal_facts(audit, exec_run_id)
+            child_facts = child_journal_facts(audit, exec_run_id, ws)
             declared_tool_count = int(r.get("tool_call_count", 0) or 0)
             if declared_tool_count not in {0, int(child_facts["tool_call_count"])}:
                 raise DynamicCollaborationError("Forge child tool count contradicts its Journal")
             if declared_tool_count:
-                declared_mutations = {
-                    (
-                        str(item.get("path") or ""),
+                def mutation_identity(item: Mapping[str, Any]) -> tuple[Any, ...]:
+                    relative_identity = item.get("path_identity")
+                    if not isinstance(relative_identity, str) or not relative_identity:
+                        relative_identity = item.get("workspace_relative_path")
+                    relative = None
+                    if isinstance(relative_identity, str) and relative_identity:
+                        try:
+                            relative = decode_workspace_relative_path(relative_identity)
+                        except (TypeError, ValueError) as error:
+                            raise DynamicCollaborationError(
+                                "Forge child mutation path identity is malformed"
+                            ) from error
+                    if not isinstance(relative, str) or not relative:
+                        raw_path = item.get("path")
+                        if isinstance(raw_path, str) and raw_path:
+                            raw = Path(raw_path).expanduser()
+                            if raw.is_absolute():
+                                try:
+                                    relative = raw.resolve(strict=False).relative_to(
+                                        ws.expanduser().resolve(strict=False)
+                                    ).as_posix()
+                                except (OSError, RuntimeError, ValueError):
+                                    relative = None
+                            else:
+                                relative = raw.as_posix()
+                    destination_identity = item.get("destination_identity")
+                    if not isinstance(destination_identity, str) or not destination_identity:
+                        destination_identity = item.get("workspace_relative_destination")
+                    destination = None
+                    if isinstance(destination_identity, str) and destination_identity:
+                        try:
+                            destination = decode_workspace_relative_path(destination_identity)
+                        except (TypeError, ValueError) as error:
+                            raise DynamicCollaborationError(
+                                "Forge child mutation destination identity is malformed"
+                            ) from error
+                    if not isinstance(destination, str) or not destination:
+                        raw_destination = item.get("destination")
+                        if isinstance(raw_destination, str) and raw_destination:
+                            raw = Path(raw_destination).expanduser()
+                            if raw.is_absolute():
+                                try:
+                                    destination = raw.resolve(strict=False).relative_to(
+                                        ws.expanduser().resolve(strict=False)
+                                    ).as_posix()
+                                except (OSError, RuntimeError, ValueError):
+                                    destination = None
+                            else:
+                                destination = raw.as_posix()
+                    return (
+                        item.get("operation"),
+                        item.get("tool_call_id"),
+                        relative,
+                        destination,
                         item.get("before_hash"),
                         item.get("after_hash"),
                         item.get("denied") is True,
                     )
+
+                declared_mutations = sorted(
+                    mutation_identity(item)
                     for item in (r.get("mutation_events") or ())
                     if isinstance(item, Mapping)
-                }
-                journal_mutations = {
-                    (
-                        str(item.get("path") or ""),
-                        item.get("before_hash"),
-                        item.get("after_hash"),
-                        item.get("denied") is True,
-                    )
+                )
+                journal_mutations = sorted(
+                    mutation_identity(item)
                     for item in child_facts["mutation_events"]
                     if isinstance(item, Mapping)
-                }
+                )
                 if declared_mutations != journal_mutations:
                     raise DynamicCollaborationError("Forge child mutation facts contradict its Journal")
             r = {**r, **child_facts}

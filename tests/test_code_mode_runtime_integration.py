@@ -28,7 +28,12 @@ from sitina.legacy.fence import (
     authorized_code_mode_sandbox_execution,
     issue_code_mode_sandbox_execution_capability,
 )
-from sitina.orchestrator.code_mode_runtime import CodeModeRuntimeContext, open_trusted_code_mode_context
+from sitina.orchestrator.code_mode_runtime import (
+    CodeModeRuntimeContext,
+    CodeModeScriptedProvider,
+    open_trusted_code_mode_context,
+)
+from sitina.orchestrator.output_contracts import resolve_output_contract, validate_output_contract
 from sitina.orchestrator.code_mode_authority_broker import CodeModeAuthorityBroker
 from sitina.orchestrator.code_mode_controller import CodeModeControllerError, CodeModeControllerSession
 from tests.code_mode_host_fixture import launch_code_mode_host
@@ -279,6 +284,20 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             broker.close()
         self.broker.close()
         shutil.rmtree(self.home, ignore_errors=True)
+
+    def test_offline_scripted_provider_emits_strict_execution_replan_contract(self) -> None:
+        provider = CodeModeScriptedProvider(self.workspace)
+        completion = provider._complete_openai(
+            provider.profile,
+            system_prompt="You are Agent cirrus.",
+            user_prompt="Produce a new implementation plan after a failed execution attempt.",
+        )
+        value = json.loads(completion.text)
+        spec = resolve_output_contract("execution-replan-2", "replan")
+        validate_output_contract(value, spec)
+        self.assertEqual(value["kind"], "replan")
+        self.assertTrue(value["approach"])
+        self.assertEqual(value["acceptance_checks"], ["focused test passes"])
 
     def _run_controlled_tester(self, context: CodeModeRuntimeContext, *, candidate: dict, **kwargs: object) -> dict:
         # The production API derives run_id from the controller binding.  The
