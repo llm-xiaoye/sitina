@@ -151,14 +151,64 @@ _EXTERNAL_ACTION_MARKERS = (
     "commit", "push", "deploy", "publish", "release", "send", "提交", "推送", "部署", "发布", "发送",
 )
 _NEGATION = re.compile(
-    r"(?:\bdo\s+not\b|\bdon't\b|\bnever\b|\bwithout\b|\bno\b|不要|勿|禁止|无需|不(?:要|得|能|再)?)(?:[^,.;!?，。！？；]{0,48})$",
+    r"(?:\bdo\s+not\b|\bdon't\b|\bnever\b|\bwithout\b|\bno\b|不要|勿|禁止|无需|不(?:要|得|能|再)?)",
+    re.IGNORECASE,
+)
+_CLAUSE_BREAK = re.compile(r"[,.;!?，。！？；\n]+")
+_CONTRAST = re.compile(r"\b(?:but|however|rather)\b|而|但|但是|可是|不过|而是", re.IGNORECASE)
+_DISCUSSION_PREFIX = re.compile(
+    r"(?:分析|讨论|评估|审查|查看|解释|说明|提出|设计|规划|plan|analysis|discuss|review|explain|describe|propose)",
+    re.IGNORECASE,
+)
+_DISCUSSION_SUFFIX = re.compile(
+    r"(?:方案|计划|建议|思路|策略|proposal|plan|approach|strategy)",
     re.IGNORECASE,
 )
 
 
-def _is_negated(message: str, start: int) -> bool:
-    prefix = message[max(0, start - 64):start]
-    return bool(_NEGATION.search(prefix))
+def _marker_spans(message: str, markers: Sequence[tuple[str, str]]) -> list[tuple[int, int, str]]:
+    """Find non-overlapping intent phrases, preferring the longest phrase."""
+    folded = message.casefold()
+    candidates: list[tuple[int, int, str, int]] = []
+    for marker, operation in markers:
+        needle = marker.casefold()
+        if marker.isascii() and any(char.isalpha() for char in marker):
+            pattern = re.compile(r"(?<![A-Za-z])" + re.escape(needle) + r"(?![A-Za-z])", re.IGNORECASE)
+            matches = pattern.finditer(message)
+        else:
+            matches = re.finditer(re.escape(needle), folded)
+        for match in matches:
+            candidates.append((match.start(), match.end(), operation, len(needle)))
+    candidates.sort(key=lambda item: (item[0], -item[3], item[1]))
+    accepted: list[tuple[int, int, str]] = []
+    for start, end, operation, _ in candidates:
+        if any(start < previous_end and end > previous_start for previous_start, previous_end, _ in accepted):
+            continue
+        accepted.append((start, end, operation))
+    return sorted(accepted)
+
+
+def _clause_bounds(message: str, start: int, end: int) -> tuple[int, int]:
+    left = max((match.end() for match in _CLAUSE_BREAK.finditer(message, 0, start)), default=0)
+    right_match = _CLAUSE_BREAK.search(message, end)
+    right = right_match.start() if right_match else len(message)
+    # Contrast conjunctions start a fresh scope, so a negation before
+    # ``but`` cannot swallow the positive operation after it.
+    for match in _CONTRAST.finditer(message, left, start):
+        left = max(left, match.end())
+    return left, right
+
+
+def _is_negated(message: str, start: int, end: int) -> bool:
+    left, _ = _clause_bounds(message, start, end)
+    return bool(_NEGATION.search(message, left, start))
+
+
+def _is_discussion_reference(message: str, start: int, end: int) -> bool:
+    left, right = _clause_bounds(message, start, end)
+    before = message[left:start]
+    after = message[end:right]
+    return bool(_DISCUSSION_PREFIX.search(before[-24:])) and bool(_DISCUSSION_SUFFIX.search(after[:24]))
 
 
 def classify_code_mode_intent(message: str) -> dict[str, Any]:
@@ -169,31 +219,20 @@ def classify_code_mode_intent(message: str) -> dict[str, Any]:
     """
 
     text = str(message or "")
-    folded = text.casefold()
     operations: list[str] = []
     negated: list[str] = []
-    for marker, operation in _FILE_MUTATION_MARKERS:
-        cursor = 0
-        needle = marker.casefold()
-        while True:
-            found = folded.find(needle, cursor)
-            if found < 0:
-                break
-            if _is_negated(text, found):
-                negated.append(operation)
-            else:
-                operations.append(operation)
-            cursor = found + max(1, len(needle))
+    for start, end, operation in _marker_spans(text, _FILE_MUTATION_MARKERS):
+        if _is_discussion_reference(text, start, end):
+            continue
+        if _is_negated(text, start, end):
+            negated.append(operation)
+        else:
+            operations.append(operation)
     external_actions: list[str] = []
-    for marker in _EXTERNAL_ACTION_MARKERS:
-        cursor = 0
-        while True:
-            found = folded.find(marker.casefold(), cursor)
-            if found < 0:
-                break
-            if not _is_negated(text, found):
-                external_actions.append(marker)
-            cursor = found + len(marker)
+    external_spans = _marker_spans(text, tuple((marker, marker) for marker in _EXTERNAL_ACTION_MARKERS))
+    for start, end, marker in external_spans:
+        if not _is_negated(text, start, end):
+            external_actions.append(marker)
     return {
         "schema": "CODE_MODE_INTENT_V1",
         "operations": sorted(set(operations)),

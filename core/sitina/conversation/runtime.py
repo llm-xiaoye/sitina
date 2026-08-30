@@ -131,6 +131,8 @@ class ConversationRuntime:
             self.home,
             runtime_context_factory=runtime_context_factory,
             session_runtime_provider=session_runtime_provider,
+            provider_client=getattr(session_runtime_provider, "provider_client", None),
+            provider_profile=getattr(session_runtime_provider, "profile", None),
         )
         self.multi_runtime = multi_runtime or TrueMultiAgentProductionRuntime(self.home)
         # Extensions are capabilities available to an admitted Agent runtime;
@@ -764,6 +766,7 @@ class ConversationRuntime:
                     session_id=session.session_id,
                     turn_index=session.turn_index,
                     allow_escalation=session.mode is ChatMode.AUTO,
+                    live_opt_in=self.live_opt_in,
                 )
                 session.active_run_id = str(fast_result.get("run_id") or "") or None
                 fast_succeeded = (

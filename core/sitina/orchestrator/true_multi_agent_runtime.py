@@ -41,6 +41,13 @@ from sitina.journal.model import (
 )
 from sitina.legacy.fence import issue_frozen_network_egress_capability
 from sitina.orchestrator.agent_context_v2 import AgentContextManifestRepository
+from sitina.orchestrator.output_contracts import (
+    OutputContractError,
+    OutputContractSpec,
+    is_critical_contract_task,
+    resolve_output_contract,
+    validate_output_contract,
+)
 from sitina.protocols.tasks import TaskAggregate
 from sitina.runners.provider import (
     AnthropicCompatibleClient,
@@ -276,7 +283,7 @@ def _provider_endpoint_allowed(base_url: str, profile: Any | None = None) -> boo
     )
 
 
-def structured_response_tools() -> list[dict[str, Any]]:
+def structured_response_tools(contract: OutputContractSpec | None = None) -> list[dict[str, Any]]:
     """Return the native single-tool JSON frame for live Agent results.
 
     The application-level validator remains authoritative for task-specific
@@ -285,6 +292,15 @@ def structured_response_tools() -> list[dict[str, Any]]:
     and wrongly typed fields.
     """
 
+    parameters = contract.wire_schema() if contract is not None else {
+        "type": "object",
+        "properties": {
+            "agent_id": {"type": "string"},
+            "kind": {"type": "string"},
+        },
+        "required": ["agent_id", "kind"],
+        "additionalProperties": True,
+    }
     return [{
         "type": "function",
         "function": {
@@ -294,17 +310,66 @@ def structured_response_tools() -> list[dict[str, Any]]:
                 "the function arguments. Do not emit prose, Markdown, wrappers, "
                 "or a second object."
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "agent_id": {"type": "string"},
-                    "kind": {"type": "string"},
-                },
-                "required": ["agent_id", "kind"],
-                "additionalProperties": True,
-            },
+            "parameters": parameters,
         },
     }]
+
+
+def issue_root_pre_provider_authorization(
+    context: Any,
+    *,
+    policy: Mapping[str, Any],
+    session_id: str,
+    turn_index: int,
+    run_id: str,
+    run_attempt: int = 1,
+    provider_profile: Any | None = None,
+) -> Mapping[str, Any]:
+    """Issue the single root permit used by every live planning path.
+
+    FAST and MULTI must enter the same broker/ledger boundary.  Keeping the
+    lookup and exact binding in this provider-neutral helper prevents one
+    route from silently constructing a weaker activation envelope.
+    """
+
+    if not isinstance(policy, Mapping):
+        raise TrueMultiAgentRuntimeError("root pre-provider policy is invalid")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise TrueMultiAgentRuntimeError("root pre-provider session binding is missing")
+    if type(turn_index) is not int or turn_index < 0:
+        raise TrueMultiAgentRuntimeError("root pre-provider turn binding is invalid")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise TrueMultiAgentRuntimeError("root pre-provider run binding is missing")
+    if type(run_attempt) is not int or run_attempt != 1:
+        raise TrueMultiAgentRuntimeError("root pre-provider run attempt is invalid")
+    profile_getter = getattr(context, "authoritative_provider_profile", None)
+    issuer = getattr(context, "issue_pre_provider_authorization", None)
+    if not callable(profile_getter) or not callable(issuer):
+        raise TrueMultiAgentRuntimeError(
+            "root pre-provider authorization requires the broker-owned issuer"
+        )
+    profile = provider_profile
+    if profile is None:
+        profile = profile_getter(str(policy["provider_profile"]))
+    profile_name = str(getattr(profile, "name", "") or "").strip()
+    profile_model = str(getattr(profile, "model", "") or "").strip()
+    if not profile_name or not profile_model:
+        raise TrueMultiAgentRuntimeError("root pre-provider provider binding is incomplete")
+    generation = str(getattr(getattr(context, "identity", None), "epoch_root", "") or "")
+    if not generation:
+        raise TrueMultiAgentRuntimeError("root pre-provider generation is missing")
+    authorization = issuer(
+        session_id=session_id,
+        turn_index=turn_index,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        generation=generation,
+        provider_profile=profile_name,
+        provider_model=profile_model,
+    )
+    if not isinstance(authorization, Mapping):
+        raise TrueMultiAgentRuntimeError("root pre-provider issuer returned no authorization")
+    return dict(authorization)
 
 
 def event_type_for(fact: Mapping[str, Any]) -> str:
@@ -551,9 +616,17 @@ def activate_runtime(
     else:
         profile = AnthropicCompatibleClient(component_root).load_profile(str(policy["provider_profile"]))
     host = urlparse(profile.base_url).hostname
-    if not _provider_endpoint_allowed(profile.base_url, profile):
+    if not offline and not _provider_endpoint_allowed(profile.base_url, profile):
         raise TrueMultiAgentRuntimeError("true multi-agent runtime permits only the HTTPS endpoint fixed by the provider profile")
-    if profile.model not in set(policy["provider_model_allowlist"]):
+    if offline:
+        # Offline clients are still required to declare a supported wire
+        # protocol, but their loopback/mock endpoint never crosses the host
+        # network boundary.  A mock endpoint is never admitted in live mode.
+        try:
+            infer_wire_protocol(profile.name, profile.base_url, getattr(profile, "wire_protocol", None))
+        except Exception as error:
+            raise TrueMultiAgentRuntimeError("offline Provider profile has no supported wire protocol") from error
+    if not offline and profile.model not in set(policy["provider_model_allowlist"]):
         raise TrueMultiAgentRuntimeError("Provider model is outside the true multi-agent allowlist")
     unsigned = {
         "schema": "SITINA_TRUE_MULTI_AGENT_ACTIVATION_V1",
@@ -1408,7 +1481,19 @@ class OneShotProviderTransport:
             raise TrueMultiAgentRuntimeError("controlled invalid Provider request unexpectedly succeeded")
         if self.authoritative_physical:
             structured_response = request.request.get("structured_response") is True
-            tools = structured_response_tools() if structured_response else []
+            contract = None
+            if structured_response:
+                try:
+                    contract = resolve_output_contract(
+                        str(request.request.get("task_id") or ""),
+                        str(request.request.get("kind") or ""),
+                        output_contract_id=request.request.get("output_contract_id"),
+                        task_type=request.request.get("task_type"),
+                        schema_id=request.request.get("schema_id"),
+                    )
+                except OutputContractError as error:
+                    raise TrueMultiAgentRuntimeError("Provider output contract identity is invalid") from error
+            tools = structured_response_tools(contract) if structured_response else []
             tools_hash = sha256_bytes(canonical_json_bytes(tools))
             try:
                 transport_body = self.transport_ledger.send(
@@ -1678,9 +1763,10 @@ class ProviderExecutor:
         # config may add an explicitly configured backup profile.  The
         # activation/endpoint/model checks below still fail closed for any
         # profile that is not part of the signed provider allowlist.
-        for configured in RoleProfileResolver(self.home).fallback_profiles():
-            if configured not in configured_fallbacks:
-                configured_fallbacks.append(configured)
+        if self.client_override is None:
+            for configured in RoleProfileResolver(self.home).fallback_profiles():
+                if configured not in configured_fallbacks:
+                    configured_fallbacks.append(configured)
         for fallback_name in configured_fallbacks:
             name = str(fallback_name or "").strip()
             if not name or name == profile.name or name in {item.name for item in fallback_profiles}:
@@ -2383,7 +2469,37 @@ class ProviderExecutor:
         input_context: Mapping[str, Any],
         validate: Callable[[Mapping[str, Any]], None],
         ack_lost: bool = False,
+        output_contract_id: str | None = None,
+        task_type: str | None = None,
+        schema_id: str | None = None,
     ) -> AgentCallResult:
+        if is_critical_contract_task(task_id) and not (output_contract_id and task_type and schema_id):
+            raise TrueMultiAgentRuntimeError(
+                "critical Provider call requires explicit output_contract_id, task_type, and schema_id"
+            )
+        try:
+            output_contract = resolve_output_contract(
+                task_id,
+                kind,
+                output_contract_id=output_contract_id,
+                task_type=task_type,
+                schema_id=schema_id,
+                allow_legacy_compat=not any((output_contract_id, task_type, schema_id)),
+            )
+        except OutputContractError as error:
+            raise TrueMultiAgentRuntimeError("Provider output contract identity is invalid") from error
+        if is_critical_contract_task(task_id):
+            expected_contract = resolve_output_contract(task_id, kind)
+            if (
+                output_contract.output_contract_id,
+                output_contract.task_type,
+                output_contract.schema_id,
+            ) != (
+                expected_contract.output_contract_id,
+                expected_contract.task_type,
+                expected_contract.schema_id,
+            ):
+                raise TrueMultiAgentRuntimeError("critical Provider call contract identity does not match its task")
         self._assert_model_admission(int(self.policy["max_output_tokens_per_request"]))
         ordinal = self._provider_call_total() + 1
         pre_provider_binding = self._pre_provider_call_binding(
@@ -2430,6 +2546,10 @@ class ProviderExecutor:
                 "role": agent.role,
                 "capabilities": list(agent.capabilities),
                 "task_id": task_id,
+                "kind": kind,
+                "output_contract_id": output_contract.output_contract_id,
+                "task_type": output_contract.task_type,
+                "schema_id": output_contract.schema_id,
                 "task_attempt_id": attempt.task_attempt_id,
                 "shared_context": dict(input_context),
                 "system_prompt": system_prompt,
@@ -2440,7 +2560,9 @@ class ProviderExecutor:
             input_schema = "SITINA_AGENT_INPUT_SNAPSHOT_V1"
             rendered_input_hash = input_snapshot_hash
         effect_id = "effect-" + stable_hash("TRUE_MULTI_AGENT_EFFECT", {"call": call_id})[:40]
-        self.transport.call_bindings[effect_id] = dict(pre_provider_binding or {})
+        call_bindings = getattr(self.transport, "call_bindings", None)
+        if isinstance(call_bindings, dict):
+            call_bindings[effect_id] = dict(pre_provider_binding or {})
         effect_attempt_id = "effect-attempt-" + stable_hash("TRUE_MULTI_AGENT_EFFECT_ATTEMPT", {"call": call_id, "attempt": 1})[:32]
         request = EffectRequest(
             effect_id,
@@ -2449,6 +2571,10 @@ class ProviderExecutor:
                 "agent_id": agent.agent_id,
                 "role": agent.role,
                 "task_id": task_id,
+                "kind": kind,
+                "output_contract_id": output_contract.output_contract_id,
+                "task_type": output_contract.task_type,
+                "schema_id": output_contract.schema_id,
                 "task_attempt_id": attempt.task_attempt_id,
                 "input_snapshot_hash": input_snapshot_hash,
                 "input_snapshot_ref": input_receipt.object_ref.reference_id,
@@ -2781,6 +2907,7 @@ class ProviderExecutor:
         try:
             if not isinstance(value, dict) or value.get("agent_id") != agent.agent_id or value.get("kind") != kind:
                 raise TrueMultiAgentRuntimeError("Provider output violated Agent identity or output-kind contract")
+            validate_output_contract(value, output_contract)
             validate(value)
             if scan_json_for_secrets(value, scope="true-multi-agent-provider-output"):
                 raise TrueMultiAgentRuntimeError("Provider output secret scan failed")

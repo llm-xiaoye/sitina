@@ -3601,6 +3601,27 @@ class CodeModeScriptedProvider:
 
     def _value(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         agent_id = self._agent_id(system_prompt)
+        if "contract_hash=" in user_prompt and "selected_proposal_projection" in user_prompt:
+            contract_match = re.search(r"contract_hash=([0-9a-f]{64})", user_prompt)
+            projection_match = re.search(r'"selected_proposal_projection_hash"\s*:\s*"([0-9a-f]{64})"', user_prompt)
+            if not contract_match or not projection_match:
+                raise ValueError("scripted Handoff response lost its frozen binding")
+            return {
+                "agent_id": agent_id, "kind": "review", "accept": True,
+                "reason": "The bounded read-only handoff is complete.",
+                "missing_information": [], "contract_hash": contract_match.group(1),
+                "generation": 1,
+                "selected_proposal_projection_hash": projection_match.group(1),
+            }
+        if "Give the best direct answer" in user_prompt:
+            return {
+                "agent_id": agent_id,
+                "kind": "conversation_answer",
+                "answer": "RAG combines retrieval with generation so the model can ground its answer in relevant documents.",
+                "confidence": "high",
+                "needs_multi": False,
+                "escalation_reasons": [],
+            }
         if "Analyze this goal" in user_prompt:
             return {
                 "agent_id": agent_id, "kind": "proposal", "complexity": "standard",
@@ -3623,7 +3644,7 @@ class CodeModeScriptedProvider:
             return {
                 "agent_id": agent_id, "kind": "proposal", "summary": "The bounded revision is valid.",
                 "parent_output_hash": match.group(1),
-                "responses_to_objections": ["addressed"] * 4,
+                "defect_responses": ["addressed"] * 4,
                 "acceptance_checks": ["focused test passes"] * 4,
             }
         if "Independently score" in user_prompt or "Re-review revision" in user_prompt or "Review round-2 revision hash" in user_prompt:

@@ -58,6 +58,12 @@ class CodeModeRuntimePolicyTests(unittest.TestCase):
         self.assertTrue(classify_code_mode_intent("Do not push, but update the file.")["explicit_mutation"])
         self.assertTrue(classify_code_mode_intent("不要推送，但修改文件")["explicit_mutation"])
 
+    def test_plan_discussion_and_nested_markers_do_not_authorize_mutation(self) -> None:
+        readonly = classify_code_mode_intent("只读分析修复方案，不要修改文件")
+        self.assertFalse(readonly["explicit_mutation"])
+        self.assertEqual(readonly["negated_operations"], ["modify"])
+        self.assertTrue(classify_code_mode_intent("修复代码但不要提交")["explicit_mutation"])
+
     def test_fast_is_read_only_and_multi_requires_current_session(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

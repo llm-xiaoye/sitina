@@ -249,6 +249,25 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self._env.stop()
 
     @staticmethod
+    def _valid_discovery(agent_id: str) -> dict[str, object]:
+        return {
+            "agent_id": agent_id,
+            "kind": "proposal",
+            "complexity": "simple",
+            "risk_level": "low",
+            "protocols": ["proposal"],
+            "task_graph": ["produce and review one bounded proposal"],
+            "proposal_count": 1,
+            "domain_capability": None,
+            "requires_rework": False,
+            "requires_conflict": False,
+            "requires_handoff_reject": False,
+            "requires_reassignment": False,
+            "requires_provider_unknown": False,
+            "rationale": "local transport contract fixture",
+        }
+
+    @staticmethod
     def _root_fsm_response(request: dict[str, object]) -> dict[str, object]:
         messages = request.get("messages")
         system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
@@ -321,6 +340,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             discovery_agent,
             task_id="goal-discovery",
             kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1",
+            task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1",
             root_phase="discovery/controller",
             system_prompt=(
                 f"agent_id exactly '{discovery_agent.agent_id}' kind exactly 'proposal'"
@@ -350,6 +372,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             executor.call(
                 discovery_agent,
                 task_id="review-1", kind="review",
+                output_contract_id="sitina.proposal-review.v1",
+                task_type="proposal_review",
+                schema_id="SITINA_PROPOSAL_REVIEW_V1",
                 root_phase="review/selection", system_prompt="system",
                 user_prompt="post-selection root call", input_context={},
                 validate=lambda _value: None,
@@ -461,11 +486,14 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         )
         agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
         _LocalProviderHandler.wire_case = "tool_call_index"
-        _LocalProviderHandler.response_body = json.dumps({"agent_id": agent.agent_id, "kind": "proposal"})
+        _LocalProviderHandler.response_body = json.dumps(self._valid_discovery(agent.agent_id))
         result = executor.call(
             agent,
             task_id="goal-discovery",
             kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1",
+            task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1",
             root_phase="discovery/controller",
             system_prompt="system",
             user_prompt="user",
@@ -506,11 +534,14 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         )
         agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
         _LocalProviderHandler.wire_case = "empty_content"
-        _LocalProviderHandler.response_body = json.dumps({"agent_id": agent.agent_id, "kind": "proposal"})
+        _LocalProviderHandler.response_body = json.dumps(self._valid_discovery(agent.agent_id))
         result = executor.call(
             agent,
             task_id="goal-discovery",
             kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1",
+            task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1",
             root_phase="discovery/controller",
             system_prompt="system",
             user_prompt="user",
@@ -1054,7 +1085,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             client_override=None, pre_provider_authorization=authorization,
         )
         agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
-        _LocalProviderHandler.response_body = json.dumps({"agent_id": agent.agent_id, "kind": "proposal"})
+        _LocalProviderHandler.response_body = json.dumps(self._valid_discovery(agent.agent_id))
         captured: list[tuple[object, str]] = []
         results: list[dict[str, object]] = []
         original_send_once = executor.transport.send_once
@@ -1068,6 +1099,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         executor.transport.send_once = capture  # type: ignore[method-assign]
         executor.call(
             agent, task_id="goal-discovery", kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1",
+            task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1",
             root_phase="discovery/controller",
             system_prompt="system", user_prompt="user", input_context={},
             validate=lambda value: None,
@@ -1095,10 +1129,13 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             client_override=None, pre_provider_authorization=authorization,
         )
         agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
-        _LocalProviderHandler.response_body = json.dumps({"agent_id": agent.agent_id, "kind": "proposal"})
+        _LocalProviderHandler.response_body = json.dumps(self._valid_discovery(agent.agent_id))
         executor.transport.max_retries = 1
         executor.call(
             agent, task_id="goal-discovery", kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1",
+            task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1",
             root_phase="discovery/controller",
             system_prompt="system", user_prompt="user", input_context={},
             validate=lambda value: None,
@@ -1130,6 +1167,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         with self.assertRaises(ProviderHTTPError) as raised:
             executor.call(
                 agent, task_id="goal-discovery", kind="proposal",
+                output_contract_id="sitina.goal-discovery.v1",
+                task_type="goal_discovery",
+                schema_id="SITINA_GOAL_DISCOVERY_V1",
                 root_phase="discovery/controller", system_prompt="system", user_prompt="user",
                 input_context={}, validate=lambda value: None,
             )
@@ -1155,6 +1195,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         with self.assertRaises(TrueMultiAgentRuntimeError):
             executor.call(
                 agent, task_id="goal-discovery", kind="proposal",
+                output_contract_id="sitina.goal-discovery.v1",
+                task_type="goal_discovery",
+                schema_id="SITINA_GOAL_DISCOVERY_V1",
                 root_phase="discovery/controller", system_prompt="system",
                 user_prompt="user", input_context={}, validate=lambda value: None,
             )
@@ -1212,6 +1255,9 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 with self.assertRaises(TrueMultiAgentRuntimeError):
                     executor.call(
                         agent, task_id="goal-discovery", kind="proposal",
+                        output_contract_id="sitina.goal-discovery.v1",
+                        task_type="goal_discovery",
+                        schema_id="SITINA_GOAL_DISCOVERY_V1",
                         root_phase="discovery/controller", system_prompt="system",
                         user_prompt="user", input_context={}, validate=lambda value: None,
                     )

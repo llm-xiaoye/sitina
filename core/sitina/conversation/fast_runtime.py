@@ -21,6 +21,7 @@ from sitina.orchestrator.true_multi_agent_runtime import (
     ProviderExecutor,
     TrueMultiAgentRuntimeError,
     activate_runtime,
+    issue_root_pre_provider_authorization,
     now_rfc3339,
     sha256_bytes,
     stable_hash,
@@ -119,11 +120,15 @@ class FastConversationRuntime:
         test_backend: Callable[..., Mapping[str, Any]] | None = None,
         runtime_context_factory: Any | None = None,
         session_runtime_provider: Any | None = None,
+        provider_client: Any | None = None,
+        provider_profile: Any | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self._test_backend = test_backend
         self.runtime_context_factory = runtime_context_factory
         self.session_runtime_provider = session_runtime_provider
+        self.provider_client = provider_client
+        self.provider_profile = provider_profile
         self.registry: AgentRegistry | None = None
         self.policy: dict[str, Any] | None = None
         self.policy_hash: str | None = None
@@ -187,12 +192,12 @@ class FastConversationRuntime:
             (
                 {
                     "schema": "FAST_CONVERSATION_AGENT_SCHEDULING_DECISION_V1",
-                    "event_type": "scheduling.decision",
+                    "event_type": "conversation.fast.scheduling.decision",
                     **mapping,
                 },
                 {
                     "schema": "FAST_CONVERSATION_DISPATCH_ACCEPTED_V1",
-                    "event_type": "dispatch.command.accepted",
+                    "event_type": "conversation.fast.dispatch.accepted",
                     "decision_id": decision.decision_id,
                     "decision_commitment": decision.commitment,
                     "selected_agents": [selected.agent_id],
@@ -695,6 +700,7 @@ class FastConversationRuntime:
         session_id: str,
         turn_index: int,
         allow_escalation: bool,
+        live_opt_in: bool = False,
     ) -> dict[str, Any]:
         if self._test_backend is not None:
             return dict(
@@ -750,7 +756,30 @@ class FastConversationRuntime:
                 route_decision=route_decision,
                 occurred_at=message_created_at,
             )
-            activation = activate_runtime(self.home, context_runtime, cas, self.registry, self.policy)
+            offline = self.provider_client is not None
+            pre_provider_authorization = None
+            if not offline and live_opt_in:
+                pre_provider_authorization = issue_root_pre_provider_authorization(
+                    context_runtime,
+                    policy=self.policy,
+                    session_id=session_id,
+                    turn_index=turn_index,
+                    run_id=run_id,
+                    provider_profile=self.provider_profile,
+                )
+            activation = activate_runtime(
+                self.home,
+                context_runtime,
+                cas,
+                self.registry,
+                self.policy,
+                pre_provider_authorization=pre_provider_authorization,
+                run_id=run_id,
+                session_id=session_id,
+                provider_profile=self.provider_profile,
+                offline=offline,
+                source_root=getattr(context_runtime, "source_root", self.home),
+            )
             run_stream = CanonicalStream(
                 journal,
                 run_id,
@@ -767,6 +796,9 @@ class FastConversationRuntime:
                 activation,
                 journal,
                 cas,
+                client_override=self.provider_client,
+                profile_override=self.provider_profile,
+                pre_provider_authorization=pre_provider_authorization,
             )
             lifecycle.link_run(
                 session_id=session_id,
@@ -815,6 +847,9 @@ class FastConversationRuntime:
                 agent,
                 task_id="conversation-answer",
                 kind="conversation_answer",
+                output_contract_id="sitina.conversation-answer.v1",
+                task_type="conversation_answer",
+                schema_id="SITINA_CONVERSATION_ANSWER_V1",
                 system_prompt=self._system_prompt(agent),
                 user_prompt=self._user_prompt(message, context),
                 input_context={

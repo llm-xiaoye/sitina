@@ -22,6 +22,7 @@ from sitina.conversation import (
     ChatMode,
     ChatSession,
     ConversationRuntime,
+    FastConversationRuntime,
     RouteDecision,
     route_decision_from_mapping,
     route_description,
@@ -1220,6 +1221,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     runtime_context_factory = getattr(args, "runtime_context_factory", None)
     multi_runtime = getattr(args, "multi_runtime", None)
     autonomous_runtime = getattr(args, "autonomous_runtime", None)
+    provider = None
     close_broker = None
     session_instance_id = "session-instance-" + secrets.token_hex(16)
     # The public CLI always constructs Code Mode dependencies unless a caller
@@ -1260,6 +1262,14 @@ def cmd_chat(args: argparse.Namespace) -> int:
             live_opt_in=bool(getattr(args, "live", False)),
             access_mode=getattr(args, "access_mode", "workspace"),
             runtime_context_factory=runtime_context_factory,
+            fast_runtime=FastConversationRuntime(
+                runtime_home,
+                runtime_context_factory=runtime_context_factory,
+                session_runtime_provider=provider,
+                provider_client=provider,
+                provider_profile=getattr(provider, "profile", None),
+            ),
+            session_runtime_provider=provider,
             # Ordinary Code Mode review is not a Provider canary.  A canary
             # authorization is issued only by the later accepted Gate path.
             canary_authorization=None,

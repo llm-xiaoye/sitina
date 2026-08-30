@@ -53,10 +53,12 @@ from sitina.orchestrator.true_multi_agent_runtime import (
     RuntimeActivation,
     TrueMultiAgentRuntimeError,
     activate_runtime,
+    issue_root_pre_provider_authorization,
     now_rfc3339,
     sha256_bytes,
     stable_hash,
 )
+from sitina.orchestrator.output_contracts import resolve_output_contract
 from sitina.projections.production import production_handlers
 from sitina.projections.rebuild import ProjectionGeneration
 from sitina.protocols.arbitration import Arbitration
@@ -857,6 +859,23 @@ def _execution_required(goal: str) -> bool:
     return any(marker in normalized for marker in markers)
 
 
+def _execution_goal_authorized(goal: str, controls: Mapping[str, Any]) -> bool:
+    """Return the frozen execution decision for the Forge entry gate.
+
+    Interactive Code Mode must use the host-issued, immutable intent
+    projection.  The broad legacy heuristic remains only for non-interactive
+    workflows, where no chat authorization projection exists.
+    """
+    if bool(controls.get("interactive_chat")):
+        intent = controls.get("code_mode_intent")
+        return bool(
+            controls.get("intent_authorized") is True
+            and isinstance(intent, Mapping)
+            and intent.get("explicit_mutation") is True
+        )
+    return _execution_required(goal)
+
+
 def _execution_isolation_required(goal: str, controls: Mapping[str, Any]) -> bool:
     """Choose the existing managed worktree for risky/concurrent writes."""
 
@@ -1550,6 +1569,7 @@ class TrueMultiAgentProductionRuntime:
         validate,
         ack_lost: bool = False,
     ) -> AgentCallResult:
+        output_contract = resolve_output_contract(task_id, kind, allow_legacy_compat=True)
         result = executor.call(
             agent,
             task_id=task_id,
@@ -1560,6 +1580,9 @@ class TrueMultiAgentProductionRuntime:
             input_context=context,
             validate=validate,
             ack_lost=ack_lost,
+            output_contract_id=output_contract.output_contract_id,
+            task_type=output_contract.task_type,
+            schema_id=output_contract.schema_id,
         )
         evidence.calls.append(result)
         evidence.called_agents.add(agent.agent_id)
@@ -11950,9 +11973,9 @@ class TrueMultiAgentProductionRuntime:
                 runtime_context=runtime_context,
                 controls=controls,
             )
-        if not isinstance(code_core, Mapping) and evidence.expected_terminal != "FAILED":
+        if code_mode_authorized and not isinstance(code_core, Mapping) and evidence.expected_terminal != "FAILED":
             raise DynamicCollaborationError("Code Mode requires an immutable execution core")
-        if evidence.expected_terminal != "FAILED" and not isinstance(controls.get("code_mode_internal_gate"), Mapping):
+        if code_mode_authorized and evidence.expected_terminal != "FAILED" and not isinstance(controls.get("code_mode_internal_gate"), Mapping):
             raise DynamicCollaborationError("Code Mode requires the verified internal Gate")
         if (
             code_mode_authorized
@@ -12304,6 +12327,20 @@ class TrueMultiAgentProductionRuntime:
             },
             terminal_fact,
         )
+        if not code_mode_authorized:
+            # Ordinary read-only MULTI still uses the same evidence/CAS
+            # projection, but must enter the ordinary Journal gate.  Do not
+            # reuse Code Mode authority-reserved schema/event names.
+            ordinary_package = dict(terminal_stage_facts[3])
+            ordinary_package["schema"] = "TRUE_MULTI_AGENT_RUN_EVIDENCE_SEALED_V1"
+            ordinary_package["event_type"] = "run.evidence.package.sealed"
+            ordinary_terminal = dict(terminal_stage_facts[4])
+            ordinary_terminal["schema"] = "TRUE_MULTI_AGENT_TERMINAL_V1"
+            ordinary_terminal["event_type"] = "run.terminal"
+            terminal_stage_facts = (
+                terminal_stage_facts[0], terminal_stage_facts[1], terminal_stage_facts[2],
+                ordinary_package, ordinary_terminal,
+            )
         if prepare_stage_draft:
             # This path publishes only the immutable semantic evidence object;
             # it never appends a terminal or changes the RunAggregate.  The
@@ -12390,30 +12427,7 @@ class TrueMultiAgentProductionRuntime:
         else:
             receipt_event, refs = append_terminal(
                 "code-mode-terminal" if code_mode_authorized else "run-terminal",
-                (
-                    {**closing, "event_type": "run.closing"},
-                    negative_probe,
-                        {
-                            "schema": "TERMINAL_FULL_VALIDATION_ACCEPTED_V1",
-                            "event_type": "protocol.terminal.full.validation.accepted",
-                        "projection_source_position": projection.source_position,
-                        "projection_candidate": projection.candidate,
-                        "authoritative_blocker_counts": {kind.value: 0 for kind in BlockerKind},
-                        "required_obligations_complete_ref": None if failure_refs else obligations_ref,
-                        "failure_refs": list(failure_refs),
-                        "decision": decision.__dict__,
-                    },
-                        {
-                            "schema": "RUN_EVIDENCE_PACKAGE_SEALED_V1",
-                            "event_type": "protocol.run.evidence.package.sealed",
-                        "evidence_package_ref": receipt.object_ref.reference_id,
-                        "evidence_package_hash": evidence_hash,
-                        "provider_call_ids": [item.call_id for item in evidence.calls],
-                        "provider_recovery_call_ids": [item["call_id"] for item in executor.recovery_attempts],
-                        "_object_refs": [receipt.object_ref.reference_id],
-                    },
-                    terminal_fact,
-                ),
+                terminal_stage_facts,
                 actor="terminal-command-handler",
                 proofs=(receipt,),
                 command_id=decision.command_id,
@@ -12768,24 +12782,17 @@ class TrueMultiAgentProductionRuntime:
                 pre_turn_index = conversation_turn_index
                 if pre_turn_index is None and type(code_mode_authorization.get("turn_index")) is int:
                     pre_turn_index = code_mode_authorization.get("turn_index")
-                profile_getter = getattr(context, "authoritative_provider_profile", None)
-                pre_issuer = getattr(context, "issue_pre_provider_authorization", None)
-                if (
-                    not pre_session_id or type(pre_turn_index) is not int or pre_turn_index < 0
-                    or not callable(profile_getter) or not callable(pre_issuer)
-                ):
+                if not pre_session_id or type(pre_turn_index) is not int or pre_turn_index < 0:
                     raise DynamicCollaborationError(
                         "live Code Mode Provider execution requires a launcher-owned pre-provider issuer and turn"
                     )
-                profile = profile_getter(str(self.policy["provider_profile"]))
-                pre_provider_authorization = pre_issuer(
+                pre_provider_authorization = issue_root_pre_provider_authorization(
+                    context,
+                    policy=self.policy,
                     session_id=pre_session_id,
                     turn_index=pre_turn_index,
                     run_id=run_id,
                     run_attempt=int(run_attempt),
-                    generation=str(code_mode_authorization.get("generation") or getattr(getattr(context, "identity", None), "epoch_root", "")),
-                    provider_profile=str(profile.name),
-                    provider_model=str(profile.model),
                 )
             if interactive_chat:
                 conversation_lifecycle = ConversationLifecycle(journal, cas, context.provider)
@@ -12890,7 +12897,7 @@ class TrueMultiAgentProductionRuntime:
                         "registry_generation": self.registry.generation,
                         "fixed_workflow_pipeline_used": bool(
                             self.policy.get("execution_bridge_enabled")
-                            and _execution_required(evidence.goal)
+                            and _execution_goal_authorized(evidence.goal, controls)
                         ),
                         "external_mutation_allowed": bool(
                             (activation.mapping.get("external_mutation_allowed"))
@@ -12995,6 +13002,20 @@ class TrueMultiAgentProductionRuntime:
                     analysis = self._code_mode_analysis(analysis)
                 else:
                     analysis = self._interactive_chat_analysis(analysis)
+                    if not _execution_goal_authorized(evidence.goal, controls):
+                        # Read-only MULTI is a reviewed analysis response. It
+                        # must not implicitly enter Debate/Handoff (both are
+                        # execution-adjacent protocols and can create writes).
+                        analysis = dataclasses.replace(
+                            analysis,
+                            protocols=("proposal", "review"),
+                            task_graph=(
+                                "interpret the current message and bounded conversation context",
+                                "produce and independently review candidate answers",
+                            ),
+                            proposal_count=1,
+                            rationale="read-only MULTI returns the reviewed analysis directly",
+                        )
                 run_stream.append(
                     "interactive-chat-analysis-constrained",
                     (
@@ -13093,9 +13114,10 @@ class TrueMultiAgentProductionRuntime:
                 bypass_handoff = (
                     bool(self.policy.get("execution_handoff_bypass_enabled"))
                     and bool(self.policy.get("execution_bridge_enabled"))
-                    and _execution_required(evidence.goal)
+                    and _execution_goal_authorized(evidence.goal, controls)
                 )
-                if "handoff" in analysis.protocols and not bypass_handoff:
+                read_only_chat = bool(controls.get("interactive_chat")) and not _execution_goal_authorized(evidence.goal, controls)
+                if "handoff" in analysis.protocols and not bypass_handoff and not read_only_chat:
                     self._handoff(
                         journal, run_stream, executor, evidence, analysis, winner, winner_agent, proposal_decision, controls
                     )
@@ -13156,7 +13178,7 @@ class TrueMultiAgentProductionRuntime:
                 )
             # Deterministic execution-goal decision (Req 1): NOT dependent on
             # whether Atlas emitted a "handoff" protocol.
-            execution_goal = bool(self.policy.get("execution_bridge_enabled")) and _execution_required(evidence.goal)
+            execution_goal = bool(self.policy.get("execution_bridge_enabled")) and _execution_goal_authorized(evidence.goal, controls)
             if "checkpoint" in analysis.protocols or bool(controls.get("force_checkpoint_restart")):
                 # Req 8: an execution goal must never be resolved via a restart
                 # that skips the execution bridge — that would mark it done
