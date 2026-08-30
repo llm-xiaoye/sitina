@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from unittest.mock import patch
 
 from sitina import cli
+from sitina.conversation.fast_runtime import FastConversationRuntime
 from sitina.orchestrator.code_mode_authority_broker import CodeModeAuthorityBrokerError
 from sitina.orchestrator.true_multi_agent_runtime import (
     CanonicalStream,
@@ -25,7 +26,7 @@ from sitina.orchestrator.true_multi_agent_runtime import (
 )
 from sitina.orchestrator.true_multi_agent import RunEvidence
 from sitina.orchestrator.true_multi_agent import GoalAnalysis
-from sitina.journal.model import canonical_json_bytes
+from sitina.journal.model import CODE_MODE_FAST_PRE_PROVIDER_PHASE, canonical_json_bytes
 from sitina.runners.provider import ProviderHTTPError
 
 
@@ -406,6 +407,8 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 "session_id": conversation_id,
                 "session_instance_id": self.context.session_instance_id,
                 "generation": generation,
+                "intent_authorized": True,
+                "intent": {"explicit_mutation": True},
             },
         }
         stream.append(
@@ -516,6 +519,203 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts[0]["authorization_kind"], "pre-provider")
         self.assertTrue(str(receipts[0]["authorization_id"]).startswith("pre-provider:"))
+
+    def test_real_fast_root_phase_is_authenticated_and_one_send(self) -> None:
+        runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
+        self.journal = self.context.open_runtime_writer()
+        executor = ProviderExecutor(
+            runtime_home,
+            self.context,
+            run_id,
+            multi.policy_hash,
+            multi.policy,
+            activation,
+            self.journal,
+            self.context.open_cas(),
+            client_override=None,
+            pre_provider_authorization=authorization,
+        )
+        fast = FastConversationRuntime(runtime_home)
+        run_stream = CanonicalStream(
+            self.journal, run_id, f"run/{run_id}", fast.policy_hash,
+            namespace="sitina-fast-conversation-v1",
+        )
+        agent, _mapping = fast._schedule(
+            self.journal, run_stream, turn_index=1, root_executor=executor,
+        )
+        self.assertEqual(
+            executor._root_schedule_bindings[0]["phase"],
+            CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+        )
+        _LocalProviderHandler.response_body = json.dumps({
+            "agent_id": agent.agent_id,
+            "kind": "conversation_answer",
+            "answer": "local FAST answer",
+            "confidence": "high",
+            "needs_multi": False,
+            "escalation_reasons": [],
+        })
+        result = executor.call(
+            agent,
+            task_id="conversation-answer",
+            kind="conversation_answer",
+            output_contract_id="sitina.conversation-answer.v1",
+            task_type="conversation_answer",
+            schema_id="SITINA_CONVERSATION_ANSWER_V1",
+            root_phase=CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+            system_prompt="system",
+            user_prompt="answer locally",
+            input_context={},
+            validate=lambda _value: None,
+        )
+        self.assertEqual(result.value["kind"], "conversation_answer")
+        self.assertEqual(executor.call_count, 1)
+        self.assertEqual(executor.physical_send_total(), 1)
+        self.assertEqual(len(_LocalProviderHandler.requests), 1)
+        with self.assertRaises(TrueMultiAgentRuntimeError):
+            executor._pre_provider_call_binding(
+                kind="conversation_answer", agent=agent, ordinal=2,
+                task_id="goal-discovery", input_context={},
+                root_phase=CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+            )
+
+    def test_live_multi_root_permit_allows_readonly_without_code_mode_authorization(self) -> None:
+        runtime_home, multi, _run_id, conversation, _generation, _old_auth, _activation = self._runtime()
+        _LocalProviderHandler.response_factory = self._root_fsm_response
+        result = multi.execute(
+            "read-only compare two bounded options",
+            label="batch6-readonly-root-permit",
+            overrides={
+                "live_opt_in": True,
+                "conversation_session_id": conversation,
+                "conversation_turn_index": 0,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False},
+                "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
+        self.assertEqual(result["provider_call_count"], 3)
+        self.assertEqual(result["provider_physical_send_count"], 3)
+        self.assertEqual(result["external_mutation_count"], 0)
+        self.assertEqual(result["provider_unsettled_usage_count"], 0)
+        self.assertEqual(len(_LocalProviderHandler.requests), 3)
+
+    def test_live_low_risk_rework_reopens_one_bound_revision_before_selection(self) -> None:
+        runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
+        self.journal = self.context.open_runtime_writer()
+        executor = ProviderExecutor(
+            runtime_home,
+            self.context,
+            run_id,
+            multi.policy_hash,
+            multi.policy,
+            activation,
+            self.journal,
+            self.context.open_cas(),
+            client_override=None,
+            pre_provider_authorization=authorization,
+        )
+        state = {"first_review": True}
+
+        def rework_response(request: dict[str, object]) -> dict[str, object]:
+            messages = request.get("messages")
+            user = str(messages[-1].get("content") if isinstance(messages, list) and messages else "")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            match = re.search(r"agent_id exactly '([^']+)'", system)
+            agent_id = match.group(1) if match else "agent-atlas"
+            if "Analyze this goal" in user:
+                return {
+                    "agent_id": agent_id, "kind": "proposal", "complexity": "simple",
+                    "risk_level": "low", "protocols": ["proposal"],
+                    "task_graph": ["bounded write"], "proposal_count": 1,
+                    "domain_capability": "python", "requires_rework": False,
+                    "requires_conflict": False, "requires_handoff_reject": False,
+                    "requires_reassignment": False, "requires_provider_unknown": False,
+                    "rationale": "local rework transition fixture",
+                }
+            if "Re-review revision" in user:
+                return {
+                    "agent_id": agent_id, "kind": "review", "verdict": "approved",
+                    "score": 90, "reason": "the focused defect is repaired", "defects": [],
+                }
+            if "Revise your exact parent proposal" in user:
+                parent = re.search(r"Parent output hash: ([0-9a-f]{64})", user)
+                self.assertIsNotNone(parent)
+                return {
+                    "agent_id": agent_id, "kind": "proposal",
+                    "parent_output_hash": parent.group(1),
+                    "defect_responses": ["added the focused assertion"],
+                    "summary": "bounded revision", "approach": "repair the focused assertion",
+                    "acceptance_checks": ["focused test passes"],
+                }
+            if "Independently score" in user:
+                if state["first_review"]:
+                    state["first_review"] = False
+                    return {
+                        "agent_id": agent_id, "kind": "review", "verdict": "reject",
+                        "score": 60, "reason": "add a focused assertion",
+                        "defects": ["add a focused assertion"],
+                    }
+                return {
+                    "agent_id": agent_id, "kind": "review", "verdict": "approved",
+                    "score": 90, "reason": "the bounded revision is complete", "defects": [],
+                }
+            return {
+                "agent_id": agent_id, "kind": "proposal", "summary": "bounded proposal",
+                "approach": "perform the bounded operation", "risks": ["local only"],
+                "assumptions": ["fixture is isolated"], "acceptance_checks": ["focused test passes"],
+            }
+
+        _LocalProviderHandler.response_factory = rework_response
+        evidence = RunEvidence(
+            run_id, "explicit low-risk write", sha256_bytes(b"explicit low-risk write"), multi.policy_hash,
+        )
+        run_stream = CanonicalStream(
+            self.journal, run_id, f"run/{run_id}", multi.policy_hash,
+        )
+        discovery_agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
+        discovery = executor.call(
+            discovery_agent,
+            task_id="goal-discovery", kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1", task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1", root_phase="discovery/controller",
+            system_prompt=f"agent_id exactly '{discovery_agent.agent_id}'",
+            user_prompt="Analyze this goal", input_context={},
+            validate=lambda _value: None,
+        )
+        evidence.calls.append(discovery)
+        analysis = GoalAnalysis(
+            complexity="simple", risk_level="low", protocols=("proposal",),
+            task_graph=("bounded write",), proposal_count=1, domain_capability="python",
+            requires_rework=False, requires_conflict=False, requires_handoff_reject=False,
+            requires_reassignment=False, requires_provider_unknown=False,
+            rationale="local rework transition fixture",
+        )
+        controls = {
+            "interactive_chat": True,
+            "code_mode_authorization": {"intent_authorized": True},
+            "intent_authorized": True,
+            "code_mode_intent": {"explicit_mutation": True},
+        }
+        winner, _agent, _results, _decision = multi._proposal_and_review(
+            self.journal, run_stream, executor, evidence, analysis, controls,
+        )
+        self.assertTrue(winner.output_ref)
+        self.assertEqual(executor.physical_send_total(), 5)
+        self.assertEqual(len(_LocalProviderHandler.requests), 5)
+        settled = [
+            event.payload for event in self.journal.iter_events(0)
+            if event.payload.get("schema") == "CODE_MODE_ROOT_SETTLED_FACT_V1"
+        ]
+        self.assertEqual(
+            [item.get("phase") for item in settled],
+            [
+                "discovery/controller", "proposal/planner/candidate", "review/selection",
+                "proposal/planner/candidate", "review/selection",
+            ],
+        )
 
     def test_real_host_structured_tool_call_accepts_explicit_empty_content(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()

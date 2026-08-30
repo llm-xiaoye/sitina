@@ -978,6 +978,41 @@ def _execution_goal_authorized(goal: str, controls: Mapping[str, Any]) -> bool:
     return _execution_required(goal)
 
 
+def _code_mode_mutation_rework_authorized(controls: Mapping[str, Any]) -> bool:
+    """Allow one proposal correction only for an explicit Code Mode write.
+
+    Ordinary MULTI review (including read-only chat) must keep a hard REJECT
+    terminal.  The host-issued authorization and frozen intent projection are
+    the only inputs that may open this narrow correction seam.
+    """
+
+    intent = controls.get("code_mode_intent")
+    return bool(
+        controls.get("interactive_chat")
+        and isinstance(controls.get("code_mode_authorization"), Mapping)
+        and controls.get("intent_authorized") is True
+        and isinstance(intent, Mapping)
+        and intent.get("explicit_mutation") is True
+    )
+
+
+def _repairable_review_rejection(value: Mapping[str, Any], *, score: int, minimum_score: int) -> bool:
+    """Recognize a bounded, low-risk correction rather than a hard refusal."""
+
+    defects = value.get("defects")
+    if not isinstance(defects, list) or not defects:
+        return False
+    if score < max(1, int(minimum_score) // 2):
+        return False
+    text = " ".join(str(item) for item in defects).casefold()
+    text += " " + str(value.get("reason") or "").casefold()
+    hard_markers = (
+        "security", "unsafe", "unauthorized", "forbidden", "out of scope", "impossible", "cannot",
+        "安全", "越权", "禁止", "范围外", "不可行", "不允许",
+    )
+    return not any(marker in text for marker in hard_markers)
+
+
 def _execution_isolation_required(goal: str, controls: Mapping[str, Any]) -> bool:
     """Choose the existing managed worktree for risky/concurrent writes."""
 
@@ -2045,12 +2080,17 @@ class TrueMultiAgentProductionRuntime:
         scores: dict[str, int] = {}
         dispositions: dict[str, str] = {}
         single_rework_required = analysis.requires_rework and _single_rework_required(evidence.goal)
+        code_mode_mutation_rework = (
+            _code_mode_mutation_rework_authorized(overrides)
+            and analysis.risk_level == "low"
+            and int(self.policy.get("max_rework_rounds", 0) or 0) >= 1
+        )
         for index, (agent, result) in enumerate(zip(proposers, results, strict=True), 1):
             force_changes = analysis.requires_rework and index == 1
             revision_allowed = force_changes or (
                 (analysis.requires_rework or "rework" in analysis.protocols)
                 and not single_rework_required
-            )
+            ) or code_mode_mutation_rework
 
             def validate_review(value: Mapping[str, Any]) -> None:
                 verdict = _require_string(value, "verdict").lower()
@@ -2107,6 +2147,21 @@ class TrueMultiAgentProductionRuntime:
             score = int(review.value["score"])
             if force_changes and (verdict != "changes_requested" or score >= int(self.policy["proposal_minimum_score"])):
                 raise DynamicCollaborationError("independent Reviewer failed to create the required rework path")
+            review_defects = list(_require_strings(review.value, "defects", minimum=0, maximum=8))
+            promoted_rejection = (
+                provider_verdict == "reject"
+                and code_mode_mutation_rework
+                and _repairable_review_rejection(
+                    review.value,
+                    score=score,
+                    minimum_score=int(self.policy["proposal_minimum_score"]),
+                )
+            )
+            if promoted_rejection:
+                # A reject is never treated as acceptance.  For a low-risk,
+                # explicitly authorized mutation only, a non-hard reject with
+                # concrete defects enters the existing single revision path.
+                verdict = "changes_requested"
             revision_denied_by_goal = verdict == "changes_requested" and not revision_allowed
             if revision_denied_by_goal:
                 verdict = "reject"
@@ -2154,6 +2209,16 @@ class TrueMultiAgentProductionRuntime:
                         "revision_allowed": revision_allowed,
                         "revision_denied_by_goal": revision_denied_by_goal,
                         "single_rework_required": single_rework_required,
+                        "reject_promoted_to_rework": promoted_rejection,
+                        "code_mode_mutation_rework": code_mode_mutation_rework,
+                        "risk_level": analysis.risk_level,
+                        "revision_budget": 1 if code_mode_mutation_rework else 0,
+                        # Persist the exact first-review defect list so the
+                        # authority host can bind the one revision to the
+                        # review that opened NEEDS_REVISION.  Hashes alone
+                        # are insufficient when a caller supplies a
+                        # different but similarly shaped correction.
+                        "frozen_defects": review_defects,
                     },
                     {**evaluated, "event_type": "proposal.evaluated", "frozen_rubric_hash": rubric},
                 ),
@@ -2163,7 +2228,7 @@ class TrueMultiAgentProductionRuntime:
             scores[proposal_ids[agent.agent_id]] = score
             dispositions[proposal_ids[agent.agent_id]] = disposition
             if disposition == "NEEDS_REVISION":
-                frozen_defects = tuple(_require_strings(review.value, "defects", maximum=8))
+                frozen_defects = tuple(review_defects)
                 rework_id = "rework-" + stable_hash("TRUE_MULTI_AGENT_REWORK", {"run": evidence.run_id, "proposal": proposal_ids[agent.agent_id]})[:28]
                 rework_obligation = "obligation-" + rework_id
                 rework_open_fact = self._protocol_open(evidence, "rework", rework_id, rework_obligation, reviewer_decision.decision_id)
@@ -2302,6 +2367,9 @@ class TrueMultiAgentProductionRuntime:
                             "new_output_hash": revision.output_hash,
                             "revision_call_id": revision.call_id,
                             "rework_id": rework_id,
+                            "review_id": review_request.review_id,
+                            "review_output_hash": review.output_hash,
+                            "reviewer_id": reviewer.agent_id,
                             "frozen_defects": list(frozen_defects),
                             "defect_response_count": len(defect_responses),
                             "all_defects_addressed": True,
@@ -13112,30 +13180,45 @@ class TrueMultiAgentProductionRuntime:
                     run_attempt=int(run_attempt),
                     generation=authorization_generation,
                 )
-            # Routine Code Mode provider calls require a separate host-issued
-            # pre-provider permit before activation.  Offline/scripted
-            # providers deliberately skip this network capability domain.
-            if isinstance(code_mode_authorization, Mapping) and getattr(self, "provider_client", None) is None:
+            # Every live MULTI root call, including read-only discovery, must
+            # enter the broker-owned pre-provider permit domain before
+            # activation.  Code Mode mutation authorization is not required
+            # for this admission; it is a separate execution gate later in
+            # the run.  Offline/scripted providers deliberately skip this
+            # network capability domain.
+            if getattr(self, "provider_client", None) is None and bool(controls.get("live_opt_in")) and pre_provider_authorization is None and not isinstance(canary_binding, Mapping):
+                pre_session_id = conversation_session_id
+                pre_turn_index = conversation_turn_index
+                if isinstance(code_mode_authorization, Mapping):
+                    pre_session_id = pre_session_id or str(code_mode_authorization.get("session_id") or "").strip()
+                    if pre_turn_index is None and type(code_mode_authorization.get("turn_index")) is int:
+                        pre_turn_index = code_mode_authorization.get("turn_index")
+                if not pre_session_id or type(pre_turn_index) is not int or pre_turn_index < 0:
+                    raise DynamicCollaborationError(
+                        "live MULTI Provider execution requires a launcher-owned pre-provider issuer and turn"
+                    )
+                # A malformed test double/policy is not allowed to mint a
+                # synthetic permit.  Leave admission empty so the real
+                # activation boundary fails closed; valid production
+                # policies always carry ``provider_profile`` (or an explicit
+                # provider profile object) and take the broker-issued path.
+                configured_profile = self.policy.get("provider_profile")
+                supplied_profile = getattr(self, "provider_profile", None)
+                if configured_profile or supplied_profile is not None:
+                    pre_provider_authorization = issue_root_pre_provider_authorization(
+                        context,
+                        policy=self.policy,
+                        session_id=pre_session_id,
+                        turn_index=pre_turn_index,
+                        run_id=run_id,
+                        run_attempt=int(run_attempt),
+                        provider_profile=supplied_profile,
+                    )
+            elif isinstance(code_mode_authorization, Mapping) and getattr(self, "provider_client", None) is None:
                 if not bool(controls.get("live_opt_in")):
                     raise DynamicCollaborationError(
                         "live Code Mode Provider execution requires explicit live opt-in"
                     )
-                pre_session_id = conversation_session_id or str(code_mode_authorization.get("session_id") or "").strip()
-                pre_turn_index = conversation_turn_index
-                if pre_turn_index is None and type(code_mode_authorization.get("turn_index")) is int:
-                    pre_turn_index = code_mode_authorization.get("turn_index")
-                if not pre_session_id or type(pre_turn_index) is not int or pre_turn_index < 0:
-                    raise DynamicCollaborationError(
-                        "live Code Mode Provider execution requires a launcher-owned pre-provider issuer and turn"
-                    )
-                pre_provider_authorization = issue_root_pre_provider_authorization(
-                    context,
-                    policy=self.policy,
-                    session_id=pre_session_id,
-                    turn_index=pre_turn_index,
-                    run_id=run_id,
-                    run_attempt=int(run_attempt),
-                )
             if interactive_chat:
                 conversation_lifecycle = ConversationLifecycle(journal, cas, context.provider)
                 # Commit the original user body and deterministic route before
@@ -13203,6 +13286,20 @@ class TrueMultiAgentProductionRuntime:
             run, opened = RunAggregate.open(run_id)
             run_stream = CanonicalStream(journal, run_id, f"run/{run_id}", self.policy_hash)
             persisted_controls = dict(controls)
+            if isinstance(pre_provider_authorization, Mapping):
+                # The root permit is an in-process capability; only its
+                # issuer-bound, non-secret scope is durable.  Read-only live
+                # MULTI has no Code Mode mutation authorization, so this
+                # projection is also the host's Journal anchor for the
+                # ordinary root-planning path.
+                persisted_controls["root_pre_provider_binding"] = {
+                    field: pre_provider_authorization.get(field)
+                    for field in (
+                        "session_instance_id", "conversation_session_id", "turn_index",
+                        "run_id", "run_attempt", "generation", "provider_profile",
+                        "provider_model",
+                    )
+                }
             persisted_auth = persisted_controls.get("code_mode_authorization")
             if isinstance(persisted_auth, Mapping):
                 # The in-process token authorizes this run but is not evidence

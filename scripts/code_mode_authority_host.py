@@ -42,6 +42,7 @@ from sitina.journal.model import (
     payload_self_hash, code_mode_producer_spec,
     domain_hash,
     CODE_MODE_PRE_PROVIDER_AUTHORIZATION_SCHEMA, CODE_MODE_PRE_PROVIDER_PHASES,
+    CODE_MODE_FAST_PRE_PROVIDER_PHASE,
     pre_provider_call_identity, provider_call_identity_v2,
     CODE_MODE_FORGE_CHILD_AUTHORIZATION_SCHEMA,
     CODE_MODE_FORGE_CHILD_AUTHORIZATION_EVENT_TYPE,
@@ -546,6 +547,7 @@ class AuthorityService:
 
     def _run_created_binding(
         self, snapshot: Sequence[Any], run_id: str,
+        *, pre_provider_scope: Mapping[str, Any] | None = None,
     ) -> tuple[int, str, Mapping[str, Any]]:
         """Reopen the pre-Forge run binding before Forge authorization exists.
 
@@ -573,24 +575,50 @@ class AuthorityService:
         if not isinstance(controls, Mapping):
             raise AuthorityError("pre-provider run binding has no durable controls")
         authorization = controls.get("code_mode_authorization")
-        if not isinstance(authorization, Mapping):
-            raise AuthorityError("pre-provider run binding has no Code Mode authorization")
-        session_instance_id = controls.get("session_instance_id") or authorization.get("session_instance_id")
-        session_id = controls.get("conversation_session_id") or authorization.get("session_id")
-        generation = authorization.get("generation")
+        root_projection = controls.get("root_pre_provider_binding")
+        if authorization is not None and not isinstance(authorization, Mapping):
+            raise AuthorityError("current durable Code Mode authorization is invalid")
+        if root_projection is not None and not isinstance(root_projection, Mapping):
+            raise AuthorityError("durable root pre-provider binding is invalid")
+        if not isinstance(authorization, Mapping) and not isinstance(root_projection, Mapping):
+            raise AuthorityError("pre-provider run binding has no issuer-bound root scope")
+        scope = root_projection if isinstance(root_projection, Mapping) else authorization
+        session_instance_id = controls.get("session_instance_id") or scope.get("session_instance_id")
+        session_id = controls.get("conversation_session_id") or scope.get("conversation_session_id") or scope.get("session_id")
+        generation = scope.get("generation")
+        if isinstance(pre_provider_scope, Mapping):
+            expected_fields = (
+                "session_instance_id", "conversation_session_id", "turn_index", "run_id",
+                "run_attempt", "generation", "provider_profile", "provider_model",
+            )
+            if any(
+                field in scope and scope.get(field) != pre_provider_scope.get(field)
+                for field in expected_fields
+            ):
+                raise AuthorityError("durable root pre-provider binding differs from issuer scope")
         if (
             not isinstance(session_instance_id, str) or not session_instance_id
             or not isinstance(session_id, str) or not session_id
             or not isinstance(generation, str) or not generation
-            or authorization.get("run_id") not in (None, run_id)
+            or scope.get("run_id") not in (None, run_id)
         ):
             raise AuthorityError("pre-provider run binding is incomplete")
+        if (
+            type(scope.get("turn_index", controls.get("conversation_turn_index"))) is not int
+            or type(scope.get("run_attempt", 1)) is not int
+            or scope.get("run_attempt", 1) != 1
+            or scope.get("conversation_session_id", session_id) != session_id
+        ):
+            raise AuthorityError("pre-provider run binding scope is incomplete")
         return 1, "", {
             "run_id": run_id,
             "session_instance_id": session_instance_id,
             "session_id": session_id,
             "generation": generation,
             "run_attempt": 1,
+            "turn_index": scope.get("turn_index", controls.get("conversation_turn_index")),
+            "provider_profile": scope.get("provider_profile"),
+            "provider_model": scope.get("provider_model"),
         }
 
     @staticmethod
@@ -610,6 +638,152 @@ class AuthorityService:
                 ):
                     values.append(payload)
         return values
+
+    def _root_proposal_rework_state(
+        self, snapshot: Sequence[Any], run_id: str,
+    ) -> Mapping[str, Any] | None:
+        """Reopen the single authorized proposal-revision transition.
+
+        Root planning normally closes at WAIT_SELECTION after the first
+        review. A Code Mode write may instead have one concrete NEEDS_CHANGES
+        disposition. This reads protocol Journal facts (never a caller flag)
+        and returns the one exact next root task.
+        """
+        events: list[Mapping[str, Any]] = []
+        prefix = f"protocol/{run_id}/proposal/"
+        for frame in snapshot:
+            if not frame.transaction.stream_id.startswith(prefix):
+                continue
+            for event in frame.transaction.events:
+                payload = event.payload
+                if not isinstance(payload, Mapping):
+                    continue
+                if payload.get("run_id") not in (None, run_id):
+                    continue
+                if payload.get("event_type") in {
+                    "proposal.submitted", "proposal.revised", "review.response",
+                    "review.disposition",
+                }:
+                    events.append(payload)
+        submissions = [item for item in events if item.get("event_type") == "proposal.submitted"]
+        revisions = [item for item in events if item.get("event_type") == "proposal.revised"]
+        dispositions = [item for item in events if item.get("event_type") == "review.disposition"]
+        responses = [item for item in events if item.get("event_type") == "review.response"]
+        if len(revisions) > 1:
+            raise AuthorityError("proposal revision budget exceeded")
+        needs = [item for item in dispositions if item.get("disposition") == "NEEDS_CHANGES"]
+        if not needs:
+            return None
+        if len(needs) != 1:
+            raise AuthorityError("proposal rework has multiple NEEDS_CHANGES dispositions")
+        disposition = needs[0]
+        run_created = [
+            event.payload
+            for frame in snapshot
+            if frame.transaction.stream_id == f"run/{run_id}"
+            for event in frame.transaction.events
+            if isinstance(event.payload, Mapping)
+            and event.payload.get("event_type") == "run.created"
+            and event.payload.get("run_id") == run_id
+        ]
+        controls = run_created[0].get("acceptance_controls") if len(run_created) == 1 else None
+        code_auth = controls.get("code_mode_authorization") if isinstance(controls, Mapping) else None
+        intent = code_auth.get("intent") if isinstance(code_auth, Mapping) else None
+        if (
+            disposition.get("code_mode_mutation_rework") is not True
+            or disposition.get("risk_level") != "low"
+            or disposition.get("revision_budget") != 1
+            or not isinstance(code_auth, Mapping)
+            or code_auth.get("intent_authorized") is not True
+            or not isinstance(intent, Mapping)
+            or intent.get("explicit_mutation") is not True
+        ):
+            # Ordinary MULTI review/rework is not a root transport
+            # authorization. Only the explicit low-risk Code Mode write seam
+            # may reopen one revision before selection.
+            return None
+        review_id = disposition.get("review_id")
+        artifact_hash = disposition.get("artifact_hash")
+        response = next((item for item in responses if item.get("review_id") == review_id), None)
+        if (
+            not isinstance(review_id, str) or not review_id
+            or not isinstance(artifact_hash, str) or not artifact_hash
+            or not isinstance(response, Mapping)
+        ):
+            raise AuthorityError("NEEDS_CHANGES review is not durably bound")
+        proposal = next((item for item in submissions if item.get("body_ref") == artifact_hash), None)
+        if not isinstance(proposal, Mapping):
+            raise AuthorityError("NEEDS_CHANGES review has no submitted proposal")
+        reviewer_id = response.get("reviewer_id")
+        review_output_hash = response.get("review_output_hash")
+        author_id = proposal.get("participant_id")
+        original_defects = disposition.get("frozen_defects")
+        if (
+            not isinstance(reviewer_id, str) or not reviewer_id
+            or not isinstance(review_output_hash, str) or not review_output_hash
+            or not isinstance(author_id, str) or not author_id
+            or response.get("verdict") != "NEEDS_CHANGES"
+            or response.get("effective_verdict") not in (None, "changes_requested")
+            or not isinstance(original_defects, list)
+            or not original_defects
+            or any(type(item) is not str or not item.strip() for item in original_defects)
+        ):
+            raise AuthorityError("NEEDS_CHANGES reviewer response is contradictory")
+        proposal_id = proposal.get("proposal_id")
+        matching_revisions = [item for item in revisions if item.get("proposal_id") == proposal_id]
+        if not matching_revisions:
+            return {
+                "state": "EXPECT_REVISION",
+                "proposal_id": proposal_id,
+                "author_id": author_id,
+                "review_id": review_id,
+                "reviewer_id": reviewer_id,
+                "review_output_hash": review_output_hash,
+                "artifact_hash": artifact_hash,
+                "revision_budget": 1,
+            }
+        if len(matching_revisions) != 1:
+            raise AuthorityError("proposal rework has a non-unique revision")
+        revision = matching_revisions[0]
+        if (
+            revision.get("revision") != 2
+            or revision.get("review_id") != review_id
+            or revision.get("reviewer_id") != reviewer_id
+            or revision.get("review_output_hash") != review_output_hash
+            or not isinstance(revision.get("frozen_defects"), list)
+            or not revision.get("frozen_defects")
+            or revision.get("frozen_defects") != original_defects
+            or not isinstance(revision.get("body_ref"), str)
+            or not revision.get("body_ref")
+        ):
+            raise AuthorityError("proposal revision is not bound to the original review defects")
+        revised_hash = revision.get("body_ref")
+        second_dispositions = [
+            item for item in dispositions
+            if item.get("artifact_hash") == revised_hash and item.get("review_id") != review_id
+        ]
+        second_ids = {item.get("review_id") for item in second_dispositions}
+        second_responses = [item for item in responses if item.get("review_id") in second_ids]
+        if not second_dispositions:
+            return {
+                "state": "EXPECT_REVISION_REVIEW",
+                "proposal_id": proposal_id,
+                "author_id": author_id,
+                "review_id": review_id,
+                "reviewer_id": reviewer_id,
+                "revision_hash": revised_hash,
+                "revision_budget": 1,
+            }
+        if len(second_dispositions) != 1 or len(second_responses) != 1:
+            raise AuthorityError("proposal second review is not unique")
+        second_response = second_responses[0]
+        if (
+            second_response.get("reviewer_id") != reviewer_id
+            or second_response.get("verdict") != "ACCEPT"
+            or second_dispositions[0].get("disposition") != "ACCEPT"
+        ):
+            return {"state": "CLOSED_REJECTED", "revision_budget": 1}
+        return {"state": "CLOSED", "revision_budget": 1}
 
     def _root_fsm_from_snapshot(self, snapshot: Sequence[Any], run_id: str) -> str:
         """Recompute the root FSM from authenticated producer facts.
@@ -770,6 +944,24 @@ class AuthorityService:
             expected_index += 1
         if not ordered:
             return "EXPECT_DISCOVERY"
+        rework_state = self._root_proposal_rework_state(snapshot, run_id)
+        if isinstance(rework_state, Mapping) and rework_state.get("state") in {
+            "EXPECT_REVISION", "EXPECT_REVISION_REVIEW",
+        }:
+            return str(rework_state["state"])
+        # FAST is an authenticated one-call synthesis workflow.  It shares
+        # the root permit/ledger with MULTI, but intentionally has no
+        # discovery/proposal/review/selection sequence to complete.
+        if len(phases) == 1 and phases[0] == CODE_MODE_FAST_PRE_PROVIDER_PHASE:
+            if (
+                len(scheduling) != 1
+                or scheduling[0].get("phase") != CODE_MODE_FAST_PRE_PROVIDER_PHASE
+                or scheduling[0].get("task_id") != "conversation-answer"
+                or scheduling[0].get("requested_slots") != 1
+                or len(scheduling[0].get("selected_agents", ())) != 1
+            ):
+                raise AuthorityError("FAST root planning facts are not a single authenticated synthesis call")
+            return "ROOT_COMPLETE"
         if phases[0] != "discovery/controller":
             raise AuthorityError("root planning did not settle discovery first")
         if len(phases) == 1:
@@ -3746,12 +3938,45 @@ class AuthorityService:
                         )
                         if call_index != len(settled) + 1:
                             raise AuthorityError("root planning call index is not the exact next transition")
-                        if root_state == "EXPECT_DISCOVERY" and phase != "discovery/controller":
-                            raise AuthorityError("root planning must begin with discovery")
+                        if root_state == "EXPECT_DISCOVERY":
+                            if phase == CODE_MODE_FAST_PRE_PROVIDER_PHASE:
+                                if request.get("task_id") != "conversation-answer" or call_index != 1:
+                                    raise AuthorityError("FAST root planning must be one conversation synthesis call")
+                            elif phase != "discovery/controller":
+                                raise AuthorityError("root planning must begin with discovery")
                         if root_state == "EXPECT_PROPOSAL" and phase != "proposal/planner/candidate":
                             raise AuthorityError("root planning requires a proposal before review")
                         if root_state == "EXPECT_REVIEW" and phase != "review/selection":
                             raise AuthorityError("root planning requires review before selection")
+                        if root_state in {"EXPECT_REVISION", "EXPECT_REVISION_REVIEW"}:
+                            rework = self._root_proposal_rework_state(current_snapshot, root_run)
+                            if not isinstance(rework, Mapping) or rework.get("state") != root_state:
+                                raise AuthorityError("proposal rework transition is stale or contradictory")
+                            expected_phase = (
+                                "proposal/planner/candidate"
+                                if root_state == "EXPECT_REVISION" else "review/selection"
+                            )
+                            expected_prefix = (
+                                "proposal-revision-"
+                                if root_state == "EXPECT_REVISION" else "review-revision-"
+                            )
+                            if (
+                                phase != expected_phase
+                                or not str(request.get("task_id") or "").startswith(expected_prefix)
+                            ):
+                                raise AuthorityError("proposal rework task is outside the fixed transition")
+                            if root_state == "EXPECT_REVISION":
+                                if (
+                                    dispatch.get("agent_id") != rework.get("author_id")
+                                    or request.get("task_id") != "proposal-revision-1"
+                                ):
+                                    raise AuthorityError("proposal revision author or budget changed")
+                            else:
+                                if (
+                                    dispatch.get("agent_id") != rework.get("reviewer_id")
+                                    or request.get("task_id") != "review-revision-1"
+                                ):
+                                    raise AuthorityError("proposal second reviewer or successor changed")
                     if request.get("pre_provider_call_identity") != expected_identity:
                         raise AuthorityError("pre-provider call identity is not deterministic")
                 elif authorization_kind == "forge-execution":
@@ -3787,7 +4012,8 @@ class AuthorityService:
                         )
                     else:
                         current_attempt, current_ref, current_auth = self._run_created_binding(
-                            current_snapshot, root_run
+                            current_snapshot, root_run,
+                            pre_provider_scope=session.get("pre_provider_scope"),
                         )
                 else:
                     current_attempt, current_ref, current_auth = self._latest_attempt_binding(

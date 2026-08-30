@@ -29,6 +29,7 @@ from sitina.journal.model import (
     EventEnvelope, FrontierRef, canonical_json_bytes, domain_hash,
     is_code_mode_authority_reserved, pre_provider_scope_projection,
     pre_provider_call_identity, CODE_MODE_PRE_PROVIDER_PHASES,
+    CODE_MODE_FAST_PRE_PROVIDER_PHASE,
     CODE_MODE_PRE_PROVIDER_AUTHORIZATION_SCHEMA,
     CODE_MODE_FORGE_CHILD_AUTHORIZATION_SCHEMA,
     CODE_MODE_FORGE_CHILD_AUTHORIZATION_EVENT_TYPE,
@@ -2159,6 +2160,8 @@ class ProviderExecutor:
             if phase == "proposal/planner/candidate" and not task_id.startswith(("proposal-", "proposal")):
                 continue
             if phase == "review/selection" and not task_id.startswith(("review-", "review")):
+                continue
+            if phase == CODE_MODE_FAST_PRE_PROVIDER_PHASE and task_id != "conversation-answer":
                 continue
             if agent.agent_id not in candidate.get("selected_agents", ()):
                 continue

@@ -12,7 +12,11 @@ from sitina.conversation.context import ConversationContextSnapshot
 from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import ChatMode, RouteDecision, route_decision_from_mapping
 from sitina.conversation.session_runtime import SessionRuntimeContext
-from sitina.journal.model import FrontierRef, canonical_json_bytes
+from sitina.journal.model import (
+    CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+    FrontierRef,
+    canonical_json_bytes,
+)
 from sitina.orchestrator.true_multi_agent_runtime import (
     AgentCallResult,
     AgentIdentity,
@@ -162,6 +166,7 @@ class FastConversationRuntime:
         run_stream: CanonicalStream,
         *,
         turn_index: int = 1,
+        root_executor: ProviderExecutor | None = None,
     ) -> tuple[AgentIdentity, Mapping[str, Any]]:
         assert self.registry is not None and self.policy_hash is not None
         frontier = self._frontier(journal)
@@ -210,6 +215,87 @@ class FastConversationRuntime:
             source_frontier=frontier,
             deadline=decision.deadline,
         )
+        # Live FAST is still an authenticated root call.  Its one-call FSM
+        # phase is distinct from discovery so the host cannot infer a
+        # multi-agent planning sequence from a conversation answer.  Offline
+        # callers retain the historical observation-only events above.
+        authorization = (
+            root_executor.pre_provider_authorization
+            if isinstance(root_executor, ProviderExecutor)
+            and isinstance(root_executor.pre_provider_authorization, Mapping)
+            else None
+        )
+        if authorization is not None:
+            decision_mapping = decision.mapping()
+            root_common = {
+                "run_id": root_executor.run_id,
+                "session_instance_id": authorization.get("session_instance_id"),
+                "conversation_session_id": authorization.get("conversation_session_id"),
+                "turn_index": authorization.get("turn_index"),
+                "generation": authorization.get("generation"),
+                "run_attempt": authorization.get("run_attempt"),
+                "decision_id": decision.decision_id,
+                "decision_commitment": decision.commitment,
+                "task_id": "conversation-answer",
+                "phase": CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+                "selected_agents": list(decision.selected_attempts),
+                "requested_slots": decision.requested_slots,
+            }
+            scheduling_fact = {
+                "schema": "AGENT_SCHEDULING_DECISION_V1",
+                "event_type": "scheduling.decision",
+                "purpose": "code-mode-agent-scheduling",
+                "purpose_class": "code-mode-agent-scheduling-decision",
+                **root_common,
+                "required_capabilities": list(decision.required_capabilities),
+                "decision": decision_mapping,
+            }
+            dispatch_command_id = "dispatch-" + decision.decision_id
+            dispatch_body = {
+                **root_common,
+                "dispatch_command_id": dispatch_command_id,
+                "required_capabilities": list(decision.required_capabilities),
+                "policy_hash": self.policy_hash,
+                "deadline": decision.deadline,
+            }
+            dispatch_commitment = stable_hash(
+                "CODE_MODE_DISPATCH_COMMAND_ACCEPTED",
+                dispatch_body,
+            )
+            dispatch_fact = {
+                "schema": "DISPATCH_COMMAND_ACCEPTED_V1",
+                "event_type": "dispatch.command.accepted",
+                "purpose": "code-mode-dispatch-command",
+                "purpose_class": "code-mode-dispatch-command-accepted",
+                **root_common,
+                "dispatch_command_id": dispatch_command_id,
+                "dispatch_commitment": dispatch_commitment,
+                "required_capabilities": list(decision.required_capabilities),
+                "state": "ACCEPTED",
+            }
+            root_executor._root_schedule_bindings = [{
+                "scheduling_task_id": "conversation-answer",
+                "phase": CODE_MODE_FAST_PRE_PROVIDER_PHASE,
+                "scheduling_decision_id": decision.decision_id,
+                "scheduling_decision_commitment": decision.commitment,
+                "dispatch_command_id": dispatch_command_id,
+                "dispatch_command_commitment": dispatch_commitment,
+                "dispatch_commitment": dispatch_commitment,
+                "selected_agents": list(decision.selected_attempts),
+                "requested_slots": decision.requested_slots,
+            }]
+            run_stream.append_root_producer_fact(
+                scheduling_fact,
+                actor="scheduler",
+                producer_role="root_scheduling",
+                command_id="root-scheduling-" + decision.decision_id,
+            )
+            run_stream.append_root_producer_fact(
+                dispatch_fact,
+                actor="authoritative-dispatcher",
+                producer_role="root_dispatch_acceptance",
+                command_id=dispatch_command_id,
+            )
         return selected, mapping
 
     @staticmethod
@@ -831,6 +917,22 @@ class FastConversationRuntime:
                         "external_mutation_allowed": False,
                         "legacy_read_allowed": False,
                         "sqlite_allowed": False,
+                        "acceptance_controls": {
+                            "session_instance_id": (
+                                pre_provider_authorization.get("session_instance_id")
+                                if isinstance(pre_provider_authorization, Mapping) else None
+                            ),
+                            "conversation_session_id": session_id,
+                            "conversation_turn_index": turn_index,
+                            "root_pre_provider_binding": {
+                                field: pre_provider_authorization.get(field)
+                                for field in (
+                                    "session_instance_id", "conversation_session_id", "turn_index",
+                                    "run_id", "run_attempt", "generation", "provider_profile",
+                                    "provider_model",
+                                )
+                            } if isinstance(pre_provider_authorization, Mapping) else None,
+                        },
                         "_object_refs": [activation.receipt.object_ref.reference_id],
                     },
                     opened,
@@ -838,7 +940,12 @@ class FastConversationRuntime:
                 actor="fast-conversation-runtime",
                 proofs=(activation.receipt,),
             )
-            agent, scheduling_decision = self._schedule(journal, run_stream, turn_index=turn_index)
+            agent, scheduling_decision = self._schedule(
+                journal,
+                run_stream,
+                turn_index=turn_index,
+                root_executor=executor,
+            )
 
             def validate(value: Mapping[str, Any]) -> None:
                 validate_fast_answer(value)
@@ -847,6 +954,7 @@ class FastConversationRuntime:
                 agent,
                 task_id="conversation-answer",
                 kind="conversation_answer",
+                root_phase=CODE_MODE_FAST_PRE_PROVIDER_PHASE,
                 output_contract_id="sitina.conversation-answer.v1",
                 task_type="conversation_answer",
                 schema_id="SITINA_CONVERSATION_ANSWER_V1",

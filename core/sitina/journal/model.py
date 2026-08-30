@@ -252,10 +252,15 @@ CODE_MODE_AUTHORITY_RESERVED_EVENT_TYPES = frozenset({
 # vocabulary in the shared model so a caller cannot widen it by sending an
 # arbitrary string to a broker or host.
 CODE_MODE_PRE_PROVIDER_AUTHORIZATION_SCHEMA = "CODE_MODE_PRE_PROVIDER_AUTHORIZATION_V1"
+# FAST is a distinct one-call root workflow.  It uses the same signed
+# session/run/turn/provider permit as MULTI planning, but it must not be
+# represented as discovery (which would make the host expect a proposal).
+CODE_MODE_FAST_PRE_PROVIDER_PHASE = "fast/synthesis"
 CODE_MODE_PRE_PROVIDER_PHASES = (
     "discovery/controller",
     "proposal/planner/candidate",
     "review/selection",
+    CODE_MODE_FAST_PRE_PROVIDER_PHASE,
 )
 
 # Transport permissions are intentionally disjoint.  These names are part of
