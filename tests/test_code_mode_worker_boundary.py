@@ -15,6 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sitina.orchestrator.code_mode_controller import CodeModeControllerError, CodeModeControllerSession, _code_mode_sandbox_profile
+from sitina.orchestrator.execution_bridge import ExecutionIdentityBinding
+from sitina.orchestrator.execution_sandbox import FilesystemTestEvidencePublisher
+from sitina.orchestrator.execution_verification import verify_execution_diff
+from sitina.orchestrator.true_multi_agent import _tester_machine_command
 from sitina.storage import SitinaStore
 
 
@@ -226,6 +230,164 @@ class CodeModeWorkerBoundaryTests(unittest.TestCase):
             ),
             expected_argv,
         )
+
+    def test_changed_unittest_file_produces_hash_bound_worker_evidence(self) -> None:
+        source = self.root / "hello.py"
+        target = self.root / "test_hello.py"
+        source.write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
+        target.write_text(
+            "import unittest\n"
+            "from hello import hello\n\n"
+            "class HelloTests(unittest.TestCase):\n"
+            "    def test_hello(self):\n"
+            "        self.assertEqual(hello(), 'hello')\n",
+            encoding="utf-8",
+        )
+        identity = ExecutionIdentityBinding.fixture(verifier_id="agent-delta")
+        verdict = verify_execution_diff(
+            [str(source), str(target)],
+            "agent-delta",
+            {},
+            run_id="worker-unittest-evidence",
+            home=self.runtime_root,
+            identity_binding=identity,
+            fixture_authorization=True,
+            evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence"),
+            worker_executor=self.executor,
+        )
+        self.assertTrue(verdict.accepted, verdict.reasons)
+        self.assertTrue(verdict.checked_tests)
+        self.assertTrue(verdict.test_evidence_ref)
+        evidence_path = self.runtime_root / "test-evidence" / f"{verdict.test_evidence_hash}.json"
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        self.assertEqual(evidence["runner_argv"][1:3], ["-m", "unittest"])
+        self.assertEqual(evidence["runner_argv"][3:], ["test_hello.py"])
+        self.assertEqual(evidence["collected_test_count"], 1)
+        self.assertEqual(evidence["executed_test_count"], 1)
+        self.assertEqual(evidence["passed_test_count"], 1)
+        self.assertEqual(evidence["failed_test_count"], 0)
+        self.assertEqual(evidence["skipped_test_count"], 0)
+        self.assertEqual(evidence["error_test_count"], 0)
+        self.assertFalse(evidence["timed_out"])
+        self.assertEqual(evidence["diff_hash_before"], evidence["diff_hash_after"])
+        self.assertEqual(
+            evidence["trust_boundary"]["execution_contract"],
+            "HASH_BOUND_UTF8_UNITTEST_TARGET_AST_PLAN_V1",
+        )
+        projected = _tester_machine_command(evidence, ["test_hello.py"])
+        self.assertEqual(projected, evidence["runner_argv"])
+        self.assertNotIn("python-doctest-supervisor", projected)
+
+    def test_unittest_worker_failure_and_malformed_summary_fail_closed(self) -> None:
+        source = self.root / "hello.py"
+        target = self.root / "test_hello.py"
+        source.write_text("def hello():\n    return 'wrong'\n", encoding="utf-8")
+        target.write_text(
+            "import unittest\n"
+            "from hello import hello\n\n"
+            "class HelloTests(unittest.TestCase):\n"
+            "    def test_hello(self):\n"
+            "        self.assertEqual(hello(), 'hello')\n",
+            encoding="utf-8",
+        )
+        identity = ExecutionIdentityBinding.fixture(verifier_id="agent-delta")
+        verdict = verify_execution_diff(
+            [str(source), str(target)],
+            "agent-delta",
+            {},
+            run_id="worker-unittest-failure",
+            home=self.runtime_root,
+            identity_binding=identity,
+            fixture_authorization=True,
+            evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-failure"),
+            worker_executor=self.executor,
+        )
+        self.assertFalse(verdict.accepted)
+        self.assertTrue(verdict.test_evidence_ref)
+
+        original_shell = self.executor._shell
+        try:
+            self.executor._shell = lambda *args, **kwargs: {
+                "status": "ok", "exit_code": 0, "timed_out": False,
+                "output_hash": "sha256:output", "argv": [os.sys.executable, "-m", "unittest", "test_hello.py"],
+                "unittest_result": None,
+            }
+            malformed = verify_execution_diff(
+                [str(source), str(target)],
+                "agent-delta",
+                {},
+                run_id="worker-unittest-malformed",
+                home=self.runtime_root,
+                identity_binding=identity,
+                fixture_authorization=True,
+                evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-malformed"),
+                worker_executor=self.executor,
+            )
+            self.assertFalse(malformed.accepted)
+            self.assertFalse(malformed.checked_tests)
+            self.assertTrue(malformed.reasons)
+        finally:
+            self.executor._shell = original_shell
+
+    def test_unittest_worker_error_is_counted_and_rejected(self) -> None:
+        source = self.root / "hello.py"
+        target = self.root / "test_hello.py"
+        source.write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
+        target.write_text(
+            "import unittest\n\n"
+            "class ErrorTests(unittest.TestCase):\n"
+            "    def test_error(self):\n"
+            "        raise RuntimeError('boom')\n",
+            encoding="utf-8",
+        )
+        identity = ExecutionIdentityBinding.fixture(verifier_id="agent-delta")
+        verdict = verify_execution_diff(
+            [str(source), str(target)],
+            "agent-delta",
+            {},
+            run_id="worker-unittest-error",
+            home=self.runtime_root,
+            identity_binding=identity,
+            fixture_authorization=True,
+            evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-error"),
+            worker_executor=self.executor,
+        )
+        self.assertFalse(verdict.accepted)
+        self.assertTrue(verdict.test_evidence_ref)
+        evidence = json.loads(
+            (self.runtime_root / "test-evidence-error" / f"{verdict.test_evidence_hash}.json").read_text()
+        )
+        self.assertEqual(evidence["error_test_count"], 1)
+        self.assertEqual(evidence["failed_test_count"], 0)
+
+    def test_unittest_worker_timeout_fails_closed(self) -> None:
+        source = self.root / "hello.py"
+        target = self.root / "test_hello.py"
+        source.write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
+        target.write_text("import unittest\nclass TimeoutTests(unittest.TestCase):\n    def test_timeout(self): pass\n", encoding="utf-8")
+        original_shell = self.executor._shell
+        try:
+            self.executor._shell = lambda *args, **kwargs: {
+                "status": "blocked", "exit_code": 124, "timed_out": True,
+                "output_hash": "sha256:timeout", "argv": [os.sys.executable, "-m", "unittest", "test_hello.py"],
+                "unittest_result": None,
+            }
+            verdict = verify_execution_diff(
+                [str(source), str(target)],
+                "agent-delta",
+                {},
+                run_id="worker-unittest-timeout",
+                home=self.runtime_root,
+                identity_binding=ExecutionIdentityBinding.fixture(verifier_id="agent-delta"),
+                fixture_authorization=True,
+                evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-timeout"),
+                worker_executor=self.executor,
+            )
+            self.assertFalse(verdict.accepted)
+            self.assertFalse(verdict.checked_tests)
+            self.assertTrue(verdict.reasons)
+        finally:
+            self.executor._shell = original_shell
 
     def test_workspace_data_file_mutation_is_observed_not_ignored(self) -> None:
         data = self.root / "data"

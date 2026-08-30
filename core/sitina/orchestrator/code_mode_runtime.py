@@ -3694,6 +3694,23 @@ class CodeModeScriptedProvider:
                 {"protocol": "mock", "physical_send_count": 0,
                  "token_usage": {"input_tokens": 4, "output_tokens": 6, "total_tokens": 10}},
             )
+        if self.tool_calls == 2:
+            return ProviderToolTurn(
+                "", (ProviderToolCall("scripted-write-2", "sitina_write_file", {
+                    "path": str(self.workspace / "test_hello.py"),
+                    "content": (
+                        "import unittest\n"
+                        "from hello import hello\n\n"
+                        "class HelloTests(unittest.TestCase):\n"
+                        "    def test_hello(self):\n"
+                        "        self.assertEqual(hello(), 'hello')\n\n"
+                        "if __name__ == '__main__':\n"
+                        "    unittest.main()\n"
+                    ),
+                }),), "tool_calls",
+                {"protocol": "mock", "physical_send_count": 0,
+                 "token_usage": {"input_tokens": 4, "output_tokens": 6, "total_tokens": 10}},
+            )
         return ProviderToolTurn(
             "implemented and verified", (), "stop",
             {"protocol": "mock", "physical_send_count": 0,

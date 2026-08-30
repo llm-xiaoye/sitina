@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import socket
 import shlex
@@ -39,6 +40,100 @@ def _canonical(value: object) -> bytes:
 
 def _hash_bytes(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
+
+
+_UNITTEST_RUN_LINE = re.compile(r"^Ran\s+(?P<count>\d+)\s+tests?\s+in\s+.+$", re.MULTILINE)
+_UNITTEST_STATUS_LINE = re.compile(
+    r"^(?P<status>OK|FAILED)(?:\s+\((?P<details>[^()]*)\))?\s*$",
+    re.MULTILINE,
+)
+_UNITTEST_DETAIL = re.compile(
+    r"^(?P<name>failures?|errors?|skipped|expected failures?|unexpected successes?)\s*=\s*(?P<count>\d+)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_unittest_result(
+    output: str,
+    *,
+    argv: list[str],
+    return_code: int,
+    timed_out: bool,
+    output_hash: str,
+) -> dict[str, Any] | None:
+    """Derive a strict, controller-owned summary from unittest's bounded output.
+
+    The worker's output is untrusted.  This parser accepts only the canonical
+    summary emitted by the stdlib runner, binds the result to the exact argv
+    and output hash, and rejects ambiguity instead of inferring counts from an
+    exit status alone.
+    """
+    if not isinstance(output, str) or not isinstance(return_code, int) or isinstance(return_code, bool):
+        return None
+    if not isinstance(timed_out, bool) or not isinstance(output_hash, str) or not output_hash:
+        return None
+    if timed_out:
+        return None
+    run_matches = list(_UNITTEST_RUN_LINE.finditer(output))
+    status_matches = list(_UNITTEST_STATUS_LINE.finditer(output))
+    if len(run_matches) != 1 or len(status_matches) != 1:
+        return None
+    collected = int(run_matches[0].group("count"))
+    status_match = status_matches[0]
+    status = status_match.group("status")
+    if (return_code == 0 and status != "OK") or (return_code != 0 and status != "FAILED"):
+        return None
+    details = status_match.group("details")
+    counts = {
+        "failed_test_count": 0,
+        "error_test_count": 0,
+        "skipped_test_count": 0,
+        "expected_failure_count": 0,
+        "unexpected_success_count": 0,
+    }
+    if details:
+        seen: set[str] = set()
+        for raw_detail in details.split(","):
+            detail = _UNITTEST_DETAIL.fullmatch(raw_detail.strip())
+            if detail is None:
+                return None
+            name = " ".join(detail.group("name").lower().split())
+            key = {
+                "failure": "failed_test_count",
+                "failures": "failed_test_count",
+                "error": "error_test_count",
+                "errors": "error_test_count",
+                "skipped": "skipped_test_count",
+                "expected failure": "expected_failure_count",
+                "expected failures": "expected_failure_count",
+                "unexpected success": "unexpected_success_count",
+                "unexpected successes": "unexpected_success_count",
+            }.get(name)
+            if key is None or key in seen:
+                return None
+            seen.add(key)
+            counts[key] = int(detail.group("count"))
+    accounted = sum(counts.values())
+    passed = collected - accounted
+    if passed < 0:
+        return None
+    if status == "OK" and any(counts.values()):
+        # A skipped/expected/unexpected result is not a clean OK evidence
+        # value; retain the exact counts but do not silently call it passed.
+        pass
+    if status == "FAILED" and not accounted:
+        return None
+    return {
+        "schema": "SITINA_CONTROLLER_UNITTEST_RESULT_V1",
+        "argv": list(argv),
+        "output_hash": output_hash,
+        "collected_test_count": collected,
+        "executed_test_count": collected,
+        "passed_test_count": passed,
+        **counts,
+        "timed_out": False,
+        "runner_return_code": return_code,
+    }
 
 
 def _seatbelt_literal(path: Path) -> str:
@@ -977,13 +1072,29 @@ class WorkerToolExecutor(ToolExecutor):
             except OSError:
                 rollback_ok = False
             return {"status": "blocked" if rollback_ok else "dirty", "reason": "worker command produced unregistered workspace mutation", "unregistered_paths": changed[:200], "rollback_status": "complete" if rollback_ok else "failed"}
+        output = str(result.get("output") or "")
+        output_hash = sha256_text(output)
+        timed_out = bool(result.get("timed_out"))
+        exit_code = result.get("exit_code")
+        unittest_result = None
+        if len(canonical_argv) >= 3 and canonical_argv[1:3] == ["-m", "unittest"]:
+            if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+                unittest_result = _parse_unittest_result(
+                    output,
+                    argv=canonical_argv,
+                    return_code=exit_code,
+                    timed_out=timed_out,
+                    output_hash=output_hash,
+                )
         return {
             "status": result.get("status", "blocked"),
-            "exit_code": result.get("exit_code"),
-            "output_hash": sha256_text(str(result.get("output") or "")),
-            "timed_out": bool(result.get("timed_out")),
+            "exit_code": exit_code,
+            "output_hash": output_hash,
+            "timed_out": timed_out,
             "process_group_reaped": bool(result.get("process_group_reaped")),
             "worker_observed": True,
+            "argv": list(canonical_argv),
+            "unittest_result": unittest_result,
         }
 
     def _restore_snapshot(self, before: Mapping[str, tuple[str, str | None, bytes | str | None]], after: Mapping[str, tuple[str, str | None, bytes | str | None]], changed: list[str]) -> None:

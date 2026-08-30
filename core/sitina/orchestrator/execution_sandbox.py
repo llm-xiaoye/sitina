@@ -134,7 +134,7 @@ def _trusted_test_plan(paths: Sequence[Path]) -> tuple[dict[str, object], str]:
         source_bytes = path.read_bytes()
         source = source_bytes.decode("utf-8", errors="strict")
         tree = ast.parse(source, filename=str(path))
-        mode = "unittest" if "test_" in path.name else "doctest"
+        mode = "unittest" if path.name.startswith("test_") and path.suffix == ".py" else "doctest"
         planned_ids: list[str] = []
         planned_examples: list[dict[str, object]] = []
         if mode == "unittest":
@@ -292,6 +292,7 @@ class TestEvidence:
     started_at: str
     finished_at: str
     duration_milliseconds: int
+    runner_argv: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         hashes = (
@@ -327,6 +328,12 @@ class TestEvidence:
             raise ValueError("TestEvidence controller response presence must be boolean")
         if type(self.identity) is not ExecutionIdentityBinding:
             raise ValueError("TestEvidence execution identity binding is invalid")
+        if not isinstance(self.runner_argv, tuple) or any(
+            not isinstance(value, str) or not value for value in self.runner_argv
+        ):
+            raise ValueError("TestEvidence runner argv is invalid")
+        if self.runner_argv and _sha256_bytes(_canonical(list(self.runner_argv))) != self.argv_hash:
+            raise ValueError("TestEvidence runner argv is not bound to argv hash")
         if not self.controller_attestation_valid:
             raise ValueError("TestEvidence controller attestation is invalid")
 
@@ -373,6 +380,9 @@ class TestEvidence:
         return self.controller_attestation_hash == expected
 
     def mapping(self) -> dict[str, object]:
+        unittest_runner = (
+            len(self.runner_argv) >= 3 and self.runner_argv[1:3] == ("-m", "unittest")
+        )
         return {
             "schema": "SITINA_TEST_EVIDENCE_V2",
             "run_id": self.run_id,
@@ -394,6 +404,7 @@ class TestEvidence:
             "python_executable_hash": self.python_executable_hash,
             "worker_hash": self.worker_hash,
             "argv_hash": self.argv_hash,
+            "runner_argv": list(self.runner_argv),
             "sandbox_policy_hash": self.sandbox_policy_hash,
             "sandbox_provider_id": self.sandbox_provider_id,
             "sandbox_capability_id": self.sandbox_capability_id,
@@ -407,18 +418,34 @@ class TestEvidence:
             "trust_boundary": {
                 "schema": "SITINA_SANDBOX_TRUST_BOUNDARY_V1",
                 "trusted_controller_owns_sealed_plan_protocol_and_verdict": True,
-                "trusted_controller_computes_counts_from_item_observations": True,
+                "trusted_controller_computes_counts_from_item_observations": not unittest_runner,
                 "executor_reports_aggregate_test_verdict": False,
-                "generic_unittest_result_source": "FAIL_CLOSED_UNSUPPORTED",
-                "supported_result_source": "SUPERVISOR_OBSERVED_PURE_DOCTEST_BYTES_V2",
+                "generic_unittest_result_source": (
+                    "CONTROLLER_PARSED_HASH_BOUND_WORKER_OUTPUT_V1"
+                    if unittest_runner
+                    else "FAIL_CLOSED_UNSUPPORTED"
+                ),
+                "supported_result_source": (
+                    "CONTROLLER_PARSED_STDLIB_UNITTEST_SUMMARY_V1"
+                    if unittest_runner
+                    else "SUPERVISOR_OBSERVED_PURE_DOCTEST_BYTES_V2"
+                ),
                 "signing_supervisor_is_exact_hash_bound_tcb": True,
                 "signing_supervisor_executes_target_code": False,
                 "target_executor_is_separate_process": True,
                 "one_seatbelt_process_per_attempted_item": True,
                 "structured_observations_constructed_outside_target_process": True,
-                "target_result_channel_access": "NONE_RAW_STDOUT_STDERR_ONLY",
+                "target_result_channel_access": (
+                    "CONTROLLER_SEES_BOUNDED_HASH_BOUND_STDOUT_SUMMARY"
+                    if unittest_runner
+                    else "NONE_RAW_STDOUT_STDERR_ONLY"
+                ),
                 "target_lifecycle_channel_access": "NONE",
-                "execution_contract": "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1",
+                "execution_contract": (
+                    "HASH_BOUND_UTF8_UNITTEST_TARGET_AST_PLAN_V1"
+                    if unittest_runner
+                    else "HASH_BOUND_UTF8_PURE_DOCTEST_AST_SUBSET_V1"
+                ),
                 "target_source_execution": "SINGLE_READ_BYTES_COMPILE_EXEC_NO_PATH_LOADER_OR_PYC",
                 "completion_owner": "SIGNING_SUPERVISOR_NEVER_EXECUTES_TARGET_CODE",
                 "target_can_access_completion_primitive": False,
@@ -514,6 +541,7 @@ class _Invocation:
     timed_out: bool
     stdout: bytes
     stderr: bytes
+    argv: tuple[str, ...]
     argv_hash: str
     policy_hash: str
     capability_id: str
@@ -1094,6 +1122,7 @@ class ExecutionSandboxRunner:
             timed_out=timed_out,
             stdout=stdout,
             stderr=stderr,
+            argv=tuple(argv),
             argv_hash=argv_hash,
             policy_hash=policy_hash,
             capability_id=controller_identity,
@@ -1233,7 +1262,7 @@ class ExecutionSandboxRunner:
             )
             raw_targets: list[dict[str, str]] = []
             for path in targets:
-                mode = "unittest" if "test_" in path.name else "doctest"
+                mode = "unittest" if path.name.startswith("test_") and path.suffix == ".py" else "doctest"
                 raw_targets.append({"path": str(path), "mode": mode})
             if not raw_targets:
                 raise ExecutionSandboxError("no executable test evidence")
@@ -1300,6 +1329,7 @@ class ExecutionSandboxRunner:
                 started_at=started_at,
                 finished_at=finished_at,
                 duration_milliseconds=duration_ms,
+                runner_argv=invocation.argv,
             )
         finally:
             shutil.rmtree(scratch, ignore_errors=True)

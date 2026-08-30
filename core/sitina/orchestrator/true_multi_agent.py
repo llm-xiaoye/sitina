@@ -88,6 +88,28 @@ from sitina.scheduling.agents import AgentScheduler, AgentSchedulingDecision
 from sitina.scheduling.processes import ProcessManager
 
 
+def _tester_machine_command(
+    tester_evidence: Mapping[str, Any],
+    tester_targets: Sequence[str],
+) -> list[str]:
+    """Project the exact Tester argv into the machine-check receipt."""
+    raw_runner_argv = tester_evidence.get("runner_argv")
+    if (
+        isinstance(raw_runner_argv, list)
+        and raw_runner_argv
+        and all(isinstance(item, str) and item for item in raw_runner_argv)
+    ):
+        return list(raw_runner_argv)
+    # Legacy pure-doctest evidence predates the explicit argv field.  New
+    # WorkerToolExecutor evidence is required to carry runner_argv and never
+    # reaches this compatibility projection for unittest.
+    return [
+        str(tester_evidence.get("cwd") or ""),
+        "python-doctest-supervisor",
+        *tester_targets,
+    ]
+
+
 class DynamicCollaborationError(TrueMultiAgentRuntimeError):
     pass
 
@@ -7312,11 +7334,7 @@ class TrueMultiAgentProductionRuntime:
             raise DynamicCollaborationError(
                 "Code Mode Tester workspace observation is unavailable"
             ) from error
-        machine_command = [
-            str(tester_evidence.get("cwd") or ""),
-            "python-doctest-supervisor",
-            *tester_targets,
-        ]
+        machine_command = _tester_machine_command(tester_evidence, tester_targets)
         machine_body = {
             "schema": "CODE_MODE_MACHINE_CHECK_RECEIPT_V1",
             "status": "MACHINE_CHECK_READY",

@@ -99,8 +99,9 @@ def verify_execution_diff(
             reasons=("empty diff: nothing produced",),
         )
 
-    py_files = [Path(value).expanduser() for value in diff_paths if str(value).endswith(".py")]
-    test_targets: list[Path] = []
+    py_files = [Path(value).expanduser() for value in diff_paths if Path(value).suffix == ".py"]
+    changed_unittest_targets: list[Path] = []
+    changed_doctest_targets: list[Path] = []
     for path in py_files:
         try:
             source = path.read_text(encoding="utf-8", errors="strict")
@@ -108,8 +109,19 @@ def verify_execution_diff(
         except (SyntaxError, UnicodeDecodeError, OSError) as error:
             reasons.append(f"{path.name}: {type(error).__name__}")
             continue
-        if "test_" in path.name or ">>>" in source:
-            test_targets.append(path)
+        if path.name.startswith("test_") and path.suffix == ".py":
+            changed_unittest_targets.append(path)
+        elif ">>>" in source:
+            changed_doctest_targets.append(path)
+
+    # A changed unittest target takes precedence.  The source files in the
+    # diff remain hash-bound evidence, but are deliberately not passed to the
+    # unittest runner (and are never silently reclassified as doctests).
+    test_targets = (
+        changed_unittest_targets
+        if changed_unittest_targets
+        else changed_doctest_targets
+    )
 
     if reasons:
         return verdict(
@@ -141,15 +153,88 @@ def verify_execution_diff(
             test_plan, test_plan_hash = _trusted_test_plan(tuple(test_targets))
             common = Path(os.path.commonpath([str(path) for path in evidence_paths])).resolve(strict=True)
             cwd = common if common.is_dir() else common.parent
-            command = [sys.executable, "-m", "doctest", *[str(path) for path in test_targets]]
+            unittest_mode = bool(changed_unittest_targets)
+            runner_module = "unittest" if unittest_mode else "doctest"
+            if unittest_mode:
+                relative_targets: list[str] = []
+                for path in test_targets:
+                    try:
+                        relative = path.resolve(strict=True).relative_to(cwd)
+                    except (OSError, ValueError) as error:
+                        raise ValueError("unittest target is outside the bound workspace") from error
+                    if relative.is_absolute() or not relative.parts:
+                        raise ValueError("unittest target must be a relative workspace path")
+                    relative_targets.append(relative.as_posix())
+                command = [sys.executable, "-m", runner_module, *relative_targets]
+            else:
+                command = [sys.executable, "-m", runner_module, *[str(path) for path in test_targets]]
+            allowed_command = [f"{sys.executable} -m {runner_module}"]
             observation = worker_executor._shell(
-                shlex.join(command), [f"{sys.executable} -m doctest"],
+                shlex.join(command), allowed_command,
                 execution_run_id, cwd=str(cwd),
             )
             return_code = int(observation.get("exit_code") if isinstance(observation.get("exit_code"), int) else -1)
             diff_after, _ = hash_diff(evidence_paths)
             collected = int(test_plan.get("collected_test_count") or 0)
-            passed = collected if observation.get("status") == "ok" and return_code == 0 else 0
+            timed_out = bool(observation.get("timed_out"))
+            expected_status = "ok" if return_code == 0 and not timed_out else "failed"
+            if timed_out:
+                expected_status = "blocked"
+            if observation.get("status") != expected_status:
+                raise ValueError("worker status does not match the bound unittest return state")
+            observed_argv = observation.get("argv")
+            if observed_argv != command:
+                raise ValueError("worker returned an argv different from the controller command")
+            if unittest_mode:
+                summary = observation.get("unittest_result")
+                required_summary = {
+                    "schema", "argv", "output_hash", "collected_test_count",
+                    "executed_test_count", "passed_test_count", "failed_test_count",
+                    "skipped_test_count", "error_test_count", "expected_failure_count",
+                    "unexpected_success_count", "timed_out", "runner_return_code",
+                }
+                if not isinstance(summary, Mapping) or set(summary) != required_summary:
+                    raise ValueError("controller unittest result summary is missing or malformed")
+                if summary.get("schema") != "SITINA_CONTROLLER_UNITTEST_RESULT_V1":
+                    raise ValueError("controller unittest result schema is invalid")
+                if summary.get("argv") != command or summary.get("runner_return_code") != return_code:
+                    raise ValueError("controller unittest result is not bound to the actual command")
+                if summary.get("timed_out") is not timed_out:
+                    raise ValueError("controller unittest timeout value is not bound")
+                if summary.get("output_hash") != observation.get("output_hash"):
+                    raise ValueError("controller unittest output hash is not bound")
+                count_names = (
+                    "collected_test_count", "executed_test_count", "passed_test_count",
+                    "failed_test_count", "skipped_test_count", "error_test_count",
+                    "expected_failure_count", "unexpected_success_count",
+                )
+                if any(
+                    not isinstance(summary.get(name), int) or isinstance(summary.get(name), bool)
+                    or int(summary.get(name)) < 0
+                    for name in count_names
+                ):
+                    raise ValueError("controller unittest result counts are invalid")
+                if int(summary["collected_test_count"]) != collected:
+                    raise ValueError("controller unittest collection differs from sealed TestPlan")
+                if int(summary["executed_test_count"]) != collected:
+                    raise ValueError("controller unittest execution count is incomplete")
+                if timed_out:
+                    raise ValueError("controller unittest execution timed out")
+                passed = int(summary["passed_test_count"])
+                failed = int(summary["failed_test_count"])
+                skipped = int(summary["skipped_test_count"])
+                errors = int(summary["error_test_count"])
+                expected_failures = int(summary["expected_failure_count"])
+                unexpected_successes = int(summary["unexpected_success_count"])
+                if passed + failed + skipped + errors + expected_failures + unexpected_successes != collected:
+                    raise ValueError("controller unittest counts do not reconcile with collection")
+            else:
+                passed = collected if observation.get("status") == "ok" and return_code == 0 else 0
+                failed = 0 if passed == collected else collected
+                skipped = 0
+                errors = 0
+                expected_failures = 0
+                unexpected_successes = 0
             canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
             argv_hash = _sha256_bytes(canonical(command))
             response_hash = _sha256_bytes(canonical(dict(observation)))
@@ -166,10 +251,10 @@ def verify_execution_diff(
                 "diff_hash_before": diff_before, "diff_hash_after": diff_after,
                 "target_hashes": target_hashes, "collected_test_count": collected,
                 "executed_test_count": collected, "passed_test_count": passed,
-                "failed_test_count": 0 if passed == collected else collected,
-                "skipped_test_count": 0, "error_test_count": 0,
-                "expected_failure_count": 0, "unexpected_success_count": 0,
-                "runner_return_code": return_code, "timed_out": False,
+                "failed_test_count": failed,
+                "skipped_test_count": skipped, "error_test_count": errors,
+                "expected_failure_count": expected_failures, "unexpected_success_count": unexpected_successes,
+                "runner_return_code": return_code, "timed_out": timed_out,
                 "runner_executable_hash": runner_hash, "python_executable_hash": runner_hash,
                 "worker_hash": worker_hash, "argv_hash": argv_hash,
                 "sandbox_policy_hash": policy_hash, "sandbox_provider_id": "code-mode-controller-worker",
@@ -181,6 +266,7 @@ def verify_execution_diff(
                 "resource_limits": tuple(sorted(limits_value.mapping().items())),
                 "stdout_hash": stdout_hash, "stderr_hash": _sha256_bytes(b""),
                 "started_at": _utc_now(), "finished_at": _utc_now(), "duration_milliseconds": 0,
+                "runner_argv": tuple(command),
             }
             attestation = _sha256_bytes(canonical({
                 "schema": "SITINA_SANDBOX_CONTROLLER_ATTESTATION_V2",
@@ -199,7 +285,7 @@ def verify_execution_diff(
             evidence_values["controller_attestation_hash"] = attestation
             evidence = TestEvidence(**evidence_values)
             evidence_ref = evidence_publisher.publish(evidence.canonical_bytes(), evidence_hash=evidence.evidence_hash)
-        except (OSError, UnicodeError, ValueError, TypeError) as error:
+        except (OSError, UnicodeError, ValueError, TypeError, ExecutionSandboxError) as error:
             return verdict(False, checked_diff=True, checked_tests=False,
                            reasons=(f"controller worker test unavailable ({type(error).__name__})",))
         return verdict(evidence.accepted, checked_diff=True,
