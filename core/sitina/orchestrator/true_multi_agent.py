@@ -291,6 +291,7 @@ def _safe_code_mode_execution_result(value: Mapping[str, Any]) -> dict[str, Any]
         "provider_input_tokens", "provider_output_tokens", "provider_retry_count",
         "provider_fallback_count", "provider_unsettled_usage_count", "diff_hash",
         "patch_manifest_hash", "worktree_before_hash", "worktree_after_hash",
+        "workspace_mode",
     }
     return {
         key: value[key]
@@ -8696,6 +8697,17 @@ class TrueMultiAgentProductionRuntime:
             # Preserve the user's existing tracked and untracked state in the
             # isolated worktree.  No reset/stash/checkout touches the target.
             overlay_report = overlay_workspace(selected_workspace, managed_worktree)
+            # An accepted managed execution owns this run-scoped root until
+            # the Review/TTY handoff has sealed its machine receipt.  Keep the
+            # lifecycle fact on the mutable run controls so the checkpoint
+            # and restart recovery can make the same cleanup decision without
+            # inferring it from a display path.
+            controls["_code_mode_managed_worktree_for_review"] = True
+            controls["_code_mode_worktree_isolation_kind"] = str(
+                prepared.get("isolation_kind") or "git_worktree"
+            )
+        else:
+            controls["_code_mode_managed_worktree_for_review"] = False
         execution_root = managed_worktree or selected_workspace
 
         def record_worktree_cleanup(report: Mapping[str, Any]) -> None:
@@ -10791,22 +10803,12 @@ class TrueMultiAgentProductionRuntime:
                             "target_workspace_applied" if managed_worktree is not None else "target_workspace_direct",
                         ),
                     )
-                if managed_worktree is not None and "note" not in str(prepared.get("note") or ""):
-                    cleanup_report = worktree_manager.cleanup(
-                        str(selected_workspace), str(managed_worktree), evidence.run_id
-                    )
-                    worktree_cleanup_report = cleanup_report
-                    record_worktree_cleanup(cleanup_report)
-                    if cleanup_report.get("status") != "ok":
-                        result = dataclasses.replace(
-                            result,
-                            status="rejected",
-                            accepted=False,
-                            notes=result.notes + (
-                                "managed_worktree_cleanup_failed",
-                                "managed_worktree_cleanup_status=" + str(cleanup_report.get("status")),
-                            ),
-                        )
+                # Keep an accepted managed worktree alive through the first
+                # Code Mode checkpoint and the subsequent TTY/internal Gate.
+                # The checkpoint seals machine evidence from the real Tester
+                # cwd; finalization performs the exact run-scoped cleanup
+                # immediately before terminal/root sealing.  Rejected and
+                # exception paths above still clean up synchronously.
             except Exception as error:
                 rollback_error: str | None = None
                 if result.accepted:
@@ -11223,6 +11225,16 @@ class TrueMultiAgentProductionRuntime:
             ),
             "response_locator": execution_core.get("response_locator"),
             "user_response_hash": sha256_bytes(str(evidence.user_response or "").encode("utf-8")),
+            # This is a lifecycle binding, not an authorization source.  It
+            # lets a restarted finalizer distinguish a managed execution
+            # whose run-scoped root must still be present from a direct
+            # execution that has nothing to clean.
+            "managed_worktree_for_review": bool(
+                controls.get("_code_mode_managed_worktree_for_review")
+            ),
+            "worktree_isolation_kind": controls.get("_code_mode_worktree_isolation_kind"),
+            "execution_root": (evidence.execution_result or {}).get("workspace")
+            if isinstance(evidence.execution_result, Mapping) else None,
         }
         _checkpoint_receipt, checkpoint_refs = run_stream.append(
             "code-mode-review-pending",
@@ -11246,6 +11258,9 @@ class TrueMultiAgentProductionRuntime:
                 "event_id": checkpoint_refs[-1]["event_id"],
                 "event_hash": checkpoint_refs[-1]["event_hash"],
             },
+            "managed_worktree_for_review": bool(
+                checkpoint.get("managed_worktree_for_review")
+            ),
         }
         result = {
             "run_id": evidence.run_id,
@@ -11843,6 +11858,10 @@ class TrueMultiAgentProductionRuntime:
                 "baseline_authorization_identity": dict(package.get("baseline_authorization_identity") or {}),
                 "conversation_user_message_hash": checkpoint.get("conversation_message_hash"),
                 "code_mode_execution_core": dict(core),
+                "_code_mode_managed_worktree_for_review": bool(
+                    checkpoint.get("managed_worktree_for_review")
+                ),
+                "_code_mode_worktree_isolation_kind": checkpoint.get("worktree_isolation_kind"),
             }
             if completion_plan is not None:
                 controls["code_mode_completion_plan"] = dict(completion_plan)
@@ -11865,6 +11884,9 @@ class TrueMultiAgentProductionRuntime:
                 "recovered": True,
                 "accepted_review_locator": accepted_review_locator,
                 "execution_core_locator": dict(core_locator),
+                "managed_worktree_for_review": bool(
+                    checkpoint.get("managed_worktree_for_review")
+                ),
             }
         finally:
             journal.close()
@@ -12064,20 +12086,129 @@ class TrueMultiAgentProductionRuntime:
         conversation_session_id: str | None = None,
         conversation_turn_index: int | None = None,
     ) -> dict[str, Any]:
+        """Finalize a pending review under one run-scoped cleanup guard."""
+        pending = self._pending_code_mode_runs.get(str(run_id))
+        if not isinstance(pending, Mapping):
+            pending = self._recover_pending_code_mode_run(str(run_id))
+            self._pending_code_mode_runs[str(run_id)] = pending
+        pending_controls = pending.get("controls")
+        pending_evidence = pending.get("evidence")
+        managed = bool(
+            pending.get("managed_worktree_for_review")
+            or (
+                isinstance(pending_controls, Mapping)
+                and pending_controls.get("_code_mode_managed_worktree_for_review") is True
+            )
+            or (
+                isinstance(pending_evidence, (RunEvidence, CodeModeExecutionFacts))
+                and isinstance(pending_evidence.execution_result, Mapping)
+                and pending_evidence.execution_result.get("workspace_mode") == "managed_worktree"
+            )
+            or (
+                isinstance(pending.get("checkpoint_payload"), Mapping)
+                and pending["checkpoint_payload"].get("managed_worktree_for_review") is True
+            )
+        )
+        try:
+            return self._finalize_code_mode_review_impl(
+                run_id=run_id,
+                review_receipt=review_receipt,
+                gate_result=gate_result,
+                conversation_message=conversation_message,
+                conversation_session_id=conversation_session_id,
+                conversation_turn_index=conversation_turn_index,
+            )
+        finally:
+            # The implementation performs cleanup immediately after the
+            # machine/internal Gate and marks it complete.  This outer guard
+            # covers every earlier validation failure (checkpoint reopen,
+            # reviewer receipt, conversation binding, or Gate) as well.
+            context = pending.get("runtime_context")
+            if managed and context is not None:
+                expected_worktree = (
+                    self.home / "artifacts" / "worktrees" / str(run_id)
+                ).expanduser().resolve(strict=False)
+                # The implementation's success path removes the root before
+                # returning.  If it still exists, this is an early failure
+                # and the same authoritative helper must clean it.
+                if expected_worktree.is_dir() and not expected_worktree.is_symlink():
+                    self._cleanup_pending_code_mode_worktree(
+                        run_id=str(run_id), pending=pending, context=context,
+                        managed_worktree_for_review=True,
+                    )
+
+    def _finalize_code_mode_review_impl(
+        self,
+        *,
+        run_id: str,
+        review_receipt: Mapping[str, Any],
+        gate_result: Mapping[str, Any],
+        conversation_message: str | None = None,
+        conversation_session_id: str | None = None,
+        conversation_turn_index: int | None = None,
+    ) -> dict[str, Any]:
         """Reopen a pending run and commit its sole successful terminal state."""
         pending = self._pending_code_mode_runs.get(str(run_id))
         if not isinstance(pending, Mapping):
             pending = self._recover_pending_code_mode_run(str(run_id))
             self._pending_code_mode_runs[str(run_id)] = pending
+        context = pending.get("runtime_context")
+        if context is None:
+            raise DynamicCollaborationError("Code Mode pending run has no runtime context")
+        # ``journal`` is opened only after the TTY/internal Gate has been
+        # revalidated.  Early finalization failures still use the helper's
+        # short-lived writer so a managed root cannot be stranded.
+        journal: Any | None = None
+        cleanup_completed = False
+        cleanup_report: Mapping[str, Any] | None = None
+        pending_controls = pending.get("controls")
+        pending_evidence = pending.get("evidence")
+        managed_worktree_for_review = bool(
+            pending.get("managed_worktree_for_review")
+            or (
+                isinstance(pending_controls, Mapping)
+                and pending_controls.get("_code_mode_managed_worktree_for_review") is True
+            )
+            or (
+                isinstance(pending_evidence, (RunEvidence, CodeModeExecutionFacts))
+                and isinstance(pending_evidence.execution_result, Mapping)
+                and pending_evidence.execution_result.get("workspace_mode") == "managed_worktree"
+            )
+            or (
+                isinstance(pending.get("checkpoint_payload"), Mapping)
+                and pending["checkpoint_payload"].get("managed_worktree_for_review") is True
+            )
+        )
+
+        def cleanup_pending_worktree() -> Mapping[str, Any] | None:
+            """Remove the exact managed root once, after evidence validation."""
+            nonlocal cleanup_completed, cleanup_report
+            if cleanup_completed or not managed_worktree_for_review:
+                return cleanup_report
+            report = self._cleanup_pending_code_mode_worktree(
+                run_id=str(run_id), pending=pending, context=context,
+                managed_worktree_for_review=managed_worktree_for_review,
+                journal=journal,
+            )
+            cleanup_report = report
+            cleanup_completed = True
+            return report
+
         if (
             not isinstance(review_receipt, Mapping)
             or not isinstance(gate_result, Mapping)
             or gate_result.get("status") != "CODE_MODE_READY"
         ):
+            # Even a malformed/declined finalization request is a terminal
+            # failure for the pending execution; clean its managed root
+            # before returning the rejection to the CLI.
+            cleanup_pending_worktree()
             raise DynamicCollaborationError("Code Mode review was not accepted")
-        context = pending["runtime_context"]
         checkpoint = self._reopen_code_mode_checkpoint(
             context, run_id=str(run_id), pending=pending
+        )
+        managed_worktree_for_review = bool(
+            managed_worktree_for_review or checkpoint.get("managed_worktree_for_review") is True
         )
         response_hash = checkpoint.get("user_response_hash")
         empty_response_hash = sha256_bytes(b"")
@@ -12288,6 +12419,11 @@ class TrueMultiAgentProductionRuntime:
         journal = context.open_runtime_writer()
         cas = context.open_cas()
         run_stream = CanonicalStream(journal, str(run_id), f"run/{run_id}", self.policy_hash)
+        # The machine receipt and internal Gate have both been reopened from
+        # durable facts above.  Only now remove a managed execution root;
+        # every terminal/root operation below therefore observes a completed
+        # cleanup, while the initial checkpoint saw the live Tester cwd.
+        cleanup_pending_worktree()
         try:
             events = tuple(event for event in journal.iter_events(0) if event.stream_id == run_stream.stream_id)
             terminal_states = [
@@ -13234,7 +13370,17 @@ class TrueMultiAgentProductionRuntime:
             self._pending_code_mode_runs.pop(str(run_id), None)
             return result
         finally:
-            journal.close()
+            # Cleanup must run while an already-open Journal writer is still
+            # usable.  If an exception occurs while opening the writer/CAS or
+            # constructing the stream, the guard therefore cleans first and
+            # closes the writer in the nested finally.  Success-path cleanup
+            # above is idempotently marked complete and is not repeated here.
+            try:
+                if managed_worktree_for_review and not cleanup_completed:
+                    cleanup_pending_worktree()
+            finally:
+                if journal is not None:
+                    journal.close()
 
     def _legacy_terminal_frontier(self, journal: Any) -> int:
         """Read the legacy global frontier only for legacy terminalization."""
@@ -13903,6 +14049,50 @@ class TrueMultiAgentProductionRuntime:
             authority_parent_hash=authority_parent_hash,
         )
 
+    def _cleanup_pending_code_mode_worktree(
+        self,
+        *,
+        run_id: str,
+        pending: Mapping[str, Any],
+        context: Any,
+        managed_worktree_for_review: bool,
+        journal: Any | None = None,
+    ) -> Mapping[str, Any] | None:
+        """Clean one pending managed root and require an auditable removal."""
+        if not managed_worktree_for_review:
+            return None
+        pending_controls = pending.get("controls")
+        pending_evidence = pending.get("evidence")
+        if not isinstance(pending_controls, Mapping) or not isinstance(
+            pending_evidence, (RunEvidence, CodeModeExecutionFacts)
+        ):
+            raise DynamicCollaborationError("Code Mode managed cleanup lacks pending execution facts")
+        raw_workspace = pending_controls.get("execution_workspace") or pending_controls.get("workspace")
+        if not isinstance(raw_workspace, str) or not raw_workspace.strip():
+            raise DynamicCollaborationError("Code Mode managed cleanup lacks the bound workspace")
+        expected_worktree = (self.home / "artifacts" / "worktrees" / str(run_id)).expanduser().resolve(strict=False)
+        if not expected_worktree.is_dir() or expected_worktree.is_symlink():
+            raise DynamicCollaborationError(
+                "Code Mode managed execution root is unavailable before final cleanup"
+            )
+        owns_journal = journal is None
+        if owns_journal:
+            journal = context.open_runtime_writer()
+        try:
+            stream = CanonicalStream(journal, str(run_id), f"run/{run_id}", self.policy_hash)
+            report = self._cleanup_before_terminalize(
+                run_id=str(run_id),
+                controls=pending_controls,
+                run_stream=stream,
+                evidence=pending_evidence,
+            )
+        finally:
+            if owns_journal and journal is not None:
+                journal.close()
+        if not isinstance(report, Mapping) or report.get("status") != "ok":
+            raise DynamicCollaborationError("Code Mode managed worktree cleanup failed")
+        return report
+
     def _cleanup_before_terminalize(
         self,
         *,
@@ -14372,6 +14562,11 @@ class TrueMultiAgentProductionRuntime:
             raise
         terminal_result: dict[str, Any] | None = None
         cleanup_done = False
+        # Accepted managed executions retain their run-scoped worktree while
+        # REVIEW_PENDING so the machine receipt can observe the real Tester
+        # cwd.  The finalizer owns cleanup after the TTY/internal Gate; all
+        # other terminal paths continue to clean before sealing.
+        defer_managed_worktree_cleanup = False
 
         def cleanup_before_terminalize() -> Mapping[str, Any] | None:
             """Finish exact-run cleanup and journal it before sealing evidence."""
@@ -14387,17 +14582,34 @@ class TrueMultiAgentProductionRuntime:
             )
 
         def terminalize_after_cleanup() -> dict[str, Any]:
-            report = cleanup_before_terminalize()
-            if isinstance(controls.get("code_mode_authorization"), Mapping):
-                result = self._terminalize_code_mode(
-                    journal, cas, run_stream, executor, evidence, run,
-                    runtime_context=context, controls=controls,
-                )
-            else:
-                result = self._terminalize_legacy(
-                    journal, cas, run_stream, executor, evidence, run,
-                    runtime_context=context, controls=controls,
-                )
+            defer = bool(
+                defer_managed_worktree_cleanup
+                and evidence.expected_terminal == "SUCCEEDED"
+                and not bool(controls.get("code_mode_review_accepted"))
+            )
+            report: Mapping[str, Any] | None = None
+            if not defer:
+                report = cleanup_before_terminalize()
+            try:
+                if isinstance(controls.get("code_mode_authorization"), Mapping):
+                    result = self._terminalize_code_mode(
+                        journal, cas, run_stream, executor, evidence, run,
+                        runtime_context=context, controls=controls,
+                    )
+                else:
+                    result = self._terminalize_legacy(
+                        journal, cas, run_stream, executor, evidence, run,
+                        runtime_context=context, controls=controls,
+                    )
+            except Exception:
+                # A checkpoint failure must not strand the managed root.  A
+                # successful checkpoint is the only state allowed to defer
+                # cleanup, and it is durably represented in the pending map.
+                if defer:
+                    cleanup_before_terminalize()
+                raise
+            if defer and result.get("terminal_state") != "REVIEW_PENDING":
+                report = cleanup_before_terminalize()
             if isinstance(report, Mapping) and report.get("status") == "failed":
                 result["cleanup_failed"] = True
                 result["execution_failed_closed"] = True
@@ -14656,6 +14868,11 @@ class TrueMultiAgentProductionRuntime:
                     context, journal, cas, run_stream, executor, evidence, winner, winner_agent, controls,
                 )
                 evidence.execution_result = exec_result.as_event()
+                if controls.get("_code_mode_managed_worktree_for_review") is True:
+                    # Preserve this small lifecycle fact in the immutable
+                    # execution core used by restart recovery.
+                    evidence.execution_result["workspace_mode"] = "managed_worktree"
+                    defer_managed_worktree_cleanup = bool(exec_result.accepted)
                 # Req 4/7/8: only an ACCEPTED execution may terminalize SUCCEEDED.
                 if not exec_result.accepted:
                     raise DynamicCollaborationError(
@@ -14819,7 +15036,13 @@ class TrueMultiAgentProductionRuntime:
                     result["session_failure_record_failed_closed"] = True
             return result
         finally:
-            if run_id is not None and "cleanup_before_terminalize" in locals() and not cleanup_done:
+            pending_review = bool(
+                defer_managed_worktree_cleanup
+                and terminal_result is not None
+                and terminal_result.get("terminal_state") == "REVIEW_PENDING"
+                and run_id in getattr(self, "_pending_code_mode_runs", {})
+            )
+            if run_id is not None and "cleanup_before_terminalize" in locals() and not cleanup_done and not pending_review:
                 try:
                     cleanup_before_terminalize()
                 except Exception:

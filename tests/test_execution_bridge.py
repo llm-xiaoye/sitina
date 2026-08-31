@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -396,6 +397,49 @@ class ExecutionBridgeTests(unittest.TestCase):
             )
         self.assertEqual(event_failure_evidence.expected_terminal, "FAILED")
         self.assertTrue(event_failure_evidence.execution_result["cleanup_failed"])
+
+    def test_pending_managed_review_defers_cleanup_until_finalization_guard(self) -> None:
+        """A pending managed root survives the checkpoint and is cleaned on error."""
+        runtime = object.__new__(TrueMultiAgentProductionRuntime)
+        runtime.home = Path(tempfile.mkdtemp(prefix="sitina-pending-review-"))
+        run_id = "run-pending-review-guard"
+        worktree = runtime.home / "artifacts" / "worktrees" / run_id
+        worktree.mkdir(parents=True)
+        pending = {
+            "managed_worktree_for_review": True,
+            "runtime_context": object(),
+            "controls": {"execution_workspace": str(runtime.home / "workspace")},
+            "evidence": RunEvidence(run_id, "change", "a" * 64, "b" * 64),
+        }
+        runtime._pending_code_mode_runs = {run_id: pending}
+        cleanup_calls: list[str] = []
+
+        def fail_before_terminal_seal(**_kwargs: object) -> None:
+            # The checkpoint/pending handoff must not have removed the root.
+            self.assertTrue(worktree.is_dir())
+            raise RuntimeError("synthetic finalization validation failure")
+
+        def cleanup_guard(**kwargs: object) -> dict[str, str]:
+            cleanup_calls.append(str(kwargs["run_id"]))
+            worktree.rmdir()
+            return {"status": "ok"}
+
+        with patch.object(
+            runtime,
+            "_finalize_code_mode_review_impl",
+            side_effect=fail_before_terminal_seal,
+        ), patch.object(
+            runtime,
+            "_cleanup_pending_code_mode_worktree",
+            side_effect=cleanup_guard,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "synthetic finalization validation failure"):
+                runtime.finalize_code_mode_review(
+                    run_id=run_id, review_receipt={}, gate_result={}
+                )
+        self.assertEqual(cleanup_calls, [run_id])
+        self.assertFalse(worktree.exists())
+        shutil.rmtree(runtime.home, ignore_errors=True)
 
     def test_tester_exception_is_ledgered_and_reworked(self) -> None:
         result = run_safe_execution(
