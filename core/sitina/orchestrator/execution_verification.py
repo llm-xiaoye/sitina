@@ -102,6 +102,14 @@ def verify_execution_diff(
         )
 
     py_files = [Path(value).expanduser() for value in diff_paths if Path(value).suffix == ".py"]
+    # ``diff_paths`` are authenticated mutation evidence.  A test path in
+    # that set is validated from its current bytes below; it must not also be
+    # treated as an unchanged baseline target whose pre-attempt hash is
+    # expected to remain stable.
+    changed_diff_paths = {
+        Path(value).expanduser().resolve(strict=False)
+        for value in diff_paths
+    }
 
     def baseline_unittest_targets() -> list[Path]:
         """Validate the controller-owned pre-attempt test inventory.
@@ -132,12 +140,17 @@ def verify_execution_diff(
             if relative.name.startswith(".") or not relative.name.startswith("test_") or relative.suffix != ".py":
                 raise ValueError("baseline test inventory contains a non-unittest target")
             target = (root / relative).resolve(strict=True)
-            if target.is_symlink() or not target.is_file():
-                raise ValueError("baseline test inventory target is not a regular file")
             try:
                 target.relative_to(root)
             except ValueError as error:
                 raise ValueError("baseline test inventory target escapes execution root") from error
+            if target in changed_diff_paths:
+                # Changed unittest targets are selected from the authenticated
+                # diff and validated using their current bytes/AST.  Do not
+                # apply the unchanged-inventory hash to them.
+                continue
+            if target.is_symlink() or not target.is_file():
+                raise ValueError("baseline test inventory target is not a regular file")
             if expected_hash is not None:
                 if not isinstance(expected_hash, str):
                     raise ValueError("baseline test inventory hash is invalid")

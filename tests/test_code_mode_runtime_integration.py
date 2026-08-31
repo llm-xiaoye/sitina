@@ -915,9 +915,10 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
     def test_provider_http_failure_resumes_original_plan_without_replan_provider_call(self) -> None:
         """A no-write transport fault cannot rewrite the product goal."""
         class HTTPFailingProvider(_ScriptedCodeModeProvider):
-            def __init__(self, workspace: Path):
+            def __init__(self, workspace: Path, *, reason_code: str | None = None):
                 super().__init__(workspace)
                 self.fail_once = True
+                self.reason_code = reason_code
                 self.replan_prompts: list[str] = []
 
             def _value(self, system_prompt: str, user_prompt: str) -> dict[str, object]:
@@ -929,7 +930,10 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
                 if self.fail_once:
                     self.fail_once = False
                     self.tool_calls = 0
-                    raise ProviderHTTPError(400, "controlled local transport fault")
+                    error = ProviderHTTPError(400, "controlled local transport fault")
+                    if self.reason_code is not None:
+                        error.reason_code = self.reason_code
+                    raise error
                 return super().complete_tool_turn(_profile, **kwargs)
 
         provider = HTTPFailingProvider(self.workspace)
@@ -968,6 +972,62 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             advance["execution_authorization"].get("original_plan_hash"),
             advance["code_mode_authorization"].get("original_plan_hash"),
         )
+        self.assertNotIn("Provider retry/backoff", json.dumps(advance, ensure_ascii=False))
+
+    def test_provider_http_status_reason_resumes_original_plan_without_replan_provider_call(self) -> None:
+        """Host/broker status diagnostics remain exact without changing recovery."""
+        class BrokerShapedHTTPFailureProvider(_ScriptedCodeModeProvider):
+            def __init__(self, workspace: Path):
+                super().__init__(workspace)
+                self.fail_once = True
+                self.replan_prompts: list[str] = []
+
+            def _value(self, system_prompt: str, user_prompt: str) -> dict[str, object]:
+                if "Recover the original requested implementation" in user_prompt:
+                    self.replan_prompts.append(user_prompt)
+                return super()._value(system_prompt, user_prompt)
+
+            def complete_tool_turn(self, _profile: ProviderProfile, **kwargs: object) -> ProviderToolTurn:
+                if self.fail_once:
+                    self.fail_once = False
+                    self.tool_calls = 0
+                    error = ProviderHTTPError(400, "controlled local transport fault")
+                    # This is the redacted host/broker diagnostic, not a
+                    # provider-specific branch in the recovery controller.
+                    error.reason_code = "PROVIDER_HTTP_STATUS_400"
+                    raise error
+                return super().complete_tool_turn(_profile, **kwargs)
+
+        provider = BrokerShapedHTTPFailureProvider(self.workspace)
+        runtime = TrueMultiAgentProductionRuntime(
+            self.home, runtime_context_factory=self.context_factory,
+            provider_client=provider, provider_profile=provider.profile,
+        )
+        conversation = ConversationRuntime(
+            self.home, workspace=self.workspace, multi_runtime=runtime,
+            runtime_context_factory=self.context_factory,
+        )
+        result = conversation.execute_turn(
+            conversation.resume_or_create_session(),
+            "Please create status-recovery.py and run the focused test; do not commit or push.",
+        )
+        self.assertEqual(result["terminal_state"], "REVIEW_PENDING", result)
+        self.assertEqual(provider.replan_prompts, [])
+        journal = self.context_factory(self.home).open_runtime_state_reader()
+        try:
+            events = [event for event in journal.iter_events(0) if event.stream_id == f"run/{result['run_id']}"]
+        finally:
+            journal.close()
+        forge = [event for event in events if event.event_type == "forge.execution.result"][-1]
+        ledger = forge.payload.get("attempt_ledger")
+        self.assertEqual(forge.payload.get("attempts"), 2)
+        self.assertEqual(ledger[0].get("reason_code"), "PROVIDER_HTTP_STATUS_400")
+        self.assertEqual(ledger[0].get("mutation_count"), 0)
+        advance = [
+            event for event in events
+            if event.payload.get("schema") == "SITINA_EXECUTION_ATTEMPT_ADVANCED_V1"
+        ][0].payload
+        self.assertEqual(advance["execution_authorization"].get("recovery_mode"), "resume-original")
         self.assertNotIn("Provider retry/backoff", json.dumps(advance, ensure_ascii=False))
 
     def test_post_execution_reviewer_rejection_replans_with_new_attempt_child(self) -> None:

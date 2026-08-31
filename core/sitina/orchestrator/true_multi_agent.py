@@ -10513,6 +10513,7 @@ class TrueMultiAgentProductionRuntime:
                 mutation_count == 0
                 and (
                     reason_code in {"PROVIDER_HTTP_FAILURE", "PROVIDER_TRANSPORT_FAILURE"}
+                    or re.fullmatch(r"PROVIDER_HTTP_STATUS_[0-9]{3}", reason_code) is not None
                     or "providerhttp" in failure_type.casefold()
                     or ("provider" in failure_type.casefold() and "transport" in failure_type.casefold())
                 )

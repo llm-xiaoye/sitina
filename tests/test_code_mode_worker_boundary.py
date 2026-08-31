@@ -320,6 +320,56 @@ class CodeModeWorkerBoundaryTests(unittest.TestCase):
         self.assertEqual(evidence["passed_test_count"], 1)
         self.assertEqual(evidence["failed_test_count"], 0)
 
+    def test_changed_unittest_target_overrides_stale_baseline_hash(self) -> None:
+        """A changed test is current diff evidence, not a stale inventory item."""
+        source = self.root / "calculator.py"
+        target = self.root / "test_calculator.py"
+        source.write_text("def add(left, right):\n    return left + right\n", encoding="utf-8")
+        target.write_text(
+            "import unittest\nfrom calculator import add\n\n"
+            "class CalculatorTests(unittest.TestCase):\n"
+            "    def test_add(self):\n"
+            "        self.assertEqual(add(2, 3), 5)\n",
+            encoding="utf-8",
+        )
+        baseline_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+        # The test is then modified as part of the authenticated diff.  The
+        # old inventory hash must not reject it before current-byte validation.
+        target.write_text(
+            "import unittest\nfrom calculator import add\n\n"
+            "class CalculatorTests(unittest.TestCase):\n"
+            "    def test_add(self):\n"
+            "        self.assertEqual(add(20, 30), 50)\n",
+            encoding="utf-8",
+        )
+        identity = ExecutionIdentityBinding.fixture(verifier_id="agent-delta")
+        verdict = verify_execution_diff(
+            [str(source), str(target)],
+            "agent-delta",
+            {},
+            run_id="worker-changed-baseline-unittest",
+            home=self.runtime_root,
+            identity_binding=identity,
+            fixture_authorization=True,
+            execution_root=self.root,
+            baseline_test_inventory=(
+                {"relative_path": "test_calculator.py", "sha256": baseline_hash},
+            ),
+            evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-changed-baseline"),
+            worker_executor=self.executor,
+        )
+        self.assertTrue(verdict.accepted, verdict.reasons)
+        evidence = json.loads(
+            (self.runtime_root / "test-evidence-changed-baseline" / f"{verdict.test_evidence_hash}.json").read_text()
+        )
+        self.assertEqual(evidence["runner_argv"][1:3], ["-m", "unittest"])
+        self.assertEqual(evidence["runner_argv"][3:], ["test_calculator.py"])
+        self.assertEqual(evidence["collected_test_count"], 1)
+        self.assertEqual(evidence["executed_test_count"], 1)
+        self.assertEqual(evidence["passed_test_count"], 1)
+        self.assertEqual(evidence["failed_test_count"], 0)
+        self.assertEqual(len(evidence["target_hashes"]), 2)
+
     def test_unittest_worker_failure_and_malformed_summary_fail_closed(self) -> None:
         source = self.root / "hello.py"
         target = self.root / "test_hello.py"
