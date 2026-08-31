@@ -1075,7 +1075,17 @@ class CodeModeAcceptanceV1:
         runtime_context: Any | None = None,
         test_receipt: Mapping[str, Any] | None = None,
         reviewer_receipt: Mapping[str, Any] | None = None,
+        execution_workspace: Path | None = None,
     ) -> dict[str, Any]:
+        """Reopen and verify the immutable post-execution evidence.
+
+        ``workspace`` is always the authenticated source workspace used for
+        candidate-manifest verification.  Managed executions run their
+        Tester in a separate, run-scoped worktree; callers may provide that
+        root explicitly for the live observation check.  The optional root
+        is deliberately strict and defaults to the source workspace for all
+        existing direct/committed callers.
+        """
         inventory = tuple(test_inventory or self.profile.get("test_inventory", _DEFAULT_TESTS))
         valid_candidate, drift = verify_candidate_manifest(self.workspace, candidate)
         trusted_test: dict[str, Any] | None = None
@@ -1104,8 +1114,19 @@ class CodeModeAcceptanceV1:
             current_worktree_ok = False
             try:
                 from sitina.orchestrator.code_mode_runtime import _workspace_observation_hash
-                test_root = Path(str(trusted_test.get("cwd") or "")).expanduser().resolve(strict=True)
-                test_root.relative_to(self.workspace)
+                observation_root = self.workspace
+                if execution_workspace is not None:
+                    raw_observation_root = Path(execution_workspace).expanduser()
+                    if raw_observation_root.is_symlink():
+                        raise ValueError("execution workspace is not a real directory")
+                    observation_root = raw_observation_root.resolve(strict=True)
+                    if not observation_root.is_dir():
+                        raise ValueError("execution workspace is not a real directory")
+                raw_test_root = Path(str(trusted_test.get("cwd") or "")).expanduser()
+                if raw_test_root.is_symlink():
+                    raise ValueError("Tester workspace is a symlink")
+                test_root = raw_test_root.resolve(strict=True)
+                test_root.relative_to(observation_root)
                 current_worktree_ok = (
                     _workspace_observation_hash(test_root)
                     == trusted_test.get("workspace_observation_after_hash")

@@ -42,6 +42,7 @@ from sitina.orchestrator.code_mode_reviewer import ReviewerReceiptCapability
 from sitina.orchestrator.code_mode_reviewer import _review_evidence_from_test_receipt
 from sitina.orchestrator.code_mode_gate import CodeModeAcceptanceV1, CODE_MODE_READY, CodeModeRuntimePolicy
 from sitina.orchestrator.execution_sandbox import ExecutionSandboxRunner, ExecutionSandboxUnavailable
+from sitina.orchestrator.git_ops import GitWorktreeManager
 from sitina.journal.model import EventEnvelope, canonical_json_bytes
 from sitina.journal.local import LocalJournal, LocalJournalError
 from sitina.orchestrator.true_multi_agent import (
@@ -1722,6 +1723,202 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
                 )
         finally:
             journal.close()
+
+    def _managed_pending_run(self, message: str) -> tuple[dict[str, object], Path]:
+        """Create one real managed-worktree REVIEW_PENDING handoff."""
+        session = self.runtime.resume_or_create_session()
+        git_env = os.environ.copy()
+        git_env.update({
+            "GIT_AUTHOR_NAME": "Sitina managed-gate test",
+            "GIT_AUTHOR_EMAIL": "managed-gate-test@invalid",
+            "GIT_COMMITTER_NAME": "Sitina managed-gate test",
+            "GIT_COMMITTER_EMAIL": "managed-gate-test@invalid",
+        })
+        subprocess.run(["git", "-C", str(self.workspace), "init", "--quiet"], check=True, env=git_env)
+        subprocess.run(["git", "-C", str(self.workspace), "add", "-A"], check=True, env=git_env)
+        subprocess.run(
+            ["git", "-C", str(self.workspace), "commit", "--quiet", "--allow-empty", "-m", "managed-gate baseline"],
+            check=True, env=git_env,
+        )
+        original_prepare = GitWorktreeManager.prepare
+
+        def prepare_and_rebind(manager: GitWorktreeManager, repo: str, run_id: str):
+            prepared = original_prepare(manager, repo, run_id)
+            self.provider.workspace = Path(str(prepared["worktree"])).resolve(strict=True)
+            return prepared
+
+        with patch(
+            "sitina.orchestrator.true_multi_agent._execution_isolation_required",
+            return_value=True,
+        ), patch.object(
+            GitWorktreeManager, "prepare", autospec=True, side_effect=prepare_and_rebind
+        ):
+            result = self.runtime.execute_turn(
+                session,
+                message,
+            )
+        self.assertEqual(result["terminal_state"], "REVIEW_PENDING", result)
+        self.assertTrue(result["managed_worktree_for_review"])
+        managed_root = (
+            self.home / "artifacts" / "worktrees" / str(result["run_id"])
+        ).resolve(strict=True)
+        self.assertEqual(Path(result["execution_root"]).resolve(strict=True), managed_root)
+        self.assertTrue(managed_root.is_dir())
+        return result, managed_root
+
+    def _managed_tty_rpc(self, request: dict[str, object]) -> dict[str, object]:
+        reviewer = self.reviewer
+        if request.get("method") == "tty_confirm":
+            review = request["review_request"]
+            assert isinstance(review, dict)
+            summary = {
+                key: review.get(key)
+                for key in (
+                    "candidate_id", "tree_hash", "run_id",
+                    "evidence_package_ref", "evidence_package_hash",
+                )
+            }
+            summary["nonce"] = review["tty_nonce"]
+            summary["expires_at"] = review["tty_expires_at"]
+            proof = {
+                "schema": "CODE_MODE_TTY_CONFIRMATION_V1",
+                "issuer_id": str(reviewer.identity["issuer_id"]),
+                "request_ref": review["reference_id"],
+                "request_hash": review["content_hash"],
+                "nonce_hash": hashlib.sha256(str(review["tty_nonce"]).encode()).hexdigest(),
+                "expires_at": review["tty_expires_at"],
+                "issued_at": int(time.time()),
+                "confirmed_at": int(time.time()),
+                "summary_hash": hashlib.sha256(canonical_json_bytes(summary)).hexdigest(),
+            }
+            proof["issuer_signature"] = hmac.new(
+                bytes.fromhex(str(reviewer.tty_verification_material["mac_key_hex"])),
+                canonical_json_bytes(proof), hashlib.sha256,
+            ).hexdigest()
+            return {"proof": proof}
+        if request.get("method") == "verify_tty_confirmation":
+            return {"valid": True}
+        raise AssertionError("managed TTY seam received an unexpected RPC")
+
+    def test_managed_tty_gate_uses_source_candidate_and_execution_root(self) -> None:
+        """The real ConversationRuntime handoff passes a managed Tester root.
+
+        Candidate identity is still sealed from the selected source workspace;
+        only the live Tester observation is rooted in the run-scoped managed
+        worktree.  The fixture uses the normal worktree manager and TTY seam,
+        so this covers the public ConversationRuntime -> Gate -> finalizer
+        path without fabricating a Gate result.
+        """
+        result, managed_root = self._managed_pending_run(
+            "Please create managed-tty.py and run the focused test; do not commit or push."
+        )
+
+        self.runtime.code_mode_reviewer_session = self.reviewer
+        with patch.object(self.reviewer, "_rpc", side_effect=self._managed_tty_rpc):
+            accepted = self.runtime.maybe_confirm_tty_review(result)
+        self.assertEqual(accepted["terminal_state"], "SUCCEEDED", accepted)
+        self.assertEqual(accepted["code_mode_status"], "CODE_MODE_READY")
+        self.assertFalse(managed_root.exists())
+
+    def test_managed_tester_observation_drift_fails_and_cleans(self) -> None:
+        """A changed managed root cannot be promoted after the checkpoint."""
+        result, managed_root = self._managed_pending_run(
+            "Please create managed-drift.py and run the focused test; do not commit or push."
+        )
+        self.runtime.code_mode_reviewer_session = self.reviewer
+        captured: dict[str, object] = {}
+        original_finalize = self.multi.finalize_code_mode_review
+
+        def capture_and_stop(**kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            raise RuntimeError("pause before finalization")
+
+        # First take the real TTY path to obtain the attested receipt and
+        # controller Gate arguments, but stop before the finalizer can clean
+        # the root.  This is only a test seam for sequencing, not evidence.
+        with patch.object(self.reviewer, "_rpc", side_effect=self._managed_tty_rpc), patch.object(
+            self.multi, "finalize_code_mode_review", side_effect=capture_and_stop
+        ):
+            pending = self.runtime.maybe_confirm_tty_review(result)
+        self.assertEqual(pending["terminal_state"], "REVIEW_PENDING")
+        self.assertTrue(managed_root.is_dir())
+        (managed_root / "hello.py").write_text(
+            (managed_root / "hello.py").read_text(encoding="utf-8") + "\n# drift\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(captured)
+        with self.assertRaises(DynamicCollaborationError):
+            original_finalize(**captured)
+        self.assertFalse(managed_root.exists())
+        context = self.context_factory(self.home)
+        journal = context.open_runtime_state_reader()
+        try:
+            events = [event for event in journal.iter_events(0) if event.stream_id == f"run/{result['run_id']}"]
+        finally:
+            journal.close()
+        self.assertFalse(any(
+            event.event_type == "code-mode.terminal-success"
+            or event.payload.get("schema") == "CODE_MODE_FINAL_ROOT_V2"
+            for event in events
+        ))
+
+    def test_managed_cleanup_fact_allows_idempotent_finalize_retry(self) -> None:
+        """A crash after cleanup is recoverable without a second removal."""
+        result, managed_root = self._managed_pending_run(
+            "Please create managed-retry.py and run the focused test; do not commit or push."
+        )
+        self.runtime.code_mode_reviewer_session = self.reviewer
+        captured: dict[str, object] = {}
+        original_finalize = self.multi.finalize_code_mode_review
+        original_cleanup = self.multi._cleanup_pending_code_mode_worktree
+        cleanup_invocations = 0
+
+        def capture_finalize(**kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return original_finalize(**kwargs)
+
+        def cleanup_spy(**kwargs: object) -> Mapping[str, object]:
+            nonlocal cleanup_invocations
+            cleanup_invocations += 1
+            return original_cleanup(**kwargs)
+
+        def terminal_then_crash(*args: object, **kwargs: object) -> dict[str, object]:
+            raise RuntimeError("crash after durable cleanup fact")
+
+        with patch.object(self.reviewer, "_rpc", side_effect=self._managed_tty_rpc), patch.object(
+            self.multi, "finalize_code_mode_review", side_effect=capture_finalize
+        ), patch.object(
+            self.multi, "_cleanup_pending_code_mode_worktree", side_effect=cleanup_spy
+        ), patch.object(
+            self.multi, "_terminalize_code_mode", side_effect=terminal_then_crash
+        ):
+            pending = self.runtime.maybe_confirm_tty_review(result)
+        self.assertEqual(pending["terminal_state"], "REVIEW_PENDING")
+        self.assertTrue(captured)
+        self.assertFalse(managed_root.exists())
+        self.assertEqual(cleanup_invocations, 1)
+        accepted = original_finalize(**captured)
+        self.assertEqual(accepted["terminal_state"], "SUCCEEDED", accepted)
+        self.assertFalse(managed_root.exists())
+        self.assertEqual(cleanup_invocations, 1)
+        context = self.context_factory(self.home)
+        journal = context.open_runtime_state_reader()
+        try:
+            events = [event for event in journal.iter_events(0) if event.stream_id == f"run/{result['run_id']}"]
+        finally:
+            journal.close()
+        self.assertEqual(
+            sum(event.payload.get("event_type") == "execution.worktree.cleanup.finally" for event in events),
+            1,
+        )
+        self.assertEqual(
+            sum(event.payload.get("event_type") == "code-mode.terminal-success" for event in events),
+            1,
+        )
+        self.assertEqual(
+            sum(event.payload.get("schema") == "CODE_MODE_FINAL_ROOT_V2" for event in events),
+            1,
+        )
 
     def test_review_pending_recovers_from_journal_after_controller_restart(self) -> None:
         session = self.runtime.resume_or_create_session()

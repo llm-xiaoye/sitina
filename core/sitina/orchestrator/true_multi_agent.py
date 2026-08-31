@@ -7961,18 +7961,43 @@ class TrueMultiAgentProductionRuntime:
             raise DynamicCollaborationError("Code Mode side-effect observer is unavailable or not run-bound")
         if not isinstance(side_effect_counts.get("observation_receipt"), str) or not side_effect_counts["observation_receipt"]:
             raise DynamicCollaborationError("Code Mode side-effect observer has no receipt")
+        # An accepted managed execution is intentionally still live while
+        # this first receipt is sealed: the Tester machine receipt binds the
+        # real worktree observation that the TTY/Gate will reopen later.  The
+        # cleanup-finally fact is therefore a terminal/finalization
+        # invariant, not a REVIEW_PENDING checkpoint invariant.
+        managed_review_pending = bool(
+            not finalize_stream
+            and controls.get("_code_mode_managed_worktree_for_review") is True
+        )
         cleanup_events = [
             payload for payload in payloads
             if payload.get("event_type") == "execution.worktree.cleanup.finally"
         ]
-        if len(cleanup_events) != 1:
-            raise DynamicCollaborationError("Code Mode cleanup evidence is missing or duplicated")
-        worktree_cleanup = cleanup_events[0]
-        cleanup_status = str(worktree_cleanup.get("status") or "")
-        if cleanup_status not in {"ok", "not_present"} or worktree_cleanup.get("removed") is not True or worktree_cleanup.get("audit_recorded") is not True:
-            raise DynamicCollaborationError("Code Mode worktree cleanup was not verified")
-        if cleanup_status == "ok" and worktree_cleanup.get("physical_removed") is not True:
-            raise DynamicCollaborationError("Code Mode worktree physical cleanup was not verified")
+        if managed_review_pending:
+            if cleanup_events:
+                # A managed root that was already cleaned cannot produce a
+                # valid pending Tester observation.  Do not silently accept
+                # an out-of-order cleanup fact.
+                raise DynamicCollaborationError(
+                    "Code Mode managed worktree was cleaned before REVIEW_PENDING"
+                )
+            cleanup_status = "DEFERRED_REVIEW_PENDING"
+            worktree_cleanup = {
+                "status": cleanup_status,
+                "removed": False,
+                "physical_removed": False,
+                "audit_recorded": False,
+            }
+        else:
+            if len(cleanup_events) != 1:
+                raise DynamicCollaborationError("Code Mode cleanup evidence is missing or duplicated")
+            worktree_cleanup = cleanup_events[0]
+            cleanup_status = str(worktree_cleanup.get("status") or "")
+            if cleanup_status not in {"ok", "not_present"} or worktree_cleanup.get("removed") is not True or worktree_cleanup.get("audit_recorded") is not True:
+                raise DynamicCollaborationError("Code Mode worktree cleanup was not verified")
+            if cleanup_status == "ok" and worktree_cleanup.get("physical_removed") is not True:
+                raise DynamicCollaborationError("Code Mode worktree physical cleanup was not verified")
         related_events = tuple(
             event for event in journal.iter_events(0)
             if event.stream_id == run_stream.stream_id
@@ -7999,12 +8024,13 @@ class TrueMultiAgentProductionRuntime:
             if process_payload.get("failures") not in ([], None):
                 raise DynamicCollaborationError("Code Mode managed-process cleanup reported failures")
         cleanup_ok = (
-            cleanup_status in {"ok", "not_present"}
+            not managed_review_pending
+            and cleanup_status in {"ok", "not_present"}
             and worktree_cleanup.get("removed") is True
             and worktree_cleanup.get("audit_recorded") is True
             and (cleanup_status != "ok" or worktree_cleanup.get("physical_removed") is True)
         )
-        if not cleanup_ok:
+        if not managed_review_pending and not cleanup_ok:
             raise DynamicCollaborationError("Code Mode cleanup was not successful")
         cleanup_observation = {
             "worktree": {
@@ -8092,6 +8118,44 @@ class TrueMultiAgentProductionRuntime:
             raise DynamicCollaborationError("Code Mode Tester evidence cannot be reopened") from error
         if not isinstance(tester_evidence, Mapping) or hashlib.sha256(canonical_json_bytes(tester_evidence)).hexdigest() != tester_hash:
             raise DynamicCollaborationError("Code Mode Tester evidence hash does not match its CAS object")
+        if managed_review_pending:
+            # Bind the deferred lifecycle state to the same durable Tester
+            # cwd that will be used by the finalizer.  A displayed path or an
+            # old scalar is insufficient: the run-scoped managed root must be
+            # present now and its full observation must be reproducible.
+            raw_tester_cwd = tester_evidence.get("cwd")
+            raw_execution_root = execution.get("workspace") or controls.get("_code_mode_execution_root")
+            if not isinstance(raw_tester_cwd, str) or not raw_tester_cwd.strip():
+                raise DynamicCollaborationError("Code Mode pending Tester evidence has no workspace locator")
+            if not isinstance(raw_execution_root, str) or not raw_execution_root.strip():
+                raise DynamicCollaborationError("Code Mode pending execution has no managed root locator")
+            try:
+                tester_cwd_path = Path(raw_tester_cwd).expanduser()
+                execution_root_path = Path(raw_execution_root).expanduser()
+                if tester_cwd_path.is_symlink() or execution_root_path.is_symlink():
+                    raise ValueError("managed root locator is a symlink")
+                tester_root = tester_cwd_path.resolve(strict=True)
+                execution_root = execution_root_path.resolve(strict=True)
+                expected_root = (
+                    self.home / "artifacts" / "worktrees" / str(evidence.run_id)
+                ).expanduser().resolve(strict=False)
+                if (
+                    not tester_root.is_dir()
+                    or tester_root != execution_root
+                    or tester_root != expected_root
+                ):
+                    raise ValueError("Tester cwd is not the authenticated run-scoped managed root")
+                from sitina.orchestrator.code_mode_runtime import _workspace_observation_hash
+                pending_observation_hash = _workspace_observation_hash(tester_root)
+            except Exception as error:
+                raise DynamicCollaborationError(
+                    "Code Mode pending managed workspace observation is unavailable"
+                ) from error
+            cleanup_observation["worktree"].update({
+                "root": str(tester_root),
+                "root_present": True,
+                "workspace_observation_after_hash": pending_observation_hash,
+            })
         if tester_evidence.get("accepted") is not True or type(tester_evidence.get("runner_return_code")) is not int or tester_evidence.get("runner_return_code") != 0:
             raise DynamicCollaborationError("Code Mode Tester evidence is not a passing verification")
         tester_passed = (
@@ -8389,6 +8453,8 @@ class TrueMultiAgentProductionRuntime:
                 "forge_execution_event_hash": forge_event_hash,
                 "tester_evidence_hash": tester_hash,
                 "cleanup_observed": True,
+                "cleanup_status": cleanup_status,
+                "cleanup_observation": cleanup_observation,
             },),
             actor="code-mode-receipt-sealer",
         )
@@ -8438,6 +8504,7 @@ class TrueMultiAgentProductionRuntime:
             },
             "cleanup": {
                 "observed": True,
+                "status": cleanup_status,
                 **cleanup_observation,
             },
             "closing_root": {"sealed": True, "event_hash": closing_root_event_hash},
@@ -11291,6 +11358,14 @@ class TrueMultiAgentProductionRuntime:
             if key in code_receipt:
                 result[key] = code_receipt[key]
         result["code_mode_run_receipt"] = dict(code_receipt)
+        # These are read-only projections of the durable checkpoint.  They
+        # are sufficient for the current CLI process to pass the managed
+        # Tester root to the Gate, but are never an authority source: the
+        # finalizer reopens the checkpoint and Journal independently.
+        result["managed_worktree_for_review"] = bool(
+            checkpoint.get("managed_worktree_for_review") is True
+        )
+        result["execution_root"] = checkpoint.get("execution_root")
         return result
 
     def _reopen_code_mode_checkpoint(
@@ -12180,9 +12255,81 @@ class TrueMultiAgentProductionRuntime:
             )
         )
 
+        expected_worktree = (
+            self.home / "artifacts" / "worktrees" / str(run_id)
+        ).expanduser().resolve(strict=False)
+
+        def lifecycle_events() -> tuple[Any, ...]:
+            """Read this run's immutable lifecycle facts without a writer."""
+            reader = context.open_runtime_state_reader()
+            try:
+                return tuple(
+                    event for event in reader.iter_events(0)
+                    if str(getattr(event, "stream_id", "")) == f"run/{run_id}"
+                )
+            finally:
+                reader.close()
+
+        cleanup_fact_payload: Mapping[str, Any] | None = None
+        cleanup_fact_binding: Mapping[str, Any] | None = None
+        cleanup_fact_completed = False
+        gate_fact_payload: Mapping[str, Any] | None = None
+        managed_gate_workspace: Path | None = None
+        if managed_worktree_for_review:
+            prior_events = lifecycle_events()
+            cleanup_facts = [
+                event for event in prior_events
+                if isinstance(getattr(event, "payload", None), Mapping)
+                and event.payload.get("event_type") == "execution.worktree.cleanup.finally"
+            ]
+            if len(cleanup_facts) > 1:
+                raise DynamicCollaborationError("Code Mode managed cleanup fact is duplicated")
+            if cleanup_facts:
+                cleanup_fact_event = cleanup_facts[0]
+                cleanup_fact_payload = cleanup_fact_event.payload
+                cleanup_fact_binding = {
+                    **dict(cleanup_fact_payload),
+                    "event_id": cleanup_fact_event.event_id,
+                    "event_hash": cleanup_fact_event.event_hash,
+                }
+                if cleanup_fact_payload.get("run_id") != str(run_id):
+                    raise DynamicCollaborationError("Code Mode managed cleanup fact has the wrong run")
+                fact_worktree = Path(str(cleanup_fact_payload.get("worktree") or "")).expanduser().resolve(strict=False)
+                fact_status = str(cleanup_fact_payload.get("status") or "")
+                if fact_worktree != expected_worktree:
+                    raise DynamicCollaborationError("Code Mode managed cleanup fact is bound to another root")
+                if fact_status == "failed":
+                    raise DynamicCollaborationError("Code Mode managed cleanup fact reports failure")
+                if (
+                    fact_status not in {"ok", "not_present"}
+                    or cleanup_fact_payload.get("removed") is not True
+                    or cleanup_fact_payload.get("audit_recorded") is not True
+                    or (fact_status == "ok" and cleanup_fact_payload.get("physical_removed") is not True)
+                ):
+                    raise DynamicCollaborationError("Code Mode managed cleanup fact is incomplete")
+                if not expected_worktree.exists() and not expected_worktree.is_symlink():
+                    cleanup_fact_completed = True
+                else:
+                    # A successful immutable removal fact and a live root are
+                    # contradictory.  Do not mint a second cleanup fact or
+                    # silently reinterpret the durable observation.
+                    raise DynamicCollaborationError("Code Mode cleanup fact contradicts a live managed root")
+            gate_facts = [
+                event.payload for event in prior_events
+                if isinstance(getattr(event, "payload", None), Mapping)
+                and event.payload.get("event_type") == "code-mode.internal-gate-accepted"
+            ]
+            if len(gate_facts) > 1:
+                raise DynamicCollaborationError("Code Mode internal Gate fact is duplicated")
+            if gate_facts:
+                gate_fact_payload = gate_facts[0]
+        if cleanup_fact_completed:
+            cleanup_completed = True
+            cleanup_report = dict(cleanup_fact_payload or {})
+
         def cleanup_pending_worktree() -> Mapping[str, Any] | None:
             """Remove the exact managed root once, after evidence validation."""
-            nonlocal cleanup_completed, cleanup_report
+            nonlocal cleanup_completed, cleanup_report, cleanup_fact_binding
             if cleanup_completed or not managed_worktree_for_review:
                 return cleanup_report
             report = self._cleanup_pending_code_mode_worktree(
@@ -12192,6 +12339,21 @@ class TrueMultiAgentProductionRuntime:
             )
             cleanup_report = report
             cleanup_completed = True
+            if journal is not None:
+                current_events = [
+                    event for event in journal.iter_events(0)
+                    if event.stream_id == f"run/{run_id}"
+                    and isinstance(getattr(event, "payload", None), Mapping)
+                    and event.payload.get("event_type") == "execution.worktree.cleanup.finally"
+                ]
+                if len(current_events) != 1:
+                    raise DynamicCollaborationError("Code Mode managed cleanup fact was not unique")
+                cleanup_event = current_events[0]
+                cleanup_fact_binding = {
+                    **dict(cleanup_event.payload),
+                    "event_id": cleanup_event.event_id,
+                    "event_hash": cleanup_event.event_hash,
+                }
             return report
 
         if (
@@ -12344,18 +12506,91 @@ class TrueMultiAgentProductionRuntime:
             machine_journal.close()
         if machine_fact is None:
             raise DynamicCollaborationError("Code Mode machine receipt is not in the current run Journal")
-        gate_workspace = Path(str(pending["controls"].get("execution_workspace") or self.source_root)).expanduser().resolve(strict=True)
-        internal_gate = CodeModeAcceptanceV1(gate_workspace).evaluate_offline(
-            candidate=dict(pending_candidate),
-            runtime_context=context,
-            test_receipt={
-                **machine_locator,
-                "content_hash": machine_body.get("content_hash"),
-                "journal_event_hash": machine_fact.event_hash,
-            },
-            reviewer_receipt=dict(review_receipt),
-            test_inventory=machine_body.get("test_inventory"),
-        )
+        if managed_worktree_for_review and not cleanup_fact_completed:
+            # Reopen the run-bound Tester locator from the machine receipt and
+            # observe the live managed root immediately before Gate.  This is
+            # deliberately independent of the caller's Gate projection.
+            raw_tester_cwd = machine_body.get("cwd")
+            if not isinstance(raw_tester_cwd, str) or not raw_tester_cwd.strip():
+                raise DynamicCollaborationError("Code Mode Tester receipt has no durable workspace locator")
+            checkpoint_root = checkpoint.get("execution_root")
+            if not isinstance(checkpoint_root, str) or not checkpoint_root.strip():
+                raise DynamicCollaborationError("Code Mode pending checkpoint has no execution-root locator")
+            try:
+                tester_cwd_path = Path(raw_tester_cwd).expanduser()
+                checkpoint_root_path = Path(checkpoint_root).expanduser()
+                if tester_cwd_path.is_symlink() or checkpoint_root_path.is_symlink():
+                    raise ValueError("Code Mode Tester workspace locator is a symlink")
+                tester_root = tester_cwd_path.resolve(strict=True)
+                checkpoint_execution_root = checkpoint_root_path.resolve(strict=True)
+                if (
+                    not tester_root.is_dir()
+                    or tester_root != checkpoint_execution_root
+                    or tester_root != expected_worktree
+                ):
+                    raise ValueError("Code Mode Tester workspace locator is not the pending managed root")
+                from sitina.orchestrator.code_mode_runtime import _workspace_observation_hash
+                current_observation_hash = _workspace_observation_hash(tester_root)
+                managed_gate_workspace = tester_root
+            except Exception as error:
+                raise DynamicCollaborationError(
+                    "Code Mode Tester workspace observation is unavailable or out of date"
+                ) from error
+            sealed_observation_hash = str(machine_body.get("workspace_observation_after_hash") or "")
+            if (
+                not re.fullmatch(r"[0-9a-f]{64}", sealed_observation_hash)
+                or current_observation_hash != sealed_observation_hash
+            ):
+                raise DynamicCollaborationError("Code Mode Tester workspace observation drifted before Gate")
+
+        if managed_worktree_for_review and cleanup_fact_completed:
+            # A process crash can occur after the successful cleanup Journal
+            # fact and before the terminal/root transaction.  The prior Gate
+            # result is reopened from its own run-bound immutable fact so a
+            # missing worktree is not mistaken for new evidence drift.
+            if not isinstance(gate_fact_payload, Mapping):
+                raise DynamicCollaborationError("Code Mode cleaned review has no durable internal Gate fact")
+            persisted_gate = gate_fact_payload.get("gate_result")
+            persisted_gate_hash = str(gate_fact_payload.get("gate_result_hash") or "")
+            if (
+                not isinstance(persisted_gate, Mapping)
+                or not re.fullmatch(r"[0-9a-f]{64}", persisted_gate_hash)
+                or hashlib.sha256(canonical_json_bytes(persisted_gate)).hexdigest() != persisted_gate_hash
+                or gate_fact_payload.get("run_id") != str(run_id)
+                or gate_fact_payload.get("machine_check_ref") != machine_locator.get("reference_id")
+                or gate_fact_payload.get("machine_check_hash") != machine_locator.get("content_hash")
+                or gate_fact_payload.get("candidate_id") != pending_candidate.get("candidate_id")
+                or gate_fact_payload.get("tree_hash") != pending_candidate.get("tree_hash")
+            ):
+                raise DynamicCollaborationError("Code Mode persisted internal Gate fact is not bound")
+            internal_gate = dict(persisted_gate)
+        else:
+            # Candidate-manifest verification must remain rooted in the
+            # authenticated source workspace.  A managed execution's Tester
+            # observation is separately bound to its run-scoped worktree via
+            # ``execution_workspace``; passing that root as ``self.workspace``
+            # would make the source candidate appear to drift (git metadata,
+            # absolute workspace identity, and unborn snapshot HEAD differ).
+            source_gate_workspace = Path(
+                str(pending["controls"].get("execution_workspace") or self.source_root)
+            ).expanduser().resolve(strict=True)
+            execution_gate_workspace = (
+                managed_gate_workspace
+                if managed_worktree_for_review and managed_gate_workspace is not None
+                else None
+            )
+            internal_gate = CodeModeAcceptanceV1(source_gate_workspace).evaluate_offline(
+                candidate=dict(pending_candidate),
+                runtime_context=context,
+                test_receipt={
+                    **machine_locator,
+                    "content_hash": machine_body.get("content_hash"),
+                    "journal_event_hash": machine_fact.event_hash,
+                },
+                reviewer_receipt=dict(review_receipt),
+                test_inventory=machine_body.get("test_inventory"),
+                execution_workspace=execution_gate_workspace,
+            )
         if internal_gate.get("status") != "CODE_MODE_READY":
             raise DynamicCollaborationError("Code Mode controller Gate rejected the reopened evidence")
         # The conversation layer may carry a Gate projection for display, but
@@ -12416,15 +12651,41 @@ class TrueMultiAgentProductionRuntime:
                 raise DynamicCollaborationError(
                     "Code Mode final review receipt binding mismatch: " + field
                 )
-        journal = context.open_runtime_writer()
-        cas = context.open_cas()
-        run_stream = CanonicalStream(journal, str(run_id), f"run/{run_id}", self.policy_hash)
-        # The machine receipt and internal Gate have both been reopened from
-        # durable facts above.  Only now remove a managed execution root;
-        # every terminal/root operation below therefore observes a completed
-        # cleanup, while the initial checkpoint saw the live Tester cwd.
-        cleanup_pending_worktree()
         try:
+            # Writer/CAS/stream setup, the durable Gate fact, cleanup and all
+            # terminal/root operations share this one lifecycle guard.  Any
+            # setup or append failure therefore closes the writer and lets the
+            # outer guard perform only the remaining idempotent cleanup.
+            journal = context.open_runtime_writer()
+            cas = context.open_cas()
+            run_stream = CanonicalStream(journal, str(run_id), f"run/{run_id}", self.policy_hash)
+            if managed_worktree_for_review and gate_fact_payload is None:
+                gate_fact_payload = {
+                    "schema": "CODE_MODE_INTERNAL_GATE_ACCEPTED_V1",
+                    "event_type": "code-mode.internal-gate-accepted",
+                    "run_id": str(run_id),
+                    "candidate_id": pending_candidate.get("candidate_id"),
+                    "tree_hash": pending_candidate.get("tree_hash"),
+                    "machine_check_ref": machine_locator.get("reference_id"),
+                    "machine_check_hash": machine_locator.get("content_hash"),
+                    "gate_result": dict(gate_result),
+                    "gate_result_hash": hashlib.sha256(
+                        canonical_json_bytes(gate_result)
+                    ).hexdigest(),
+                }
+                _gate_receipt, gate_refs = run_stream.append(
+                    "code-mode-internal-gate-accepted",
+                    (gate_fact_payload,),
+                    actor="code-mode-review-controller",
+                )
+                if len(gate_refs) != 1:
+                    raise DynamicCollaborationError("Code Mode internal Gate fact was not unique")
+            # The machine receipt and internal Gate have both been reopened
+            # from durable facts above.  Only now remove a managed execution
+            # root; every terminal/root operation below therefore observes a
+            # completed cleanup, while the initial checkpoint saw the live
+            # Tester cwd.
+            cleanup_pending_worktree()
             events = tuple(event for event in journal.iter_events(0) if event.stream_id == run_stream.stream_id)
             terminal_states = [
                 _code_mode_terminal_state(event.payload)
@@ -12541,6 +12802,8 @@ class TrueMultiAgentProductionRuntime:
                     "code_mode_tty_receipt": dict(review_receipt),
                     "code_mode_internal_gate": dict(gate_result),
                     "code_mode_evidence_package": dict(pending_package),
+                    "code_mode_cleanup_fact": dict(cleanup_fact_binding or {})
+                    if managed_worktree_for_review else None,
                     "code_mode_review_request": dict(pending_request),
                     "code_mode_candidate": dict(pending_candidate),
                     "code_mode_execution_core": dict(execution_core),
@@ -12602,6 +12865,8 @@ class TrueMultiAgentProductionRuntime:
                     "reviewer_authority_class": review_body.get("authority_class"),
                     "execution_core_ref": (core_locator or {}).get("reference_id") if isinstance(core_locator, Mapping) else None,
                     "execution_core_hash": (core_locator or {}).get("content_hash") if isinstance(core_locator, Mapping) else None,
+                    "cleanup_fact": dict(cleanup_fact_binding or {})
+                    if managed_worktree_for_review else None,
                     "completion_plan_ref": None,
                     "completion_plan_hash": None,
                     "user_response_hash": response_hash,
@@ -12967,6 +13232,9 @@ class TrueMultiAgentProductionRuntime:
             controls["code_mode_tty_receipt"] = dict(review_receipt)
             controls["code_mode_internal_gate"] = dict(gate_result)
             controls["code_mode_evidence_package"] = dict(pending_package)
+            controls["code_mode_cleanup_fact"] = (
+                dict(cleanup_fact_binding or {}) if managed_worktree_for_review else None
+            )
             controls["code_mode_review_request"] = dict(pending_request)
             controls["code_mode_candidate"] = dict(pending_candidate)
             controls["code_mode_completion_plan"] = dict(completion_plan)
@@ -13112,6 +13380,8 @@ class TrueMultiAgentProductionRuntime:
                 "reviewer_authority_class": review_body.get("authority_class"),
                 "execution_core_ref": (core_locator or {}).get("reference_id") if isinstance(core_locator, Mapping) else None,
                 "execution_core_hash": (core_locator or {}).get("content_hash") if isinstance(core_locator, Mapping) else None,
+                "cleanup_fact": dict(cleanup_fact_binding or {})
+                if managed_worktree_for_review else None,
                 "completion_plan_ref": plan_ref,
                 "completion_plan_hash": plan_hash,
                 "user_response_hash": response_hash,
@@ -13572,6 +13842,23 @@ class TrueMultiAgentProductionRuntime:
                 "sqlite_write_count": None,
             }
         code_mode_terminal_binding = None
+        terminal_cleanup_fact = controls.get("code_mode_cleanup_fact")
+        if terminal_cleanup_fact is not None:
+            if (
+                not isinstance(terminal_cleanup_fact, Mapping)
+                or terminal_cleanup_fact.get("event_type") != "execution.worktree.cleanup.finally"
+                or terminal_cleanup_fact.get("run_id") != evidence.run_id
+                or terminal_cleanup_fact.get("status") not in {"ok", "not_present"}
+                or terminal_cleanup_fact.get("removed") is not True
+                or terminal_cleanup_fact.get("audit_recorded") is not True
+                or (
+                    terminal_cleanup_fact.get("status") == "ok"
+                    and terminal_cleanup_fact.get("physical_removed") is not True
+                )
+                or not isinstance(terminal_cleanup_fact.get("event_hash"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", terminal_cleanup_fact["event_hash"])
+            ):
+                raise DynamicCollaborationError("Code Mode terminal cleanup fact is invalid")
         if isinstance(controls.get("code_mode_internal_gate"), Mapping):
             candidate = controls.get("code_mode_candidate")
             package = controls.get("code_mode_evidence_package")
@@ -13611,6 +13898,8 @@ class TrueMultiAgentProductionRuntime:
                 "execution_core_hash": (controls.get("code_mode_execution_core") or {}).get("content_hash"),
                 "user_response_hash": sha256_bytes(str(evidence.user_response or "").encode("utf-8")),
             }
+            if terminal_cleanup_fact is not None:
+                code_mode_terminal_binding["cleanup_fact"] = dict(terminal_cleanup_fact)
         failed_transport_receipts = _failed_transport_receipts(executor)
         failed_provider_call_ids = _failed_transport_call_ids(
             executor, failed_transport_receipts
@@ -13696,6 +13985,7 @@ class TrueMultiAgentProductionRuntime:
                 "expected_terminal": core_run.get("expected_terminal"),
                 "terminal_decision": decision.__dict__,
                 "execution_result": dict(core_run.get("execution_result") or {}),
+                "cleanup_fact": dict(terminal_cleanup_fact) if terminal_cleanup_fact is not None else None,
                 "provider_physical_send_count": int(usage.get("physical_send_count") or 0),
                 "provider_call_count": int(usage.get("call_count") or 0),
                 "provider_retry_count": int(usage.get("retry_count") or 0),
@@ -13753,6 +14043,7 @@ class TrueMultiAgentProductionRuntime:
                 "expected_terminal": evidence.expected_terminal,
                 "terminal_decision": decision.__dict__,
                 "execution_result": dict(evidence.execution_result or {}),
+                "cleanup_fact": dict(terminal_cleanup_fact) if terminal_cleanup_fact is not None else None,
                 "readonly_workspace_evidence": (
                     dict(evidence.readonly_workspace_evidence)
                     if isinstance(evidence.readonly_workspace_evidence, Mapping)
@@ -14126,11 +14417,18 @@ class TrueMultiAgentProductionRuntime:
             key: report.get(key)
             for key in (
                 "run_id", "repo", "worktree", "registered_before", "registered_after",
-                "removed", "physical_removed", "audit_recorded", "status",
+                "removed", "audit_recorded", "status",
                 "porcelain_before_sha256", "porcelain_after_sha256",
                 "cleanup_error_type", "cleanup_error_hash",
             )
         }
+        # Git's worktree remover reports physical absence as ``removed``;
+        # preserve that authoritative fact explicitly in the durable cleanup
+        # receipt rather than leaving a missing/unknown field for the terminal
+        # verifier to reject.
+        safe_report["physical_removed"] = report.get(
+            "physical_removed", report.get("removed")
+        )
         try:
             run_stream.append(
                 "execution-worktree-cleanup-finally",

@@ -274,13 +274,46 @@ class ConversationRuntime:
             if not isinstance(receipt, Mapping):
                 raise PermissionError("TTY reviewer returned no durable receipt locator")
             gate = CodeModeAcceptanceV1(self.workspace)
-            gate_result = gate.evaluate_offline(
-                candidate=dict(candidate),
-                runtime_context=context,
-                test_receipt=dict(test_receipt),
-                reviewer_receipt=dict(receipt),
-                test_inventory=result.get("test_inventory"),
-            )
+            gate_kwargs: dict[str, Any] = {
+                "candidate": dict(candidate),
+                "runtime_context": context,
+                "test_receipt": dict(test_receipt),
+                "reviewer_receipt": dict(receipt),
+                "test_inventory": result.get("test_inventory"),
+            }
+            if result.get("managed_worktree_for_review") is True:
+                run_id = result.get("run_id")
+                raw_execution_root = result.get("execution_root")
+                worktree_base = (
+                    self.home / "artifacts" / "worktrees"
+                ).expanduser().resolve(strict=True)
+                if (
+                    not isinstance(run_id, str)
+                    or not run_id.strip()
+                    or Path(run_id).name != run_id
+                    or run_id in {".", ".."}
+                ):
+                    raise PermissionError("managed Code Mode handoff has an invalid run identity")
+                expected_execution_root = (
+                    worktree_base / run_id
+                ).resolve(strict=False)
+                if not isinstance(raw_execution_root, str) or not raw_execution_root.strip():
+                    raise PermissionError("managed Code Mode handoff has no execution root")
+                raw_root = Path(raw_execution_root).expanduser()
+                if raw_root.is_symlink():
+                    raise PermissionError("managed Code Mode execution root is a symlink")
+                execution_root = raw_root.resolve(strict=True)
+                if (
+                    not execution_root.is_dir()
+                    or execution_root != expected_execution_root
+                    or expected_execution_root.parent != worktree_base
+                ):
+                    raise PermissionError("managed Code Mode execution root is not the run-scoped root")
+                # ``CodeModeAcceptanceV1.workspace`` remains the source
+                # candidate root; this explicit parameter is only for the
+                # authenticated Tester observation.
+                gate_kwargs["execution_workspace"] = execution_root
+            gate_result = gate.evaluate_offline(**gate_kwargs)
         except (EOFError, OSError, PermissionError, TimeoutError, RuntimeError, ValueError) as error:
             # TTY absence, EOF, timeout, stale evidence, and any controller
             # failure are review-pending.  Do not expose exception text, which
