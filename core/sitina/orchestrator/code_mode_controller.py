@@ -943,7 +943,16 @@ class WorkerToolExecutor(ToolExecutor):
             not isinstance(argv, list)
             or not argv
             or not all(isinstance(item, str) for item in argv)
-            or any(item in {"-c", "--command", "-i", "--interactive"} for item in argv)
+            or any(item in {"--command", "-i", "--interactive"} for item in argv)
+            or any(
+                item == "-c"
+                and not (
+                    index >= 3
+                    and len(argv) >= 3
+                    and argv[1:3] == ["-m", "unittest"]
+                )
+                for index, item in enumerate(argv)
+            )
             or any(item in {";", "&&", "||", "|", ">", ">>", "<", "`"} for item in argv)
         ):
             return None
@@ -982,8 +991,30 @@ class WorkerToolExecutor(ToolExecutor):
             ):
                 if len(argv) < 3 or argv[1:3] != policy[1:3]:
                     continue
+                # Keep runner options explicit and side-effect free.  The
+                # unittest runtime recognizes these no-value presentation,
+                # buffering, fail-fast, catch, and traceback switches;
+                # doctest only receives the shared verbosity switches.  A
+                # bare unittest ``discover`` is bound to the worker cwd and
+                # has no selector/path arguments.  Every other dash-prefixed
+                # token is rejected rather than being mistaken for a test
+                # path.
+                runner_flags = {"-v", "--verbose"}
+                if policy[2] == "unittest":
+                    runner_flags.update({
+                        "-q", "--quiet", "-f", "--failfast", "-b", "--buffer",
+                        "-c", "--catch", "--locals",
+                    })
+                if policy[2] == "unittest" and argv[3:] in (
+                    ["discover"], ["discover", "-v"],
+                ):
+                    return [execution_interpreter, *argv[1:]]
                 try:
                     for value in argv[3:]:
+                        if value in runner_flags:
+                            continue
+                        if value.startswith("-"):
+                            return None
                         path = self._checked_shell_test_path(value)
                         if not path.is_file() or path.suffix != ".py":
                             return None

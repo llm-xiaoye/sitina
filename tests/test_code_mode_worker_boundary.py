@@ -187,7 +187,7 @@ class CodeModeWorkerBoundaryTests(unittest.TestCase):
             self.executor._canonical_shell_argv(["python", "-c", "pass"], policy)
         )
         self.assertIsNone(
-            self.executor._canonical_shell_argv(["python", "-m", "unittest", "--failfast"], policy)
+            self.executor._canonical_shell_argv(["python", "-m", "unittest", "--unsafe"], policy)
         )
         explicit_absolute_policy = [f"{os.sys.executable} -m unittest"]
         self.assertIsNotNone(
@@ -195,6 +195,93 @@ class CodeModeWorkerBoundaryTests(unittest.TestCase):
                 [os.sys.executable, "-m", "unittest"], explicit_absolute_policy
             )
         )
+
+    def test_unittest_verbose_flags_are_allowed_for_python_aliases(self) -> None:
+        script = self.root / "test_verbose_flags.py"
+        script.write_text(
+            "import unittest\n\n"
+            "class VerboseFlagTest(unittest.TestCase):\n"
+            "    def test_ok(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        for interpreter in ("python", "python3"):
+            result = self.executor.execute(
+                operation="shell", run_id="worker-run", agent="tester",
+                target=str(self.root), cwd=str(self.root),
+                command=f"{interpreter} -m unittest -v {script.name}",
+                allowed_commands=["python -m unittest"], capability=self.capability,
+            )
+            self.assertEqual(result["status"], "ok", result)
+            self.assertEqual(result["argv"][1:4], ["-m", "unittest", "-v"])
+            self.assertEqual(result["unittest_result"]["collected_test_count"], 1)
+            self.assertEqual(result["unittest_result"]["passed_test_count"], 1)
+
+    def test_unittest_unknown_flag_is_rejected_before_worker(self) -> None:
+        script = self.root / "test_unknown_flag.py"
+        script.write_text(
+            "import unittest\n\n"
+            "class UnknownFlagTest(unittest.TestCase):\n"
+            "    def test_ok(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        self.assertIsNone(
+            self.executor._canonical_shell_argv(
+                ["python", "-m", "unittest", "--unsafe", script.name],
+                ["python -m unittest"],
+            )
+        )
+        result = self.executor.execute(
+            operation="shell", run_id="worker-run", agent="tester",
+            target=str(self.root), cwd=str(self.root),
+            command=f"python -m unittest --unsafe {script.name}",
+            allowed_commands=["python -m unittest"], capability=self.capability,
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("exact safe tester command", result["reason"])
+
+    def test_unittest_standard_flags_and_cwd_discover_are_bounded(self) -> None:
+        script = self.root / "test_standard_flags.py"
+        script.write_text(
+            "import unittest\n\n"
+            "class StandardFlagTest(unittest.TestCase):\n"
+            "    def test_ok(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        policy = ["python -m unittest"]
+        for flag in (
+            "-v", "--verbose", "-q", "--quiet", "-f", "--failfast",
+            "-b", "--buffer", "-c", "--catch", "--locals",
+        ):
+            self.assertIsNotNone(
+                self.executor._canonical_shell_argv(
+                    ["python", "-m", "unittest", flag, script.name], policy
+                ),
+                flag,
+            )
+        self.assertIsNotNone(
+            self.executor._canonical_shell_argv(
+                ["python", "-m", "unittest", "discover"], policy
+            )
+        )
+        self.assertIsNotNone(
+            self.executor._canonical_shell_argv(
+                ["python", "-m", "unittest", "discover", "-v"], policy
+            )
+        )
+        for argv in (
+            ["python", "-m", "unittest", "-k", "test_ok", script.name],
+            ["python", "-m", "unittest", "-s", "."],
+            ["python", "-m", "unittest", "-p", "test_*.py"],
+            ["python", "-m", "unittest", "-t", "."],
+            ["python", "-m", "unittest", "--durations", "1", script.name],
+            ["python", "-m", "unittest", "--unsafe", script.name],
+            ["python", "-m", "unittest", "test_standard_flags.StandardFlagTest"],
+            ["python", "-m", "unittest", "discover", "--verbose"],
+        ):
+            self.assertIsNone(self.executor._canonical_shell_argv(argv, policy), argv)
 
     def test_python3_logical_shell_and_argv_use_sealed_interpreter(self) -> None:
         script = self.root / "test_python3_logical.py"
