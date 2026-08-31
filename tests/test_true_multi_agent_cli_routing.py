@@ -76,6 +76,13 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         authorized = classify_code_mode_intent("修复代码但不要提交")
         self.assertTrue(authorized["explicit_mutation"])
         self.assertFalse(authorized["explicit_external_action"])
+        for message in (
+            "请分析并修复",
+            "请先分析问题并修复",
+            "请设计并实现",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(classify_code_mode_intent(message)["explicit_mutation"])
 
     def test_parent_binding_validator_requires_exact_hash_without_normalization(self) -> None:
         expected = "sha256:" + "a" * 64

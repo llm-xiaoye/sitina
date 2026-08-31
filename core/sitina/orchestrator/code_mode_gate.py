@@ -212,11 +212,9 @@ def _is_discussion_reference(message: str, start: int, end: int) -> bool:
     # imperative.  Keep the original prefix+suffix check for precise scopes,
     # and also recognize list-style discussion clauses such as
     # ``讨论双写、事件发布、修复方案`` where the suffix follows a later item.
-    if bool(_DISCUSSION_PREFIX.search(before[-32:])) and bool(_DISCUSSION_SUFFIX.search(after[:32])):
-        return True
-    if bool(_DISCUSSION_PREFIX.search(before[-32:])) and not after.strip():
-        return True
-    return False
+    return bool(_DISCUSSION_PREFIX.search(before[-32:])) and bool(
+        _DISCUSSION_SUFFIX.search(after[:32])
+    )
 
 
 def classify_code_mode_intent(message: str) -> dict[str, Any]:
