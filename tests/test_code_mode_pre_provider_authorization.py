@@ -279,9 +279,19 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         kind_match = re.search(r"kind exactly '([^']+)'", system)
         agent_id = agent_match.group(1) if agent_match else "agent-atlas"
         kind = kind_match.group(1) if kind_match else "proposal"
+        def readonly_claims() -> list[dict[str, object]]:
+            marker = "READONLY_CLAIMS_JSON="
+            offset = user.find(marker)
+            if offset < 0:
+                return []
+            encoded = user[offset + len(marker):].lstrip()
+            try:
+                value, _end = json.JSONDecoder().raw_decode(encoded)
+            except json.JSONDecodeError:
+                return []
+            return value if isinstance(value, list) else []
         if kind == "readonly_answer":
-            claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user, re.DOTALL)
-            claims = json.loads(claims_match.group(1)) if claims_match else []
+            claims = readonly_claims()
             satisfied = [item for item in claims if item.get("status") == "satisfied"]
             claim = satisfied[0]
             return {
@@ -290,8 +300,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 "answer_fragment": "\n".join(item["required_answer_value"] for item in satisfied),
             }
         if kind == "readonly_review":
-            claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user, re.DOTALL)
-            claims = json.loads(claims_match.group(1)) if claims_match else []
+            claims = readonly_claims()
             return {
                 "agent_id": agent_id, "kind": "readonly_review", "verdict": "approved",
                 "score": 90, "reason": "all required evidence is present", "defects": [],
@@ -681,7 +690,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
 
     def test_readonly_required_claims_are_exactly_bound_to_answer_and_journal(self) -> None:
         (self.workspace / "README.md").write_text(
-            "generic words\nmore generic words\nREAD_ONLY_MARKER\n",
+            "generic words\nmore generic words\nREAD_ONLY_MARKER=batch12-canonical-913\n",
             encoding="utf-8",
         )
         _LocalProviderHandler.response_factory = self._root_fsm_response
@@ -705,7 +714,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             },
         )
         self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
-        self.assertIn("READ_ONLY_MARKER", str(result.get("response") or ""))
+        self.assertIn("batch12-canonical-913", str(result.get("response") or ""))
         journal = self.context.open_runtime_state_reader()
         try:
             evidence_events = [
@@ -716,13 +725,89 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             journal.close()
         self.assertEqual(len(evidence_events), 1)
         claims = evidence_events[0].payload["required_evidence_claims"]
-        marker_claims = [item for item in claims if item.get("exact_query") == "READ_ONLY_MARKER"]
+        marker_claims = [
+            item for item in claims
+            if "READ_ONLY_MARKER" in item.get("source_queries", ())
+        ]
         self.assertEqual(len(marker_claims), 1)
         self.assertEqual(marker_claims[0]["status"], "satisfied")
         self.assertEqual(marker_claims[0]["line"], 3)
-        self.assertEqual(marker_claims[0]["required_answer_value"], "READ_ONLY_MARKER")
+        self.assertEqual(marker_claims[0]["required_answer_value"], "batch12-canonical-913")
+        self.assertEqual(marker_claims[0]["source_queries"], ["README.md", "READ_ONLY_MARKER"])
+        self.assertEqual(len(marker_claims[0]["alias_claim_ids"]), 2)
+        claim_excerpts = [
+            item for item in evidence_events[0].payload["excerpts"]
+            if item.get("claim_id") == marker_claims[0]["claim_id"]
+        ]
+        self.assertEqual(len(claim_excerpts), 1)
         self.assertEqual(evidence_events[0].payload["forge_count"], 0)
         self.assertEqual(evidence_events[0].payload["write_count"], 0)
+
+    def test_readonly_distinct_claims_require_every_verified_id(self) -> None:
+        (self.workspace / "README.md").write_text(
+            "generic words\nmore generic words\nREAD_ONLY_MARKER=batch12-canonical-913\n",
+            encoding="utf-8",
+        )
+        (self.workspace / "OTHER.md").write_text(
+            "generic words\nOTHER_MARKER=second-fact-914\n",
+            encoding="utf-8",
+        )
+
+        def reviewer_omits_distinct_claim(request: dict[str, object]) -> dict[str, object]:
+            value = self._root_fsm_response(request)
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            if "kind exactly 'readonly_review'" in system:
+                user = str(messages[-1].get("content") if isinstance(messages, list) and messages else "")
+                marker = "READONLY_CLAIMS_JSON="
+                offset = user.find(marker)
+                encoded = user[offset + len(marker):].lstrip() if offset >= 0 else "[]"
+                claims, _end = json.JSONDecoder().raw_decode(encoded)
+                satisfied = [item for item in claims if item.get("status") == "satisfied"]
+                value["verified_claim_ids"] = [satisfied[0]["claim_id"]] if satisfied else []
+            return value
+
+        _LocalProviderHandler.response_factory = reviewer_omits_distinct_claim
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = (
+            "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，以及 "
+            "`OTHER.md` 第2行的 `OTHER_MARKER`，不要修改文件。"
+        )
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "2" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-distinct-claims-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "FAILED", result)
+        self.assertEqual(result["rejected_provider_output_count"], 1)
+        self.assertEqual(result["external_mutation_count"], 0)
+        journal = self.context.open_runtime_state_reader()
+        try:
+            evidence = next(
+                event.payload for event in journal.iter_events(0)
+                if event.payload.get("schema") == "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1"
+            )
+        finally:
+            journal.close()
+        satisfied = [
+            item for item in evidence["required_evidence_claims"]
+            if item.get("status") == "satisfied"
+        ]
+        self.assertEqual(len(satisfied), 2)
+        self.assertEqual(evidence["forge_count"], 0)
+        self.assertEqual(evidence["write_count"], 0)
 
     def test_readonly_missing_claim_fails_closed_even_when_review_is_accepted(self) -> None:
         (self.workspace / "README.md").write_text(
@@ -798,7 +883,10 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             )
         finally:
             journal.close()
-        claim = next(item for item in evidence["required_evidence_claims"] if item.get("exact_query") == "READ_ONLY_MARKER")
+        claim = next(
+            item for item in evidence["required_evidence_claims"]
+            if "READ_ONLY_MARKER" in item.get("source_queries", ())
+        )
         self.assertEqual(claim["observed_value"], "batch9-cobalt-913")
         self.assertEqual(claim["required_answer_value"], "batch9-cobalt-913")
 

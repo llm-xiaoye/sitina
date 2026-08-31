@@ -1334,6 +1334,74 @@ def _extract_required_evidence_claims(user_request: str) -> list[dict[str, Any]]
     return claims[:128]
 
 
+def _canonicalize_readonly_evidence_claims(
+    claims: Sequence[Mapping[str, Any]],
+    *,
+    workspace_root_hash: str,
+) -> list[dict[str, Any]]:
+    """Collapse satisfied aliases by their observed workspace fact identity.
+
+    Query wording and the provisional claim id are provenance, not evidence
+    identity.  Missing/ambiguous claims remain distinct and are never folded
+    into a satisfied fact.
+    """
+
+    canonical_claims: list[dict[str, Any]] = []
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for raw_claim in claims:
+        claim = dict(raw_claim)
+        if claim.get("status") != "satisfied":
+            canonical_claims.append(claim)
+            continue
+        path = os.path.normpath(str(claim.get("path") or "")).replace(os.sep, "/")
+        if path == ".":
+            path = ""
+        line = claim.get("line")
+        identity = {
+            "workspace_root_hash": str(workspace_root_hash),
+            "path": path,
+            "line": line,
+            "matched_text_hash": claim.get("matched_text_hash"),
+            "observed_value_hash": claim.get("observed_value_hash"),
+        }
+        key = tuple(identity[item] for item in (
+            "workspace_root_hash", "path", "line", "matched_text_hash", "observed_value_hash",
+        ))
+        group = groups.get(key)
+        if group is None:
+            group = {
+                "claim": claim,
+                "identity": identity,
+                "source_queries": set(),
+                "alias_claim_ids": set(),
+            }
+            groups[key] = group
+            canonical_claims.append(claim)
+        exact_query = claim.get("exact_query")
+        if isinstance(exact_query, str) and exact_query:
+            group["source_queries"].add(exact_query)
+        claim_id = claim.get("claim_id")
+        if isinstance(claim_id, str) and claim_id:
+            group["alias_claim_ids"].add(claim_id)
+
+    for group in groups.values():
+        identity = group["identity"]
+        source_queries = sorted(group["source_queries"])
+        alias_claim_ids = sorted(group["alias_claim_ids"])
+        canonical_id = "claim-" + sha256_bytes(canonical_json_bytes(identity))[:32]
+        claim = group["claim"]
+        claim.update({
+            "claim_id": canonical_id,
+            "path": identity["path"],
+            "line": identity["line"],
+            "exact_query": source_queries[0] if source_queries else str(claim.get("exact_query") or ""),
+            "source_queries": source_queries,
+            "alias_claim_ids": alias_claim_ids,
+            "evidence_hash": sha256_bytes(canonical_json_bytes(identity)),
+        })
+    return canonical_claims
+
+
 class TrueMultiAgentProductionRuntime:
     """Production-native dynamic collaboration coordinator.
 
@@ -1518,6 +1586,7 @@ class TrueMultiAgentProductionRuntime:
         required_claims = _extract_required_evidence_claims(
             user_request if user_request is not None else str(getattr(evidence, "goal", "") or "")
         )
+        workspace_root_hash = sha256_bytes(str(root).encode("utf-8"))
         terms = [
             token.casefold()
             for token in re.findall(r"[A-Za-z0-9_\u3400-\u9fff]{2,}", str(getattr(evidence, "goal", "") or ""))
@@ -1530,7 +1599,7 @@ class TrueMultiAgentProductionRuntime:
         entries: list[dict[str, Any]] = []
         directories: list[str] = []
         search_hits: list[dict[str, Any]] = []
-        excerpts: list[dict[str, Any]] = []
+        generic_excerpts: list[dict[str, Any]] = []
         tool_calls: list[dict[str, Any]] = []
         read_text_by_path: dict[str, str] = {}
         excerpt_bytes = 0
@@ -1700,13 +1769,13 @@ class TrueMultiAgentProductionRuntime:
                     for number in matching_lines[:32]:
                         selected_lines.update(range(max(1, number - 1), min(len(lines), number + 1) + 1))
                     for number in sorted(selected_lines):
-                        if len(excerpts) >= excerpt_line_budget or excerpt_bytes >= excerpt_byte_budget:
+                        if len(generic_excerpts) >= excerpt_line_budget or excerpt_bytes >= excerpt_byte_budget:
                             break
                         excerpt = redact_text(lines[number - 1])[:512]
                         excerpt_size = len(excerpt.encode("utf-8"))
                         if excerpt_bytes + excerpt_size > excerpt_byte_budget:
                             break
-                        excerpts.append({
+                        generic_excerpts.append({
                             "path": relative,
                             "line": number,
                             "text": excerpt,
@@ -1797,7 +1866,7 @@ class TrueMultiAgentProductionRuntime:
                 except ValueError:
                     claim["status"] = "ambiguous"
                     continue
-                claim["path"] = claim.get("path") or rel
+                claim["path"] = rel
                 claim["line"] = int(match.get("line") or claim.get("line") or 0) or None
                 matched_text = str(match.get("text") or "")
                 observed_value = _readonly_observed_value(query, matched_text)
@@ -1821,6 +1890,12 @@ class TrueMultiAgentProductionRuntime:
                 claim["status"] = "missing"
             else:
                 claim["status"] = "ambiguous"
+        required_claims = _canonicalize_readonly_evidence_claims(
+            required_claims,
+            workspace_root_hash=workspace_root_hash,
+        )
+        excerpts = list(generic_excerpts)
+        for claim in required_claims:
             if claim.get("status") == "satisfied" and claim.get("matched_text"):
                 excerpts.append({
                     "path": claim.get("path"), "line": claim.get("line"),
@@ -1860,7 +1935,7 @@ class TrueMultiAgentProductionRuntime:
             "schema": "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1",
             "event_type": "workspace.readonly.evidence.collected",
             "run_id": run_id,
-            "workspace_root_hash": sha256_bytes(str(root).encode("utf-8")),
+            "workspace_root_hash": workspace_root_hash,
             "scope": "bound-workspace",
             "operations": ["list", "read", "search"],
             "directories": directories,
