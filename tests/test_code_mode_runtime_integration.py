@@ -1724,8 +1724,16 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         finally:
             journal.close()
 
-    def _managed_pending_run(self, message: str) -> tuple[dict[str, object], Path]:
-        """Create one real managed-worktree REVIEW_PENDING handoff."""
+    def _managed_pending_run(
+        self, message: str, *, unborn: bool = False,
+    ) -> tuple[dict[str, object], Path]:
+        """Create one real managed-worktree REVIEW_PENDING handoff.
+
+        ``unborn`` deliberately leaves the selected source at ``git init``
+        with no refs or commits.  GitWorktreeManager then uses its isolated
+        snapshot path while the source candidate remains an authentic unborn
+        worktree.
+        """
         session = self.runtime.resume_or_create_session()
         git_env = os.environ.copy()
         git_env.update({
@@ -1735,11 +1743,12 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "managed-gate-test@invalid",
         })
         subprocess.run(["git", "-C", str(self.workspace), "init", "--quiet"], check=True, env=git_env)
-        subprocess.run(["git", "-C", str(self.workspace), "add", "-A"], check=True, env=git_env)
-        subprocess.run(
-            ["git", "-C", str(self.workspace), "commit", "--quiet", "--allow-empty", "-m", "managed-gate baseline"],
-            check=True, env=git_env,
-        )
+        if not unborn:
+            subprocess.run(["git", "-C", str(self.workspace), "add", "-A"], check=True, env=git_env)
+            subprocess.run(
+                ["git", "-C", str(self.workspace), "commit", "--quiet", "--allow-empty", "-m", "managed-gate baseline"],
+                check=True, env=git_env,
+            )
         original_prepare = GitWorktreeManager.prepare
 
         def prepare_and_rebind(manager: GitWorktreeManager, repo: str, run_id: str):
@@ -1810,7 +1819,8 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         path without fabricating a Gate result.
         """
         result, managed_root = self._managed_pending_run(
-            "Please create managed-tty.py and run the focused test; do not commit or push."
+            "Please create managed-tty.py and run the focused test; do not commit or push.",
+            unborn=True,
         )
 
         self.runtime.code_mode_reviewer_session = self.reviewer
@@ -1819,6 +1829,16 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(accepted["terminal_state"], "SUCCEEDED", accepted)
         self.assertEqual(accepted["code_mode_status"], "CODE_MODE_READY")
         self.assertFalse(managed_root.exists())
+        head = subprocess.run(
+            ["git", "-C", str(self.workspace), "rev-parse", "--verify", "HEAD"],
+            check=False, capture_output=True, text=True,
+        )
+        refs = subprocess.run(
+            ["git", "-C", str(self.workspace), "show-ref", "--head"],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertNotEqual(head.returncode, 0)
+        self.assertEqual(refs.stdout, "")
 
     def test_managed_tester_observation_drift_fails_and_cleans(self) -> None:
         """A changed managed root is abandoned, not returned as retryable."""

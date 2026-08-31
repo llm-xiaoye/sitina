@@ -90,6 +90,10 @@ _DEFAULT_CANDIDATE_EXCLUDED_ROOTS = (
 _ALL_ALLOWED_INVENTORY_SCOPE = "<workspace-all-allowed>"
 _CANDIDATE_RUNTIME_MARKERS = frozenset({".sitina-code-mode-v1"})
 WORKTREE_DIGEST_SCHEMA = "CODE_MODE_WORKTREE_DIGEST_V1"
+GIT_STATE_COMMITTED = "COMMITTED"
+GIT_STATE_UNBORN = "UNBORN"
+GIT_STATE_NON_GIT = "NON_GIT"
+GIT_STATE_INCOMPLETE = "INCOMPLETE"
 
 _DEFAULT_IDENTITY_PATHS = (
     "config/conversation_router.json",
@@ -551,6 +555,7 @@ def _filesystem_inventory(
 def _worktree_digest(
     *,
     git_head: str | None,
+    git_state: str,
     git_status: Sequence[Mapping[str, Any]],
     git_metadata: Mapping[str, Any],
     objects: Sequence[Mapping[str, Any]],
@@ -560,6 +565,7 @@ def _worktree_digest(
     return _hash_value({
         "schema": WORKTREE_DIGEST_SCHEMA,
         "git_head": git_head,
+        "git_state": git_state,
         "git_status": list(git_status),
         "git_metadata": dict(git_metadata),
         "objects": list(objects),
@@ -568,23 +574,7 @@ def _worktree_digest(
     })
 
 
-def _git_status(root: Path) -> tuple[list[dict[str, Any]], str | None, bool]:
-    if not (root / ".git").exists():
-        return [], None, True
-    try:
-        head = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-        raw = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all", "-z"],
-            check=True, capture_output=True, timeout=10,
-        ).stdout
-    except (OSError, subprocess.SubprocessError, RuntimeError):
-        # The Legacy frozen audit hook may deny subprocess creation.  Code
-        # Mode must remain runnable for local permission/tool checks, but a
-        # candidate without a complete Git identity can never become ready.
-        return [{"code": "GIT_IDENTITY_UNAVAILABLE"}], None, False
+def _git_status_records(raw: bytes) -> list[dict[str, Any]]:
     tokens = raw.split(b"\0")
     status: list[dict[str, Any]] = []
     index = 0
@@ -614,7 +604,144 @@ def _git_status(root: Path) -> tuple[list[dict[str, Any]], str | None, bool]:
             )
         if not any(is_runtime_path(value) for value in paths):
             status.append(item)
-    return status, head, True
+    return status
+
+
+def _git_probe_error(code: str) -> dict[str, Any]:
+    return {
+        "status": [{"code": code}],
+        "head": None,
+        "state": GIT_STATE_INCOMPLETE,
+        "complete": False,
+        "metadata": {"error": code, "git_state": GIT_STATE_INCOMPLETE},
+    }
+
+
+def _git_identity_snapshot(root: Path) -> dict[str, Any]:
+    """Collect one immutable Git identity snapshot for candidate manifests.
+
+    An unborn repository is valid only when the worktree, symbolic HEAD,
+    empty ref/object space, index, and status probes all agree.  We never
+    create a commit or otherwise mutate the source repository while making
+    this decision.  A malformed ``.git`` is therefore incomplete rather than
+    being mistaken for a non-Git workspace.
+    """
+
+    git_entry = root / ".git"
+    # ``Path.exists`` follows symlinks; retain a broken .git symlink as an
+    # attempted Git identity so its failed probes remain fail-closed instead
+    # of silently becoming NON_GIT.
+    if not git_entry.exists() and not git_entry.is_symlink():
+        return {
+            "status": [],
+            "head": None,
+            "state": GIT_STATE_NON_GIT,
+            "complete": True,
+            "metadata": {"repository": "non_git_workspace", "git_state": GIT_STATE_NON_GIT},
+        }
+
+    try:
+        def run(*args: str) -> subprocess.CompletedProcess[bytes]:
+            return subprocess.run(
+                ["git", "-C", str(root), *args],
+                check=False,
+                capture_output=True,
+                timeout=10,
+            )
+
+        inside = run("rev-parse", "--is-inside-work-tree")
+        if inside.returncode != 0 or inside.stdout.strip() != b"true":
+            return _git_probe_error("GIT_WORKTREE_PROBE_FAILED")
+        git_dir = run("rev-parse", "--git-dir")
+        common_dir = run("rev-parse", "--git-common-dir")
+        if (
+            git_dir.returncode != 0 or not git_dir.stdout.strip()
+            or common_dir.returncode != 0 or not common_dir.stdout.strip()
+        ):
+            return _git_probe_error("GIT_DIRECTORY_PROBE_FAILED")
+
+        index = run("ls-files", "--stage", "-z")
+        if index.returncode != 0:
+            return _git_probe_error("GIT_INDEX_PROBE_FAILED")
+        raw_status = run("status", "--porcelain=v1", "--untracked-files=all", "-z")
+        if raw_status.returncode != 0:
+            return _git_probe_error("GIT_STATUS_PROBE_FAILED")
+        try:
+            status = _git_status_records(raw_status.stdout)
+        except (UnicodeError, ValueError):
+            return _git_probe_error("GIT_STATUS_MALFORMED")
+
+        symbolic_head = run("symbolic-ref", "--quiet", "HEAD")
+        head = run("rev-parse", "HEAD")
+        refs = run("show-ref", "--head")
+        all_count = run("rev-list", "--all", "--count")
+        verified_head = run("rev-parse", "--verify", "HEAD^{commit}")
+
+        # ``symbolic-ref`` is allowed to fail only for a committed detached
+        # HEAD.  An unborn repository must have an actual refs/heads/* target.
+        symbolic_value = os.fsdecode(symbolic_head.stdout).strip()
+        symbolic_valid = bool(re.fullmatch(r"refs/heads/[^\x00-\x20]+", symbolic_value))
+        head_value = os.fsdecode(head.stdout).strip()
+        committed_head = bool(re.fullmatch(r"[0-9a-fA-F]{40,64}", head_value))
+        if head.returncode == 0:
+            if not committed_head or symbolic_head.returncode not in {0, 1}:
+                return _git_probe_error("GIT_HEAD_PROBE_FAILED")
+            if (
+                refs.returncode != 0 or not refs.stdout.strip()
+                or all_count.returncode != 0
+                or not re.fullmatch(rb"[0-9]+", all_count.stdout.strip())
+                or verified_head.returncode != 0
+                or verified_head.stdout.strip() != head.stdout.strip()
+            ):
+                return _git_probe_error("GIT_COMMITTED_IDENTITY_INCONSISTENT")
+            state = GIT_STATE_COMMITTED
+            normalized_head: str | None = head_value
+        else:
+            # Git reports an unborn HEAD as rc=128.  Any other failure is a
+            # damaged/ambiguous repository, not a valid empty repository.
+            if head.returncode != 128:
+                return _git_probe_error("GIT_HEAD_PROBE_FAILED")
+            if symbolic_head.returncode != 0 or not symbolic_valid:
+                return _git_probe_error("GIT_UNBORN_HEAD_INVALID")
+            if refs.returncode != 1 or refs.stdout.strip():
+                return _git_probe_error("GIT_UNBORN_REFS_NOT_EMPTY")
+            if all_count.returncode != 0 or all_count.stdout.strip() != b"0":
+                return _git_probe_error("GIT_UNBORN_COMMIT_COUNT_NONZERO")
+            if verified_head.returncode == 0 or verified_head.stdout.strip():
+                return _git_probe_error("GIT_UNBORN_HEAD_RESOLVES")
+            state = GIT_STATE_UNBORN
+            normalized_head = None
+
+        metadata = {
+            "repository": "git_workspace",
+            "git_state": state,
+            "inside_work_tree_sha256": hashlib.sha256(inside.stdout).hexdigest(),
+            "git_dir_sha256": hashlib.sha256(git_dir.stdout).hexdigest(),
+            "common_dir_sha256": hashlib.sha256(common_dir.stdout).hexdigest(),
+            "head_ref_sha256": hashlib.sha256(symbolic_head.stdout).hexdigest(),
+            "head_probe_sha256": hashlib.sha256(head.stdout).hexdigest(),
+            "index_sha256": hashlib.sha256(index.stdout).hexdigest(),
+            "refs_sha256": hashlib.sha256(refs.stdout).hexdigest(),
+            "all_commit_count_sha256": hashlib.sha256(all_count.stdout).hexdigest(),
+            "verified_head_sha256": hashlib.sha256(verified_head.stdout).hexdigest(),
+        }
+        return {
+            "status": status,
+            "head": normalized_head,
+            "state": state,
+            "complete": True,
+            "metadata": metadata,
+        }
+    except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError):
+        # The Legacy frozen audit hook may deny subprocess creation.  Code
+        # Mode must remain runnable for local permission/tool checks, but a
+        # candidate without a complete Git identity can never become ready.
+        return _git_probe_error("GIT_IDENTITY_UNAVAILABLE")
+
+
+def _git_status(root: Path) -> tuple[list[dict[str, Any]], str | None, bool]:
+    snapshot = _git_identity_snapshot(root)
+    return list(snapshot["status"]), snapshot["head"], bool(snapshot["complete"])
 
 
 def _git_metadata(root: Path) -> tuple[dict[str, str], bool]:
@@ -625,35 +752,9 @@ def _git_metadata(root: Path) -> tuple[dict[str, str], bool]:
     incomplete rather than silently treated as a frozen candidate.
     """
 
-    if not (root / ".git").exists():
-        return {"repository": "non_git_workspace"}, True
-    probes = (
-        ("git_dir", ["rev-parse", "--git-dir"]),
-        ("common_dir", ["rev-parse", "--git-common-dir"]),
-        ("head_ref", ["rev-parse", "--symbolic-full-name", "HEAD"]),
-        ("index", ["ls-files", "--stage", "-z"]),
-        ("refs", ["show-ref", "--head"]),
-    )
-    metadata: dict[str, str] = {}
-    try:
-        for name, command in probes:
-            completed = subprocess.run(
-                ["git", "-C", str(root), *command],
-                check=False,
-                capture_output=True,
-                timeout=10,
-            )
-            # An empty repository has no refs, and detached HEAD has no
-            # symbolic name; both remain valid only when the other identity
-            # probes succeed.
-            if completed.returncode not in {0, 1} or (
-                completed.returncode == 1 and name not in {"head_ref", "refs"}
-            ):
-                return {"error": "GIT_METADATA_PROBE_FAILED"}, False
-            metadata[name + "_sha256"] = hashlib.sha256(completed.stdout).hexdigest()
-    except (OSError, subprocess.SubprocessError, RuntimeError):
-        return {"error": "GIT_METADATA_UNAVAILABLE"}, False
-    return metadata, True
+    snapshot = _git_identity_snapshot(root)
+    metadata = snapshot["metadata"]
+    return dict(metadata), bool(snapshot["complete"])
 
 
 def _identity_files(root: Path, paths: Iterable[str]) -> list[dict[str, Any]]:
@@ -700,10 +801,20 @@ def build_candidate_manifest(
         raise ValueError("Code Mode candidate cannot be the frozen Production home")
     if not root.is_dir():
         raise ValueError("Code Mode candidate must be a directory")
-    status, head, git_identity_complete = _git_status(root)
-    git_metadata, metadata_complete = _git_metadata(root)
-    git_identity_complete = git_identity_complete and metadata_complete
-    if not metadata_complete:
+    # Keep all Git fields from one probe so a source cannot change identity
+    # between status and metadata collection.  The small private wrappers
+    # above remain available for callers that only need one projection.
+    git_snapshot = _git_identity_snapshot(root)
+    status = list(git_snapshot["status"])
+    head = git_snapshot["head"]
+    git_state = str(git_snapshot["state"])
+    git_metadata = dict(git_snapshot["metadata"])
+    git_identity_complete = bool(git_snapshot["complete"])
+    if not git_identity_complete and not any(
+        item.get("code") == str(git_metadata.get("error"))
+        for item in status
+        if isinstance(item, Mapping)
+    ):
         status = [*status, {"code": str(git_metadata.get("error") or "GIT_METADATA_INCOMPLETE")}]
     all_allowed = identity_paths is None
     normalized_changed_paths = sorted(
@@ -727,6 +838,7 @@ def build_candidate_manifest(
     ]
     worktree_digest = _worktree_digest(
         git_head=head,
+        git_state=git_state,
         git_status=status,
         git_metadata=git_metadata,
         objects=objects,
@@ -742,6 +854,7 @@ def build_candidate_manifest(
         "schema": "CODE_MODE_CANDIDATE_MANIFEST_V1",
         "workspace": str(root),
         "git_head": head,
+        "git_state": git_state,
         "git_status": status,
         "git_identity_complete": git_identity_complete,
         "git_metadata": git_metadata,
@@ -789,7 +902,7 @@ def verify_candidate_manifest(workspace: Path, manifest: Mapping[str, Any]) -> t
     except (OSError, ValueError) as error:
         return False, [str(error)]
     errors: list[str] = []
-    for field in ("workspace", "git_head", "git_status", "git_identity_complete", "git_metadata", "candidate_source_roots", "candidate_excluded_roots", "candidate_inventory_scope", "objects", "identity_files", "changed_paths", "changed_path_records", "source_manifest_hash", "worktree_digest", "tree_hash", "candidate_id"):
+    for field in ("workspace", "git_head", "git_state", "git_status", "git_identity_complete", "git_metadata", "candidate_source_roots", "candidate_excluded_roots", "candidate_inventory_scope", "objects", "identity_files", "changed_paths", "changed_path_records", "source_manifest_hash", "worktree_digest", "tree_hash", "candidate_id"):
         if current.get(field) != manifest.get(field):
             errors.append(f"candidate {field} drifted")
     changed_records = manifest.get("changed_path_records")
@@ -1925,6 +2038,10 @@ __all__ = [
     "CANARY_PASSED",
     "CODE_MODE_BLOCKED",
     "CODE_MODE_READY",
+    "GIT_STATE_COMMITTED",
+    "GIT_STATE_INCOMPLETE",
+    "GIT_STATE_NON_GIT",
+    "GIT_STATE_UNBORN",
     "CodeModeAcceptanceV1",
     "CodeModeGateV1",
     "CodeModeRuntimePolicy",

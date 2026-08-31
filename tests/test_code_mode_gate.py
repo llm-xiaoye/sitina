@@ -18,6 +18,7 @@ from sitina.orchestrator.code_mode_gate import (
     CODE_MODE_READY,
     CodeModeAcceptanceV1,
     CodeModeRuntimePolicy,
+    GIT_STATE_INCOMPLETE,
     build_candidate_manifest,
     classify_code_mode_intent,
     verify_candidate_manifest,
@@ -162,6 +163,19 @@ class CodeModePostExecutionGateTests(unittest.TestCase):
         for reviewer in self._reviewer_sessions:
             reviewer.close()
         shutil.rmtree(self.workspace, ignore_errors=True)
+
+    def test_corrupt_git_probe_remains_blocked(self) -> None:
+        """A .git entry that is not a worktree is never treated as NON_GIT."""
+        with tempfile.TemporaryDirectory(prefix="code-mode-corrupt-git-") as temporary:
+            root = Path(temporary)
+            (root / ".git").mkdir()
+            (root / "README.md").write_text("fixture\n", encoding="utf-8")
+            candidate = build_candidate_manifest(root, identity_paths=None)
+            self.assertEqual(candidate["git_state"], GIT_STATE_INCOMPLETE)
+            self.assertFalse(candidate["git_identity_complete"])
+            valid, errors = verify_candidate_manifest(root, candidate)
+            self.assertFalse(valid)
+            self.assertTrue(any("Git identity" in error for error in errors))
 
     def test_real_v2_gate_ready_canary_issue_is_one_use_and_drift_is_rejected(self) -> None:
         """Run the real offline handoff before exercising the live gate boundary.
