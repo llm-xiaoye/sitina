@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -2728,6 +2730,116 @@ class ProviderExecutor:
     def admit_embedded_provider_call(self, max_output_tokens: int) -> None:
         self._assert_model_admission(max_output_tokens)
 
+    def _readonly_review_scan_value(
+        self,
+        value: Mapping[str, Any],
+        input_context: Mapping[str, Any],
+        output_contract: OutputContractSpec,
+    ) -> Mapping[str, Any]:
+        """Return a narrowly redacted copy for an already-bound readonly review.
+
+        A reviewer may repeat a value that was already accepted by the readonly
+        answer contract.  Only that exact, claim-bound value may be replaced in
+        the review's reason/defects *scan copy*.  Any binding or CAS failure
+        returns the original value so the normal secret scanner fails closed.
+        """
+
+        if (
+            output_contract.output_contract_id,
+            output_contract.task_type,
+            output_contract.schema_id,
+        ) != (
+            "sitina.readonly-review.v1",
+            "readonly_review",
+            "SITINA_READONLY_REVIEW_V1",
+        ):
+            return value
+        try:
+            verified_claim_ids = value.get("verified_claim_ids")
+            if not isinstance(verified_claim_ids, list) or not verified_claim_ids:
+                return value
+            verified = {item for item in verified_claim_ids if isinstance(item, str) and item}
+            if len(verified) != len(verified_claim_ids):
+                return value
+            evidence = input_context.get("readonly_workspace_evidence")
+            claims = evidence.get("required_evidence_claims") if isinstance(evidence, Mapping) else None
+            if not isinstance(claims, list):
+                return value
+            selected_claims: list[tuple[str, str]] = []
+            selected_ids: set[str] = set()
+            for claim in claims:
+                if not isinstance(claim, Mapping):
+                    return value
+                claim_id = claim.get("claim_id")
+                if claim_id not in verified:
+                    continue
+                if claim_id in selected_ids or claim.get("status") != "satisfied":
+                    return value
+                required_value = claim.get("required_answer_value")
+                if not isinstance(required_value, str) or not required_value:
+                    return value
+                matched_text = claim.get("matched_text")
+                if not isinstance(matched_text, str) or not matched_text:
+                    return value
+                if claim.get("matched_text_hash") != sha256_bytes(matched_text.encode("utf-8")):
+                    return value
+                if claim.get("required_answer_value_hash") != sha256_bytes(required_value.encode("utf-8")):
+                    return value
+                if required_value not in matched_text:
+                    return value
+                selected_ids.add(claim_id)
+                selected_claims.append((matched_text, required_value))
+            if selected_ids != verified or not selected_claims:
+                return value
+
+            proposal_ref = input_context.get("proposal_output_ref")
+            proposal_hash = input_context.get("proposal_output_hash")
+            if not isinstance(proposal_ref, str) or not proposal_ref.startswith("cas:"):
+                return value
+            if not isinstance(proposal_hash, str) or len(proposal_hash) != 64:
+                return value
+            proposal_object = self.cas.resolve_reference(proposal_ref)
+            proposal = json.loads(self.cas.open_verified(proposal_object).decode("utf-8"))
+            if not isinstance(proposal, Mapping):
+                return value
+            if sha256_bytes(canonical_json_bytes(dict(proposal))) != proposal_hash:
+                return value
+            if proposal.get("kind") != "readonly_answer":
+                return value
+            answer_fragment = proposal.get("answer_fragment")
+            if not isinstance(answer_fragment, str):
+                return value
+            if any(required_value not in answer_fragment for _, required_value in selected_claims):
+                return value
+
+            redacted = copy.deepcopy(dict(value))
+            placeholder = "[verified-readonly-value]"
+            token_chars = r"A-Za-z0-9+/=_-"
+
+            def replace_verified(text: str) -> str:
+                for matched_text, _required_value in selected_claims:
+                    text = re.sub(
+                        rf"(?<![{token_chars}]){re.escape(matched_text)}(?![{token_chars}])",
+                        placeholder,
+                        text,
+                    )
+                return text
+
+            reason = redacted.get("reason")
+            if isinstance(reason, str):
+                redacted["reason"] = replace_verified(reason)
+            defects = redacted.get("defects")
+            if isinstance(defects, list):
+                redacted["defects"] = [
+                    replace_verified(item) if isinstance(item, str) else item
+                    for item in defects
+                ]
+            return redacted
+        except Exception:
+            # Exemption is deliberately best-effort.  A malformed or missing
+            # commitment must be scanned as the unmodified provider value.
+            return value
+
     def settle_embedded_provider_call(self, metadata: Mapping[str, Any]) -> None:
         physical, receipt_retries, receipt_fallbacks, receipt_unsettled = self._consume_embedded_receipt_delta()
         try:
@@ -3334,7 +3446,8 @@ class ProviderExecutor:
                 raise TrueMultiAgentRuntimeError("Provider output violated Agent identity or output-kind contract")
             validate_output_contract(value, output_contract)
             validate(value)
-            if scan_json_for_secrets(value, scope="true-multi-agent-provider-output"):
+            scan_value = self._readonly_review_scan_value(value, input_context, output_contract)
+            if scan_json_for_secrets(scan_value, scope="true-multi-agent-provider-output"):
                 raise TrueMultiAgentRuntimeError("Provider output secret scan failed")
         except Exception as error:
             task, failed_fact = task.fail_attempt(attempt.fencing_token, "PROVIDER_OUTPUT_CONTRACT_REJECTED")

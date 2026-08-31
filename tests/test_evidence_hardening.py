@@ -238,6 +238,18 @@ class EvidenceHardeningTests(unittest.TestCase):
                 self.assertEqual(scan_text_for_secrets(sample), [])
         self.assertEqual(scan_json_for_secrets({"write_authorization": "not_granted"}), [])
 
+    def test_secret_scan_keeps_internal_equals_in_opaque_tokens(self) -> None:
+        internal_equals = "AbCdEf12GhIj=KlMnOp34QrSt"
+        named_secret = "API_KEY=unitsecret1234567890"
+        opaque = "opaque=AbCdEfGhIjKlMnOpQrStUvWx123456"
+        padded = "base64=AbCdEfGhIjKlMnOpQrStUvWx1234=="
+        self.assertTrue(
+            any(item.pattern_type == "high_entropy_token" for item in scan_text_for_secrets(internal_equals))
+        )
+        self.assertTrue(scan_text_for_secrets(named_secret))
+        self.assertTrue(scan_text_for_secrets(opaque))
+        self.assertTrue(scan_text_for_secrets(padded))
+
     def test_secret_scan_never_outputs_secret_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             secret_value = "sk-neveroutput123456789012345"

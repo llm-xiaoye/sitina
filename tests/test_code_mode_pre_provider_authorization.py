@@ -802,6 +802,92 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self.assertEqual(claim["observed_value"], "batch9-cobalt-913")
         self.assertEqual(claim["required_answer_value"], "batch9-cobalt-913")
 
+    def test_readonly_reviewer_reason_assignment_is_not_secret_false_positive(self) -> None:
+        marker = "probe10b-cobalt-731"
+        (self.workspace / "README.md").write_text(
+            f"generic words\nmore generic words\nREAD_ONLY_MARKER={marker}\n",
+            encoding="utf-8",
+        )
+
+        def reviewer_repeats_marker(request: dict[str, object]) -> dict[str, object]:
+            value = self._root_fsm_response(request)
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            if "kind exactly 'readonly_review'" in system:
+                value["reason"] = f"Verified public marker READ_ONLY_MARKER={marker}."
+            return value
+
+        _LocalProviderHandler.response_factory = reviewer_repeats_marker
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "f" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-review-marker-integration", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
+        self.assertIn(marker, str(result.get("response") or ""))
+        self.assertEqual(result["external_mutation_count"], 0)
+        self.assertEqual(result["provider_call_count"], 3)
+        self.assertEqual(result["provider_physical_send_count"], 3)
+        self.assertEqual(len(_LocalProviderHandler.requests), 3)
+        self.assertEqual(len([item for item in _LocalProviderHandler.requests if item]), 3)
+
+    def test_readonly_reviewer_unapproved_secret_still_fails_closed(self) -> None:
+        marker = "sk"
+        unapproved_secret = "sk-offline-test-123456789012345678"
+        (self.workspace / "README.md").write_text(
+            f"generic words\nmore generic words\nREAD_ONLY_MARKER={marker}\n",
+            encoding="utf-8",
+        )
+
+        def reviewer_repeats_marker_and_secret(request: dict[str, object]) -> dict[str, object]:
+            value = self._root_fsm_response(request)
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            if "kind exactly 'readonly_review'" in system:
+                value["reason"] = (
+                    f"Verified public marker READ_ONLY_MARKER={marker}; leaked {unapproved_secret}."
+                )
+            return value
+
+        _LocalProviderHandler.response_factory = reviewer_repeats_marker_and_secret
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "1" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-review-unapproved-secret-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "FAILED", result)
+        self.assertEqual(result["rejected_provider_output_count"], 1)
+        self.assertEqual(result["external_mutation_count"], 0)
+        self.assertNotIn("reviewer", str(result.get("response") or "").lower())
+
     def test_readonly_query_only_answer_fails_closed(self) -> None:
         (self.workspace / "README.md").write_text(
             "generic words\nmore generic words\nREAD_ONLY_MARKER=batch9-cobalt-913\n",
