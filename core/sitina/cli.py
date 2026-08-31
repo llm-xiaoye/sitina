@@ -1102,10 +1102,14 @@ def _build_code_mode_runtime(
         current = reviewer_holder.get("session")
         if current is not None and current.is_attested_reviewer():
             return current
-        current = _launch_code_mode_reviewer(source_root)
-        reviewer_holder["session"] = current
-        setattr(runtime_context_factory, "reviewer_session", current)
-        return current
+        # The authority host pins the launcher's reviewer verification
+        # material for the entire CLI session.  Replacing a dead reviewer
+        # here would create a new issuer that the already-running authority
+        # host must (and does) reject.  Keep the two hosts in one lifecycle
+        # and require a fresh CLI bootstrap after either side is lost.
+        raise RuntimeError(
+            "launcher-pinned Code Mode reviewer is unavailable; restart the CLI session"
+        )
 
     def close_code_mode_reviewer() -> None:
         current = reviewer_holder.pop("session", None)
@@ -1369,20 +1373,12 @@ def cmd_chat(args: argparse.Namespace) -> int:
             # grant and must not be replaced by a mocked review result.
             if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
                 result = runtime.maybe_confirm_tty_review(result)
-                # The TTY authority is run-scoped.  A later run gets a fresh
-                # attested reviewer through open_reviewer; it never reuses a
-                # consumed nonce or a closed reviewer process.
-                runtime.close_code_mode_reviewer()
         except KeyboardInterrupt:
             session.record_failure(message, run_id=session.active_run_id)
-            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
-                runtime.close_code_mode_reviewer()
             print("\n本轮已取消，未自动重发；可输入 /retry 重试。")
             continue
         except Exception as error:  # noqa: BLE001
             session.record_failure(message, run_id=session.active_run_id)
-            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
-                runtime.close_code_mode_reviewer()
             print(_chat_failure_text(type(error).__name__, str(error)), file=sys.stderr)
             print("本轮未加入对话上下文，可输入 /retry 重试。", file=sys.stderr)
             continue

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sitina import cli
-from sitina.conversation.models import ChatMode, RouteDecision, RouteSource
+from sitina.conversation.models import ChatMode, ChatSession, RouteDecision, RouteSource
 from sitina.orchestrator.true_multi_agent import render_selected_user_response
 
 
@@ -66,6 +66,85 @@ class InteractiveChatCliTests(unittest.TestCase):
         self.assertEqual(user_input.call_args_list[0].args[0], "你 [auto] > ")
         self.assertIn("当前模式：AUTO", output.getvalue())
         self.assertIn("→ FAST · 单 Agent", output.getvalue())
+
+    def test_public_chat_keeps_launcher_pinned_reviewer_until_session_exit(self) -> None:
+        original_build = cli._build_code_mode_runtime
+        original_connect = cli._connect_attested_host
+        observed: dict[str, object] = {}
+
+        def observe_connect(*args, **kwargs):
+            broker = original_connect(*args, **kwargs)
+            broker_close = Mock(wraps=broker.close)
+            broker.close = broker_close
+            observed["broker_close"] = broker_close
+            return broker
+
+        def observe_build(*args, **kwargs):
+            runtime_home, factory, multi = original_build(*args, **kwargs)
+            reviewer = factory.reviewer_session
+            reviewer_close = Mock(wraps=reviewer.close)
+            reviewer.close = reviewer_close
+            joint_close = factory.close
+            joint_close_count = Mock(wraps=joint_close)
+            factory.close = joint_close_count
+            observed.update({
+                "factory": factory,
+                "reviewer": reviewer,
+                "reviewer_close": reviewer_close,
+                "joint_close": joint_close_count,
+            })
+            return runtime_home, factory, multi
+
+        def execute(runtime, session, message, *, status_callback=None):
+            self.assertTrue(observed["reviewer"].is_attested_reviewer())
+            self.assertEqual(observed["reviewer_close"].call_count, 0)
+            self.assertEqual(observed["broker_close"].call_count, 0)
+            session.begin_turn(message)
+            route = decision(session.mode)
+            session.last_route_decision = route
+            if status_callback:
+                status_callback("route", route.mapping())
+            result = {
+                "run_id": f"run-{session.turn_index}",
+                "terminal_state": "SUCCEEDED",
+                "response": f"回答：{message}",
+                "resolved_mode": route.resolved_mode.value,
+            }
+            session.record_success(message, result["response"])
+            return result
+
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            workspace = base / "workspace"
+            state = base / "state"
+            workspace.mkdir()
+            output = io.StringIO()
+            inputs = ["/fast", "fast turn", "/multi", "write turn", "/exit"]
+            with patch.object(cli, "_connect_attested_host", side_effect=observe_connect), patch.object(
+                cli, "_build_code_mode_runtime", side_effect=observe_build
+            ), patch.object(
+                cli.ConversationRuntime, "resume_or_create_session", return_value=ChatSession()
+            ), patch.object(cli.ConversationRuntime, "execute_turn", autospec=True, side_effect=execute), patch.object(
+                cli.ConversationRuntime, "maybe_confirm_tty_review", autospec=True,
+                side_effect=lambda _runtime, result: dict(result),
+            ), patch("builtins.input", side_effect=inputs), patch("sys.stdout", output):
+                self.assertEqual(cli.cmd_chat(argparse.Namespace(
+                    workspace=str(workspace), code_mode_state=str(state), offline_scripted=True,
+                    live=False, access_mode="workspace",
+                )), 0)
+
+        reviewer = observed["reviewer"]
+        reviewer_close = observed["reviewer_close"]
+        joint_close = observed["joint_close"]
+        broker_close = observed["broker_close"]
+        factory = observed["factory"]
+        self.assertEqual(joint_close.call_count, 1)
+        self.assertEqual(reviewer_close.call_count, 1)
+        self.assertEqual(broker_close.call_count, 1)
+        self.assertTrue(reviewer._closed)
+        self.assertIsNotNone(reviewer._process.poll())
+        with self.assertRaisesRegex(RuntimeError, "restart the CLI session"):
+            factory.open_reviewer()
 
     @patch("sitina.cli._is_production_home", return_value=False)
     @patch("sitina.cli._bplus_installed", return_value=False)
