@@ -140,11 +140,20 @@ def _anthropic_tools(tools: object) -> list[dict[str, Any]]:
 
 
 class AuthorityError(PermissionError):
-    def __init__(self, message: str, *, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        reason_code: str | None = None,
+    ):
         super().__init__(message)
         if status_code is not None and (type(status_code) is not int or not 100 <= status_code <= 599):
             raise ValueError("authority HTTP status code is invalid")
+        if reason_code is not None and (not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code)):
+            raise ValueError("authority reason code is invalid")
         self.status_code = status_code
+        self.reason_code = reason_code
 
 
 class AuthorityService:
@@ -453,6 +462,39 @@ class AuthorityService:
         return expected_attempt, ref, latest
 
     @staticmethod
+    def _current_execution_authorization(
+        attempt: int, latest: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """Return the immutable execution binding for the current attempt.
+
+        Attempt-advanced Journal facts are durable wrappers: their top-level
+        fields intentionally contain only the lifecycle projection while the
+        complete execution authorization (including turn/session/provider
+        scope) is nested.  Callers that compare root selections must use this
+        nested object rather than treating the wrapper as a complete binding.
+        """
+        if attempt == 1:
+            return latest
+        nested = latest.get("execution_authorization")
+        if not isinstance(nested, Mapping):
+            raise AuthorityError("current attempt lacks its execution authorization")
+        for field in (
+            "run_id", "run_attempt", "authorization_ref", "session_instance_id",
+            "session_id", "turn_index", "generation", "provider_profile", "provider_model",
+        ):
+            value = nested.get(field)
+            if field in {"run_attempt", "turn_index"}:
+                if type(value) is not int or value < (1 if field == "run_attempt" else 0):
+                    raise AuthorityError("current attempt execution authorization has invalid " + field)
+            elif not isinstance(value, str) or not value:
+                raise AuthorityError("current attempt execution authorization has missing " + field)
+        if nested.get("run_attempt") != attempt or nested.get("run_id") != latest.get("run_id"):
+            raise AuthorityError("current attempt execution authorization scope changed")
+        if nested.get("authorization_ref") != latest.get("authorization_ref"):
+            raise AuthorityError("current attempt execution authorization ref changed")
+        return nested
+
+    @staticmethod
     def _validate_canary_attempt_provider_binding(
         *,
         latest_attempt: int,
@@ -670,12 +712,15 @@ class AuthorityService:
         dispositions = [item for item in events if item.get("event_type") == "review.disposition"]
         responses = [item for item in events if item.get("event_type") == "review.response"]
         if len(revisions) > 1:
-            raise AuthorityError("proposal revision budget exceeded")
+            raise AuthorityError("proposal revision budget exceeded", reason_code="ROOT_REWORK_BUDGET_EXCEEDED")
         needs = [item for item in dispositions if item.get("disposition") == "NEEDS_CHANGES"]
         if not needs:
             return None
         if len(needs) != 1:
-            raise AuthorityError("proposal rework has multiple NEEDS_CHANGES dispositions")
+            raise AuthorityError(
+                "proposal rework has multiple NEEDS_CHANGES dispositions",
+                reason_code="ROOT_REWORK_MULTIPLE_NEEDS_CHANGES",
+            )
         disposition = needs[0]
         run_created = [
             event.payload
@@ -710,10 +755,10 @@ class AuthorityService:
             or not isinstance(artifact_hash, str) or not artifact_hash
             or not isinstance(response, Mapping)
         ):
-            raise AuthorityError("NEEDS_CHANGES review is not durably bound")
+            raise AuthorityError("NEEDS_CHANGES review is not durably bound", reason_code="ROOT_REWORK_BINDING_MISSING")
         proposal = next((item for item in submissions if item.get("body_ref") == artifact_hash), None)
         if not isinstance(proposal, Mapping):
-            raise AuthorityError("NEEDS_CHANGES review has no submitted proposal")
+            raise AuthorityError("NEEDS_CHANGES review has no submitted proposal", reason_code="ROOT_REWORK_PROPOSAL_MISSING")
         reviewer_id = response.get("reviewer_id")
         review_output_hash = response.get("review_output_hash")
         author_id = proposal.get("participant_id")
@@ -728,7 +773,10 @@ class AuthorityService:
             or not original_defects
             or any(type(item) is not str or not item.strip() for item in original_defects)
         ):
-            raise AuthorityError("NEEDS_CHANGES reviewer response is contradictory")
+            raise AuthorityError(
+                "NEEDS_CHANGES reviewer response is contradictory",
+                reason_code="ROOT_REWORK_RESPONSE_CONTRADICTORY",
+            )
         proposal_id = proposal.get("proposal_id")
         matching_revisions = [item for item in revisions if item.get("proposal_id") == proposal_id]
         if not matching_revisions:
@@ -743,7 +791,7 @@ class AuthorityService:
                 "revision_budget": 1,
             }
         if len(matching_revisions) != 1:
-            raise AuthorityError("proposal rework has a non-unique revision")
+            raise AuthorityError("proposal rework has a non-unique revision", reason_code="ROOT_REWORK_REVISION_NOT_UNIQUE")
         revision = matching_revisions[0]
         if (
             revision.get("revision") != 2
@@ -756,7 +804,10 @@ class AuthorityService:
             or not isinstance(revision.get("body_ref"), str)
             or not revision.get("body_ref")
         ):
-            raise AuthorityError("proposal revision is not bound to the original review defects")
+            raise AuthorityError(
+                "proposal revision is not bound to the original review defects",
+                reason_code="ROOT_REWORK_DEFECT_BINDING_MISMATCH",
+            )
         revised_hash = revision.get("body_ref")
         second_dispositions = [
             item for item in dispositions
@@ -775,7 +826,7 @@ class AuthorityService:
                 "revision_budget": 1,
             }
         if len(second_dispositions) != 1 or len(second_responses) != 1:
-            raise AuthorityError("proposal second review is not unique")
+            raise AuthorityError("proposal second review is not unique", reason_code="ROOT_REWORK_SECOND_REVIEW_NOT_UNIQUE")
         second_response = second_responses[0]
         if (
             second_response.get("reviewer_id") != reviewer_id
@@ -3410,9 +3461,12 @@ class AuthorityService:
             if not root_run_id or child.get("child_run_id") != f"forge-exec-{root_run_id}-{child['run_attempt']}":
                 raise AuthorityError("Forge child authorization run is invalid")
             current_attempt, current_ref, current_auth = self._latest_attempt_binding(snapshot, root_run_id)
+            current_execution_auth = self._current_execution_authorization(
+                current_attempt, current_auth,
+            )
             if current_attempt != child["run_attempt"] or current_ref != child.get("parent_authorization_ref"):
                 raise AuthorityError("Forge child authorization is not the current attempt")
-            if child.get("generation") != current_auth.get("generation"):
+            if child.get("generation") != current_execution_auth.get("generation"):
                 raise AuthorityError("Forge child authorization generation changed")
             try:
                 expected_child = forge_child_authorization_projection(
@@ -3476,9 +3530,12 @@ class AuthorityService:
                 raise AuthorityError("Forge root planning FSM has not completed authenticated selection")
             if selection.get("session_instance_id") != session["binding"].get("session_instance_id"):
                 raise AuthorityError("root selection session instance changed")
-            if selection.get("conversation_session_id") != current_auth.get("session_id"):
+            if selection.get("conversation_session_id") != current_execution_auth.get("session_id"):
                 raise AuthorityError("root selection conversation changed")
-            if selection.get("turn_index") != current_auth.get("turn_index") or selection.get("generation") != current_auth.get("generation"):
+            if (
+                selection.get("turn_index") != current_execution_auth.get("turn_index")
+                or selection.get("generation") != current_execution_auth.get("generation")
+            ):
                 raise AuthorityError("root selection turn changed")
             # Selection is a root-planning fact.  It remains anchored to the
             # initial pre-Forge scope even when the run has since advanced
@@ -3560,7 +3617,7 @@ class AuthorityService:
                 or parent_body.get("authorization_ref") != current_ref
                 or parent_body.get("run_id") != root_run_id
                 or parent_body.get("session_instance_id") != session["binding"].get("session_instance_id")
-                or parent_body.get("generation") != current_auth.get("generation")
+                or parent_body.get("generation") != current_execution_auth.get("generation")
             ):
                 raise AuthorityError("Forge parent CAS projection changed")
             if child.get("parent_authorization_hash") != expected_parent_body["parent_authorization_hash"]:
@@ -3600,7 +3657,7 @@ class AuthorityService:
                 if selection.get(selection_field) != selected_result.get(result_field):
                     raise AuthorityError("root selection does not bind accepted result")
             session["root_fsm_state"] = "ROOT_COMPLETE"
-            if child.get("conversation_session_id") != current_auth.get("session_id"):
+            if child.get("conversation_session_id") != current_execution_auth.get("session_id"):
                 raise AuthorityError("Forge child authorization conversation changed")
             if child.get("provider_profile") not in self._profiles:
                 raise AuthorityError("Forge child provider profile is not host-authorized")
@@ -3642,7 +3699,7 @@ class AuthorityService:
                 "turn_index": child.get("turn_index"),
                 "generation": child.get("generation"),
                 "session_id": child.get("conversation_session_id"),
-                "intent_hash": current_auth.get("intent_hash"),
+                "intent_hash": current_execution_auth.get("intent_hash"),
                 "workspace": child.get("workspace"),
                 "execution_root": child.get("execution_root"),
                 "scope": child.get("scope"),
@@ -3718,6 +3775,9 @@ class AuthorityService:
             root_run_id = str(forge_scope.get("run_id") or "")
             snapshot = self._journal_snapshot()
             current_attempt, current_ref, current_auth = self._latest_attempt_binding(snapshot, root_run_id)
+            current_execution_auth = self._current_execution_authorization(
+                current_attempt, current_auth,
+            )
             if current_attempt != int(forge_scope.get("run_attempt") or 0):
                 raise AuthorityError("attempt-control binding uses a stale attempt")
             current_parent_ref = str(forge_scope.get("parent_authorization_ref") or "")
@@ -3750,12 +3810,12 @@ class AuthorityService:
                 return {"bound": True, "authorization_id": prior.get("authorization_id"), **dict(prior_auth)}
             try:
                 projected = attempt_control_authorization_projection(
-                    session_instance_id=str(current_auth.get("session_instance_id") or ""),
-                    conversation_session_id=str(current_auth.get("session_id") or ""),
-                    turn_index=int(current_auth.get("turn_index") or 0),
+                    session_instance_id=str(current_execution_auth.get("session_instance_id") or ""),
+                    conversation_session_id=str(current_execution_auth.get("session_id") or ""),
+                    turn_index=int(current_execution_auth.get("turn_index") or 0),
                     run_id=root_run_id,
                     run_attempt=current_attempt,
-                    generation=str(current_auth.get("generation") or ""),
+                    generation=str(current_execution_auth.get("generation") or ""),
                     authorization_ref=current_ref,
                     parent_execution_authorization_ref=forge_ref,
                     provider_profile=str(forge_scope.get("provider_profile") or ""),
@@ -3951,7 +4011,10 @@ class AuthorityService:
                         if root_state in {"EXPECT_REVISION", "EXPECT_REVISION_REVIEW"}:
                             rework = self._root_proposal_rework_state(current_snapshot, root_run)
                             if not isinstance(rework, Mapping) or rework.get("state") != root_state:
-                                raise AuthorityError("proposal rework transition is stale or contradictory")
+                                raise AuthorityError(
+                                    "proposal rework transition is stale or contradictory",
+                                    reason_code="ROOT_REWORK_STALE_TRANSITION",
+                                )
                             expected_phase = (
                                 "proposal/planner/candidate"
                                 if root_state == "EXPECT_REVISION" else "review/selection"
@@ -3964,19 +4027,28 @@ class AuthorityService:
                                 phase != expected_phase
                                 or not str(request.get("task_id") or "").startswith(expected_prefix)
                             ):
-                                raise AuthorityError("proposal rework task is outside the fixed transition")
+                                raise AuthorityError(
+                                    "proposal rework task is outside the fixed transition",
+                                    reason_code="ROOT_REWORK_TASK_BINDING_INVALID",
+                                )
                             if root_state == "EXPECT_REVISION":
                                 if (
                                     dispatch.get("agent_id") != rework.get("author_id")
                                     or request.get("task_id") != "proposal-revision-1"
                                 ):
-                                    raise AuthorityError("proposal revision author or budget changed")
+                                    raise AuthorityError(
+                                        "proposal revision author or budget changed",
+                                        reason_code="ROOT_REWORK_AUTHOR_BINDING_INVALID",
+                                    )
                             else:
                                 if (
                                     dispatch.get("agent_id") != rework.get("reviewer_id")
                                     or request.get("task_id") != "review-revision-1"
                                 ):
-                                    raise AuthorityError("proposal second reviewer or successor changed")
+                                    raise AuthorityError(
+                                        "proposal second reviewer or successor changed",
+                                        reason_code="ROOT_REWORK_REVIEWER_BINDING_INVALID",
+                                    )
                     if request.get("pre_provider_call_identity") != expected_identity:
                         raise AuthorityError("pre-provider call identity is not deterministic")
                 elif authorization_kind == "forge-execution":
@@ -4383,6 +4455,7 @@ class AuthorityService:
             return self._finalize_anthropic_provider_response(
                 session_token, request, payload, permit, prior_call,
             )
+        settled = False
         try:
             if not isinstance(payload, Mapping):
                 raise AuthorityError("host provider response is not a JSON object")
@@ -4484,6 +4557,7 @@ class AuthorityService:
                 str(session_token), str(request.get("capability") or ""), str(permit),
                 response_id, usage, finish_reason=finish_reason,
             )
+            settled = True
             result = {"completion_text": content, "tool_calls": normalized_calls,
                     "stop_reason": finish_reason,
                     "metadata": {"protocol": "openai_chat_completions", "provider_response_id": response_id, "token_usage": usage, "finish_reason": finish_reason, "structured_response": structured_response}, "receipt": receipt}
@@ -4491,8 +4565,23 @@ class AuthorityService:
             prior_call["response"] = dict(result)
             prior_call.pop("permit", None)
             return result
-        except Exception:
+        except Exception as error:
             prior_call["state"] = "OUTCOME_UNKNOWN"
+            # The HTTP request has already crossed the provider boundary at
+            # this point.  If response parsing, schema validation, or usage
+            # validation fails after a 200, preserve that physical attempt as
+            # an issuer-owned OUTCOME_UNKNOWN receipt before dropping the
+            # pending permit.  A successful settlement has its own durable
+            # receipt and must never be shadowed by a failure receipt.
+            if not settled and str(permit) in self._pending:
+                self._append_transport_failure_receipt(
+                    session_token,
+                    self._pending[str(permit)],
+                    outcome_state="OUTCOME_UNKNOWN",
+                    settlement_state="RECONCILING",
+                    status_code=None,
+                    error_type=type(error).__name__,
+                )
             self._pending.pop(str(permit), None)
             raise
 
@@ -4506,6 +4595,7 @@ class AuthorityService:
     ) -> dict[str, Any]:
         """Validate Anthropic Messages and normalize it to Sitina's result."""
 
+        settled = False
         try:
             if not isinstance(payload, Mapping):
                 raise AuthorityError("host provider response is not a JSON object")
@@ -4562,6 +4652,7 @@ class AuthorityService:
                 str(session_token), str(request.get("capability") or ""), str(permit),
                 response_id, usage, finish_reason=finish_reason,
             )
+            settled = True
             result = {
                 "completion_text": completion_text,
                 "tool_calls": normalized_calls,
@@ -4579,8 +4670,17 @@ class AuthorityService:
             prior_call["response"] = dict(result)
             prior_call.pop("permit", None)
             return result
-        except Exception:
+        except Exception as error:
             prior_call["state"] = "OUTCOME_UNKNOWN"
+            if not settled and str(permit) in self._pending:
+                self._append_transport_failure_receipt(
+                    session_token,
+                    self._pending[str(permit)],
+                    outcome_state="OUTCOME_UNKNOWN",
+                    settlement_state="RECONCILING",
+                    status_code=None,
+                    error_type=type(error).__name__,
+                )
             self._pending.pop(str(permit), None)
             raise
 
@@ -4682,12 +4782,16 @@ class AuthorityService:
                 status_code = getattr(error, "status_code", None)
                 if type(status_code) is not int or not 100 <= status_code <= 599:
                     status_code = None
+                reason_code = getattr(error, "reason_code", None)
+                if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code):
+                    reason_code = None
                 response = {
                     "ok": False,
                     "error_type": type(error).__name__,
                     "error": str(error)[:240],
                     "error_hash": hashlib.sha256(str(error).encode()).hexdigest(),
                     "status_code": status_code,
+                    "reason_code": reason_code,
                 }
             writer.write(_canonical(response) + b"\n")
             writer.flush()

@@ -1364,6 +1364,40 @@ class OneShotProviderTransport:
             raise TrueMultiAgentRuntimeError("unsupported controlled Provider fault mode")
         self.fault_modes[effect_id] = mode
 
+    def _host_failure_receipt_for(
+        self, provider_call_id: str, effect_attempt_id: str,
+    ) -> Mapping[str, Any] | None:
+        """Return the current-lineage host failure receipt, if one exists.
+
+        The authority host may reject a response after HTTP has already been
+        sent (for example malformed JSON/usage in a 200).  In that case the
+        broker reports a generic authority error rather than a ProviderHTTPError.
+        Re-open the issuer-owned snapshot here so the caller can reconcile the
+        physical attempt without treating the worker error as a zero-send
+        admission failure.
+        """
+        if not self.authoritative_physical or self.transport_ledger is None:
+            return None
+        capability = self.transport_ledger_capability
+        if capability is None or not callable(getattr(self.transport_ledger, "snapshot", None)):
+            return None
+        try:
+            snapshot = self.transport_ledger.snapshot(capability)
+        except Exception:
+            return None
+        matches = [
+            item for item in snapshot
+            if isinstance(item, Mapping)
+            and item.get("schema") == "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1"
+            and item.get("run_id") == self.run_id
+            and item.get("provider_call_id") == provider_call_id
+            and item.get("effect_attempt_id") == effect_attempt_id
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: int(item.get("physical_attempts") or 0))
+        return dict(matches[-1])
+
     @staticmethod
     def _retryable(error: BaseException) -> bool:
         if isinstance(error, ProviderHTTPError):
@@ -1562,6 +1596,18 @@ class OneShotProviderTransport:
                 self.physical_send_count += 1
                 raise
             except Exception as error:
+                failure_receipt = self._host_failure_receipt_for(
+                    request.effect_id, effect_attempt_id,
+                )
+                if failure_receipt is not None:
+                    # One host failure receipt represents one physical send
+                    # for this invocation.  Mark the exception so
+                    # ProviderExecutor.call reconciles it through the same
+                    # issuer-bound path as HTTP failures; do not turn it into
+                    # a successful completion or synthesize usage.
+                    self.physical_send_count += 1
+                    setattr(error, "sitina_host_failure_receipt", True)
+                    setattr(error, "sitina_host_failure_receipt_hash", failure_receipt.get("receipt_hash"))
                 raise TrueMultiAgentRuntimeError(
                     "authoritative Provider request was not executed by the host transport"
                 ) from error
@@ -2976,6 +3022,27 @@ class ProviderExecutor:
             # HTTP error.  Reconcile that issuer-owned snapshot while the
             # host/ledger binding is still live; a physical failure without a
             # matching receipt is an accounting integrity failure.
+            self.reconcile_authoritative_transport_failure(
+                provider_call_id=effect_id,
+                effect_attempt_id=effect_attempt_id,
+                attempt=(pre_provider_binding or {}).get(
+                    "run_attempt",
+                    (self.pre_provider_authorization or {}).get("run_attempt"),
+                ),
+                observed_physical_attempts=self.transport.physical_send_count - prior_sends,
+            )
+            raise
+        except TrueMultiAgentRuntimeError as error:
+            # A malformed/contract-invalid HTTP 200 is surfaced by the host as
+            # an authority error rather than ProviderHTTPError.  The physical
+            # attempt is nevertheless issuer-recorded; reconcile that exact
+            # receipt before propagating the fail-closed runtime error.
+            cause = error.__cause__
+            if not bool(
+                getattr(error, "sitina_host_failure_receipt", False)
+                or getattr(cause, "sitina_host_failure_receipt", False)
+            ):
+                raise
             self.reconcile_authoritative_transport_failure(
                 provider_call_id=effect_id,
                 effect_attempt_id=effect_attempt_id,

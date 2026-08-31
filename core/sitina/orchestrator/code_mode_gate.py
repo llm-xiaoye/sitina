@@ -208,7 +208,15 @@ def _is_discussion_reference(message: str, start: int, end: int) -> bool:
     left, right = _clause_bounds(message, start, end)
     before = message[left:start]
     after = message[end:right]
-    return bool(_DISCUSSION_PREFIX.search(before[-24:])) and bool(_DISCUSSION_SUFFIX.search(after[:24]))
+    # A marker mentioned as the subject of an analysis/plan is not an
+    # imperative.  Keep the original prefix+suffix check for precise scopes,
+    # and also recognize list-style discussion clauses such as
+    # ``讨论双写、事件发布、修复方案`` where the suffix follows a later item.
+    if bool(_DISCUSSION_PREFIX.search(before[-32:])) and bool(_DISCUSSION_SUFFIX.search(after[:32])):
+        return True
+    if bool(_DISCUSSION_PREFIX.search(before[-32:])) and not after.strip():
+        return True
+    return False
 
 
 def classify_code_mode_intent(message: str) -> dict[str, Any]:
@@ -231,6 +239,8 @@ def classify_code_mode_intent(message: str) -> dict[str, Any]:
     external_actions: list[str] = []
     external_spans = _marker_spans(text, tuple((marker, marker) for marker in _EXTERNAL_ACTION_MARKERS))
     for start, end, marker in external_spans:
+        if _is_discussion_reference(text, start, end):
+            continue
         if not _is_negated(text, start, end):
             external_actions.append(marker)
     return {

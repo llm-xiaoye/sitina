@@ -32,6 +32,7 @@ from sitina.orchestrator.true_multi_agent import (
     _execution_isolation_required,
 )
 from sitina.orchestrator.true_multi_agent_runtime import AgentCallResult, AgentIdentity, sha256_bytes
+from sitina.orchestrator.code_mode_gate import classify_code_mode_intent
 
 
 class TrueMultiAgentCliRoutingTests(unittest.TestCase):
@@ -62,6 +63,19 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         self.assertTrue(_execution_isolation_required("Never send data, but deploy the service.", {}))
         self.assertTrue(_execution_isolation_required("deploy the service, but do not push.", {}))
         self.assertTrue(_execution_isolation_required("不要推送，但部署服务。", {}))
+
+    def test_chinese_analysis_and_discussion_phrases_do_not_authorize_forge(self) -> None:
+        for message in (
+            "不要进入执行阶段/不要修改，只给方案",
+            "讨论双写、事件发布、修复方案",
+        ):
+            with self.subTest(message=message):
+                intent = classify_code_mode_intent(message)
+                self.assertFalse(intent["explicit_mutation"])
+                self.assertFalse(intent["external_actions"])
+        authorized = classify_code_mode_intent("修复代码但不要提交")
+        self.assertTrue(authorized["explicit_mutation"])
+        self.assertFalse(authorized["explicit_external_action"])
 
     def test_parent_binding_validator_requires_exact_hash_without_normalization(self) -> None:
         expected = "sha256:" + "a" * 64

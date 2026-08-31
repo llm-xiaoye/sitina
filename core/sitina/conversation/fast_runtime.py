@@ -126,6 +126,7 @@ class FastConversationRuntime:
         session_runtime_provider: Any | None = None,
         provider_client: Any | None = None,
         provider_profile: Any | None = None,
+        session_instance_id: str | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self._test_backend = test_backend
@@ -133,6 +134,7 @@ class FastConversationRuntime:
         self.session_runtime_provider = session_runtime_provider
         self.provider_client = provider_client
         self.provider_profile = provider_profile
+        self.session_instance_id = str(session_instance_id or "").strip() or None
         self.registry: AgentRegistry | None = None
         self.policy: dict[str, Any] | None = None
         self.policy_hash: str | None = None
@@ -808,7 +810,9 @@ class FastConversationRuntime:
             context_runtime = self.runtime_context_factory(self.home)
         else:
             context_runtime = SessionRuntimeContext.open(
-                self.home, provider=self.session_runtime_provider
+                self.home,
+                provider=self.session_runtime_provider,
+                session_instance_id=self.session_instance_id,
             )
         runtime_writer = getattr(type(context_runtime), "open_runtime_writer", None)
         journal = context_runtime.open_runtime_writer() if callable(runtime_writer) else context_runtime.open_writer()
@@ -841,6 +845,7 @@ class FastConversationRuntime:
                 message=message.strip(),
                 route_decision=route_decision,
                 occurred_at=message_created_at,
+                session_instance_id=getattr(context_runtime, "session_instance_id", None),
             )
             offline = self.provider_client is not None
             pre_provider_authorization = None
@@ -891,6 +896,7 @@ class FastConversationRuntime:
                 run_id=run_id,
                 turn_index=turn_index,
                 occurred_at=now_rfc3339(),
+                session_instance_id=getattr(context_runtime, "session_instance_id", None),
             )
             run_stream.append(
                 "fast-conversation-run-opened",

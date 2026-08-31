@@ -19,6 +19,7 @@ from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import route_decision_from_mapping
 from sitina.contracts.models import BlackboardDocumentRecord, SourceDescriptor
 from sitina.extensions.runtime import decode_workspace_relative_path
+from sitina.orchestrator.code_mode_gate import classify_code_mode_intent
 from sitina.journal.model import (
     EventEnvelope,
     FrontierRef,
@@ -33,6 +34,7 @@ from sitina.journal.model import (
     durable_code_mode_authorization_projection,
 )
 from sitina.security.key_provider import KeyPurpose
+from sitina.security.redaction import redact_text
 from sitina.effects.monitoring import MonitoringTransfer
 from sitina.orchestrator.checkpoint_resume import (
     FRONTIER_SPECS,
@@ -946,19 +948,16 @@ def _checkpoint_restart_required(goal: str) -> bool:
 
 
 def _execution_required(goal: str) -> bool:
-    """Does this goal need real execution (write code / operate the machine)?
-    Heuristic sibling of the router's execution_markers — the bridge only fires
-    the executor loop-instance when the goal is an action, not pure analysis."""
-    normalized = goal.casefold()
-    markers = (
-        "创建", "新建", "修改", "改一下", "修复", "重构", "实现一个", "帮我实现",
-        "写一个", "写个", "追加", "附加", "删除", "移除", "重命名", "移动", "安装", "部署",
-        "改代码", "操作电脑", "生成文件", "跑测试", "运行测试", "构建", "测试", "帮我写", "帮我修",
-        "create a ", "create ", "fix the ", "refactor", "implement", "write a ", "write ",
-        "update ", "change ", "add ", "append ", "modify ", "remove ", "delete the ", "delete ",
-        "rename ", "move ", "install ", "deploy ", "edit the ", "build ", "run the tests", "run tests",
-    )
-    return any(marker in normalized for marker in markers)
+    """Return the frozen mutation decision for the Forge entry gate.
+
+    Intent classification is the sole source of mutation authorization.  The
+    old substring list treated architectural discussion and quoted/negated
+    operations as execution requests, which could prepare a managed worktree
+    for a read-only MULTI answer.  Reusing the span/scoped classifier keeps
+    this downstream gate in lockstep with the conversation authorization.
+    """
+    intent = classify_code_mode_intent(str(goal or ""))
+    return bool(intent.get("explicit_mutation") is True)
 
 
 def _execution_goal_authorized(goal: str, controls: Mapping[str, Any]) -> bool:
@@ -1175,6 +1174,10 @@ class RunEvidence:
     user_response_agent_id: str | None = None
     user_response_output_hash: str | None = None
     execution_result: dict[str, Any] | None = None
+    # A bounded, CAS-backed read-only snapshot collected before Proposal and
+    # Review for interactive analysis.  It is deliberately a projection of
+    # list/read/search facts; it is never an execution authorization.
+    readonly_workspace_evidence: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1209,6 +1212,7 @@ class CodeModeExecutionFacts:
     execution_result: dict[str, Any] = field(default_factory=dict)
     analysis: GoalAnalysis | None = None
     terminal_event: dict[str, Any] | None = None
+    readonly_workspace_evidence: dict[str, Any] | None = None
 
 
 def render_selected_user_response(value: Mapping[str, Any]) -> str:
@@ -1365,6 +1369,206 @@ class TrueMultiAgentProductionRuntime:
             ),
             actor="conversation-router",
         )
+
+    def _collect_readonly_workspace_evidence(
+        self,
+        *,
+        cas: Any,
+        run_stream: CanonicalStream,
+        evidence: Any,
+        workspace: Path,
+    ) -> Mapping[str, Any]:
+        """Collect bounded list/read/search facts before Proposal/Review.
+
+        Read-only MULTI needs useful evidence, but it must not prepare a
+        worktree or invoke a shell/write capability merely to answer a
+        question.  This small controller-owned stage walks only the bound
+        workspace, skips symlinks/sensitive control directories, hashes the
+        files it observes, and records goal-term line matches.  The full
+        result is sealed in CAS and the Journal carries only its reference and
+        the bounded facts used by the next agents.
+        """
+        raw_root = Path(workspace).expanduser()
+        if raw_root.is_symlink():
+            raise DynamicCollaborationError("read-only evidence workspace must not be a symlink")
+        root = raw_root.resolve(strict=True)
+        if not root.is_dir():
+            raise DynamicCollaborationError("read-only evidence workspace is not a directory")
+        run_id = str(getattr(evidence, "run_id", "") or "")
+        if not run_id:
+            raise DynamicCollaborationError("read-only evidence requires a run identity")
+        skip_dirs = {
+            ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__",
+            ".mypy_cache", ".pytest_cache", ".sitina", "secrets", "credentials",
+        }
+        skip_file_names = {
+            ".env", ".env.local", ".env.production", "credentials", "secrets",
+            "id_rsa", "id_ed25519", "authorized_keys",
+        }
+        terms = [
+            token.casefold()
+            for token in re.findall(r"[A-Za-z0-9_\u3400-\u9fff]{2,}", str(getattr(evidence, "goal", "") or ""))
+        ]
+        # Preserve order while bounding the search input supplied to the
+        # evidence record.  Searching the complete file still records the
+        # actual read/search operation; only the displayed match list is
+        # bounded.
+        terms = list(dict.fromkeys(terms))[:24]
+        entries: list[dict[str, Any]] = []
+        directories: list[str] = ["."]
+        search_hits: list[dict[str, Any]] = []
+        excerpts: list[dict[str, Any]] = []
+        excerpt_bytes = 0
+        excerpt_line_budget = 96
+        excerpt_byte_budget = 16 * 1024
+        max_files = 512
+        max_file_bytes = 4 * 1024 * 1024
+        for current, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+            current_path = Path(current)
+            dirnames[:] = sorted(
+                name for name in dirnames
+                if name not in skip_dirs and not (current_path / name).is_symlink()
+            )
+            for name in dirnames:
+                relative_dir = (current_path / name).relative_to(root).as_posix()
+                directories.append(relative_dir)
+            for name in sorted(filenames):
+                if len(entries) >= max_files:
+                    break
+                if name.casefold() in skip_file_names:
+                    continue
+                path = current_path / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    relative = path.relative_to(root).as_posix()
+                    stat_result = path.stat()
+                    size = int(stat_result.st_size)
+                    digest = hashlib.sha256()
+                    with path.open("rb") as handle:
+                        remaining = size
+                        while remaining:
+                            chunk = handle.read(min(1024 * 1024, remaining))
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                            remaining -= len(chunk)
+                    if size <= max_file_bytes:
+                        try:
+                            text = path.read_text(encoding="utf-8", errors="strict")
+                        except (UnicodeDecodeError, OSError):
+                            text = ""
+                        if text:
+                            lines = text.splitlines()
+                            matching_lines = [
+                                number for number, line in enumerate(lines, start=1)
+                                if terms and any(term in line.casefold() for term in terms)
+                            ]
+                            if not matching_lines and path.suffix == ".py":
+                                # A small source/test file with no lexical
+                                # goal hit is still useful context (imports,
+                                # test names, and module contracts).
+                                matching_lines = [1]
+                            selected_lines: set[int] = set()
+                            for number in matching_lines[:32]:
+                                selected_lines.update(range(max(1, number - 1), min(len(lines), number + 1) + 1))
+                            for number in sorted(selected_lines):
+                                if len(excerpts) >= excerpt_line_budget or excerpt_bytes >= excerpt_byte_budget:
+                                    break
+                                excerpt = redact_text(lines[number - 1])[:512]
+                                excerpt_size = len(excerpt.encode("utf-8"))
+                                if excerpt_bytes + excerpt_size > excerpt_byte_budget:
+                                    break
+                                excerpts.append({
+                                    "path": relative,
+                                    "line": number,
+                                    "text": excerpt,
+                                    "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
+                                })
+                                excerpt_bytes += excerpt_size
+                            for number in matching_lines:
+                                if len(search_hits) >= 128:
+                                    break
+                                search_hits.append({
+                                    "path": relative,
+                                    "line": number,
+                                    "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
+                                })
+                    entries.append({
+                        "path": relative,
+                        "size": size,
+                        "sha256": digest.hexdigest(),
+                        "read": True,
+                        "searchable": bool(size <= max_file_bytes),
+                    })
+                except (OSError, ValueError):
+                    # A disappearing/racing file is not evidence of a write;
+                    # omit it and let the bounded snapshot describe what was
+                    # actually observed.
+                    continue
+            if len(entries) >= max_files:
+                break
+        entries.sort(key=lambda item: str(item["path"]))
+        directories = sorted(set(directories))[:512]
+        payload = {
+            "schema": "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1",
+            "event_type": "workspace.readonly.evidence.collected",
+            "run_id": run_id,
+            "workspace_root_hash": sha256_bytes(str(root).encode("utf-8")),
+            "scope": "bound-workspace",
+            "operations": ["list", "read", "search"],
+            "directories": directories,
+            "entries": entries,
+            "search_terms": terms,
+            "search_hits": search_hits,
+            "excerpts": excerpts,
+            "excerpt_line_count": len(excerpts),
+            "excerpt_bytes": excerpt_bytes,
+            "truncated": len(entries) >= max_files,
+            "forge_count": 0,
+            "shell_count": 0,
+            "write_count": 0,
+        }
+        publication = cas.publish_plaintext(
+            canonical_json_bytes(payload),
+            tenant_id="true-multi-agent",
+            purpose_class="readonly-workspace-evidence",
+            compression="none",
+        )
+        reference_id = publication.receipt.object_ref.reference_id
+        evidence_projection = {
+            "schema": payload["schema"],
+            "event_type": payload["event_type"],
+            "run_id": run_id,
+            "workspace_root_hash": payload["workspace_root_hash"],
+            "scope": payload["scope"],
+            "operations": list(payload["operations"]),
+            "directory_count": len(directories),
+            "file_count": len(entries),
+            "search_hit_count": len(search_hits),
+            "entries": entries,
+            "search_hits": search_hits,
+            "excerpts": excerpts,
+            "excerpt_line_count": len(excerpts),
+            "excerpt_bytes": excerpt_bytes,
+            "forge_count": 0,
+            "shell_count": 0,
+            "write_count": 0,
+            "object_ref": reference_id,
+            "object_hash": publication.receipt.object_ref.object_id,
+            "content_hash": sha256_bytes(canonical_json_bytes(payload)),
+        }
+        evidence.readonly_workspace_evidence = dict(evidence_projection)
+        run_stream.append(
+            "readonly-workspace-evidence-collected",
+            ({
+                **evidence_projection,
+                "_object_refs": [reference_id],
+            },),
+            actor="readonly-evidence-collector",
+            proofs=(publication.receipt,),
+        )
+        return evidence_projection
 
     def _interactive_chat_analysis(self, analysis: GoalAnalysis) -> GoalAnalysis:
         """Bind interactive MULTI to the existing live collaboration protocols."""
@@ -1967,6 +2171,12 @@ class TrueMultiAgentProductionRuntime:
         analysis: GoalAnalysis,
         overrides: Mapping[str, Any],
     ) -> tuple[AgentCallResult, AgentIdentity, list[AgentCallResult], AgentSchedulingDecision]:
+        readonly_evidence = getattr(evidence, "readonly_workspace_evidence", None)
+        readonly_context = (
+            {"readonly_workspace_evidence": readonly_evidence}
+            if isinstance(readonly_evidence, Mapping)
+            else {}
+        )
         proposal_decision, proposers = self._schedule(
             journal,
             run_stream,
@@ -2048,7 +2258,13 @@ class TrueMultiAgentProductionRuntime:
                 prompt=(
                     "Create an independent solution for this goal. Do not copy another Agent. "
                     f"Goal: {evidence.goal}\nTask graph: {json.dumps(list(analysis.task_graph), ensure_ascii=False)}\n"
-                    f"Frozen rubric hash: {rubric}"
+                    f"Frozen rubric hash: {rubric}\n"
+                    + (
+                        "Bounded read-only workspace evidence (bounded facts and excerpts; no execution authorization): "
+                        + json.dumps(readonly_evidence, ensure_ascii=False, sort_keys=True)
+                        if isinstance(readonly_evidence, Mapping)
+                        else ""
+                    )
                 ),
                 context={
                     "goal_hash": evidence.goal_hash,
@@ -2056,6 +2272,7 @@ class TrueMultiAgentProductionRuntime:
                     "proposal_id": proposal_id,
                     "rubric_hash": rubric,
                     "causal_event_ids": list(self._recent_event_ids(journal)),
+                    **readonly_context,
                 },
                 validate=validate_proposal,
                 ack_lost=analysis.requires_provider_unknown and index == 1,
@@ -2131,6 +2348,12 @@ class TrueMultiAgentProductionRuntime:
                     + f"\nGoal: {evidence.goal}\nProposal hash: {result.output_hash}\nProposal: "
                     + json.dumps(dict(result.value), ensure_ascii=False, sort_keys=True)
                     + f"\nFrozen rubric hash: {rubric}"
+                    + (
+                        "\nBounded read-only workspace evidence (bounded facts and excerpts; no execution authorization): "
+                        + json.dumps(readonly_evidence, ensure_ascii=False, sort_keys=True)
+                        if isinstance(readonly_evidence, Mapping)
+                        else ""
+                    )
                 ),
                 context={
                     "proposal_id": proposal_ids[agent.agent_id],
@@ -2139,6 +2362,7 @@ class TrueMultiAgentProductionRuntime:
                     "rubric_hash": rubric,
                     "author_agent_id": agent.agent_id,
                     "reviewer_independence": True,
+                    **readonly_context,
                 },
                 validate=validate_review,
             )
@@ -2277,6 +2501,7 @@ class TrueMultiAgentProductionRuntime:
                         "parent_output_ref": result.output_ref,
                         "review_id": review_request.review_id,
                         "review_output_hash": review.output_hash,
+                        **readonly_context,
                     },
                     validate=validate_revision,
                     expected_parent_output_hash=result.output_hash,
@@ -2326,6 +2551,7 @@ class TrueMultiAgentProductionRuntime:
                         "parent_output_hash": result.output_hash,
                         "prior_review_output_hash": review.output_hash,
                         "old_approval_applicable": False,
+                        **readonly_context,
                     },
                     validate=validate_second_review,
                 )
@@ -10047,6 +10273,11 @@ class TrueMultiAgentProductionRuntime:
                     if isinstance(item, Mapping)
                 ],
                 "execution_result": _safe_code_mode_execution_result(evidence.execution_result),
+                "readonly_workspace_evidence": (
+                    dict(evidence.readonly_workspace_evidence)
+                    if isinstance(evidence.readonly_workspace_evidence, Mapping)
+                    else None
+                ),
             },
             "provider_usage": {
                 "call_count": executor.provider_call_total(),
@@ -10157,6 +10388,11 @@ class TrueMultiAgentProductionRuntime:
             user_response_agent_id=(str(raw.get("user_response_agent_id")) if raw.get("user_response_agent_id") else None),
             user_response_output_hash=(str(raw.get("user_response_output_hash")) if raw.get("user_response_output_hash") else None),
             execution_result=dict(execution_result),
+            readonly_workspace_evidence=(
+                dict(raw.get("readonly_workspace_evidence"))
+                if isinstance(raw.get("readonly_workspace_evidence"), Mapping)
+                else None
+            ),
         )
 
     def _checkpoint_code_mode_review(
@@ -12631,6 +12867,11 @@ class TrueMultiAgentProductionRuntime:
                 "expected_terminal": evidence.expected_terminal,
                 "terminal_decision": decision.__dict__,
                 "execution_result": dict(evidence.execution_result or {}),
+                "readonly_workspace_evidence": (
+                    dict(evidence.readonly_workspace_evidence)
+                    if isinstance(evidence.readonly_workspace_evidence, Mapping)
+                    else None
+                ),
                 "provider_physical_send_count": executor.physical_send_total(),
                 "provider_call_count": executor.provider_call_total(),
                 "provider_retry_count": _provider_retry_projection(evidence.calls, executor),
@@ -13470,6 +13711,23 @@ class TrueMultiAgentProductionRuntime:
                     actor="true-multi-agent-runtime",
                 )
             evidence.analysis = analysis
+            if bool(controls.get("interactive_chat")) and not _execution_goal_authorized(evidence.goal, controls):
+                # Ordinary live MULTI (including a Code Mode policy mapping
+                # whose intent is read-only) gets a bounded, CAS-backed
+                # workspace observation before any Proposal/Review call.
+                # The observation is deliberately independent of Forge and
+                # carries no mutation authorization.
+                raw_workspace = controls.get("execution_workspace") or controls.get("workspace")
+                if not isinstance(raw_workspace, str) or not raw_workspace.strip():
+                    raise DynamicCollaborationError(
+                        "read-only MULTI requires a bound workspace for evidence"
+                    )
+                self._collect_readonly_workspace_evidence(
+                    cas=cas,
+                    run_stream=run_stream,
+                    evidence=evidence,
+                    workspace=Path(raw_workspace),
+                )
             self._materialize_topology(journal, run_stream, evidence, analysis)
             winner, winner_agent, proposals, proposal_decision = self._proposal_and_review(
                 journal, run_stream, executor, evidence, analysis, controls

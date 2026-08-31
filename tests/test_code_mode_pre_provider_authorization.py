@@ -602,6 +602,54 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self.assertEqual(result["provider_unsettled_usage_count"], 0)
         self.assertEqual(len(_LocalProviderHandler.requests), 3)
 
+    def test_readonly_workspace_excerpts_reach_proposal_and_reviewer(self) -> None:
+        (self.workspace / "fixture_contract.py").write_text(
+            "def fixture_contract():\n    return 'read-only contract evidence'\n",
+            encoding="utf-8",
+        )
+        _LocalProviderHandler.response_factory = self._root_fsm_response
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "read-only compare fixture contract"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "a" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal,
+            label="readonly-evidence-outer-fixture",
+            overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
+        self.assertEqual(result["provider_call_count"], 3)
+        self.assertEqual(result["external_mutation_count"], 0)
+        prompt_text = "\n".join(
+            str(message.get("content") or "")
+            for request in _LocalProviderHandler.requests
+            for message in request.get("messages", [])
+            if isinstance(message, Mapping)
+        )
+        self.assertIn("def fixture_contract", prompt_text)
+        journal = self.context.open_runtime_state_reader()
+        try:
+            readonly_events = [
+                event for event in journal.iter_events(0)
+                if event.payload.get("schema") == "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1"
+            ]
+        finally:
+            journal.close()
+        self.assertEqual(len(readonly_events), 1)
+        self.assertTrue(any("def fixture_contract" in item.get("text", "") for item in readonly_events[0].payload.get("excerpts", [])))
+
     def test_live_low_risk_rework_reopens_one_bound_revision_before_selection(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
         self.journal = self.context.open_runtime_writer()
@@ -1472,9 +1520,20 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         # parsed as a provider completion is OUTCOME_UNKNOWN at the host;
         # retry policy must not turn it into another physical send.
         self.assertEqual(len(_LocalProviderHandler.requests), 1)
+        failures = executor.failed_provider_transport_receipts()
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["schema"], "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1")
+        self.assertEqual(failures[0]["provider_call_id"], executor.rejected_calls[0]["call_id"] if executor.rejected_calls else failures[0]["provider_call_id"])
+        self.assertEqual(failures[0]["physical_attempts"], 1)
+        self.assertEqual(failures[0]["outcome_state"], "OUTCOME_UNKNOWN")
+        self.assertFalse(failures[0]["usage_settled"])
+        self.assertEqual(executor.provider_call_total(), 1)
+        self.assertEqual(executor.physical_send_total(), 1)
+        self.assertEqual(executor.usage_totals()["unsettled_usage_count"], 1)
+        self.assertEqual(executor.results, [])
 
-    def test_strict_wire_schema_rejects_invalid_200_without_replay_send(self) -> None:
-        """The host never coerces malformed response fields into a receipt."""
+    def test_strict_wire_schema_records_invalid_200_as_unknown_without_replay_send(self) -> None:
+        """A physical malformed-200 send is durable OUTCOME_UNKNOWN evidence."""
         cases = (
             "missing_content", "nonstring_content", "fenced_content",
             "natural_content", "truncated_content", "whitespace_content", "wrong_tool_calls",
@@ -1530,10 +1589,20 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                     )
                 self.assertEqual(len(_LocalProviderHandler.requests), 1)
                 self.assertEqual(len(captured), 1)
-                self.assertEqual(executor.provider_transport_receipts(), ())
+                failures = executor.failed_provider_transport_receipts()
+                self.assertEqual(len(failures), 1)
+                self.assertEqual(failures[0]["schema"], "CODE_MODE_PROVIDER_TRANSPORT_FAILURE_RECEIPT_V1")
+                self.assertEqual(failures[0]["provider_call_id"], captured[0][0].effect_id)
+                self.assertEqual(failures[0]["physical_attempts"], 1)
+                self.assertEqual(failures[0]["outcome_state"], "OUTCOME_UNKNOWN")
+                self.assertFalse(failures[0]["usage_settled"])
+                self.assertEqual(executor.provider_call_total(), 1)
+                self.assertEqual(executor.physical_send_total(), 1)
+                self.assertEqual(executor.usage_totals()["unsettled_usage_count"], 1)
                 with self.assertRaises(TrueMultiAgentRuntimeError):
                     original_send_once(*captured[0])
                 self.assertEqual(len(_LocalProviderHandler.requests), 1)
+                self.assertEqual(len(executor.failed_provider_transport_receipts()), 1)
                 self.journal.close()
                 self.journal = None
                 self.factory.close()

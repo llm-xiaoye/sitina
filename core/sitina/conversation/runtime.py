@@ -133,6 +133,7 @@ class ConversationRuntime:
             session_runtime_provider=session_runtime_provider,
             provider_client=getattr(session_runtime_provider, "provider_client", None),
             provider_profile=getattr(session_runtime_provider, "profile", None),
+            session_instance_id=self.session_instance_id,
         )
         self.multi_runtime = multi_runtime or TrueMultiAgentProductionRuntime(self.home)
         # Extensions are capabilities available to an admitted Agent runtime;

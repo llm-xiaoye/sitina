@@ -30,7 +30,9 @@ def _canonical(value: object) -> bytes:
 
 
 class CodeModeAuthorityBrokerError(PermissionError):
-    pass
+    def __init__(self, message: str, *, reason_code: str | None = None):
+        super().__init__(message)
+        self.reason_code = reason_code if isinstance(reason_code, str) and reason_code else None
 
 
 class BrokerTransportCapability:
@@ -349,9 +351,13 @@ class CodeModeAuthorityBroker:
                         from sitina.runners.provider import ProviderHTTPError
 
                         raise ProviderHTTPError(status_code, message.strip() or "authority host HTTP failure")
+                reason_code = response.get("reason_code")
+                if not isinstance(reason_code, str) or not reason_code:
+                    reason_code = None
                 raise CodeModeAuthorityBrokerError(
                     str(response.get("error_type") or "host request rejected")
-                    + (": " + detail if detail else "")
+                    + (": " + detail if detail else ""),
+                    reason_code=reason_code,
                 )
             value = response.get("value")
             if not isinstance(value, Mapping):
