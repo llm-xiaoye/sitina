@@ -1070,12 +1070,26 @@ class LocalJournal:
             except Exception as error:
                 raise LocalJournalError("authenticated Forge parent CAS could not be reopened") from error
 
+        # The Forge child may run in an authenticated managed worktree.  Its
+        # workspace is therefore intentionally different from the parent
+        # workspace, but it must equal its own execution root and that root
+        # must be one of the parent-authorized roots.  All other lineage and
+        # provider bindings remain exact.
         for field in (
             "session_instance_id", "conversation_session_id", "turn_index", "run_id", "generation",
-            "provider_profile", "provider_model", "workspace",
+            "provider_profile", "provider_model",
         ):
             if child.get(field) != projection.get(field):
                 raise LocalJournalError("Forge child exceeds authenticated parent scope: " + field)
+        child_workspace = child.get("workspace")
+        child_execution_root = child.get("execution_root")
+        if not isinstance(child_workspace, str) or not isinstance(child_execution_root, str):
+            raise LocalJournalError("Forge child execution root binding is incomplete")
+        if child_workspace != child_execution_root:
+            raise LocalJournalError("Forge child workspace must equal execution root")
+        parent_scope = projection.get("scope")
+        if not isinstance(parent_scope, (list, tuple)) or child_execution_root not in parent_scope:
+            raise LocalJournalError("Forge child execution root exceeds authenticated parent scope")
         if child.get("parent_authorization_ref") != projection["authorization_ref"]:
             raise LocalJournalError("Forge child parent authorization reference is stale")
         if type(child.get("expires_at")) is not int or child["expires_at"] > projection["expires_at"]:

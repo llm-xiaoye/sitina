@@ -4396,6 +4396,7 @@ class AuthorityService:
                     settlement_state="SETTLED",
                     status_code=status_code,
                     error_type="HTTPError",
+                    reason_code=f"PROVIDER_HTTP_STATUS_{status_code}",
                 )
                 if status_code in {429, 503}:
                     prior_call["retry_count"] = int(prior_call.get("retry_count") or 0) + 1
@@ -4408,11 +4409,13 @@ class AuthorityService:
                     raise AuthorityError(
                         f"HTTP_STATUS_{status_code}: host provider HTTP request failed",
                         status_code=status_code,
+                        reason_code=f"PROVIDER_HTTP_STATUS_{status_code}",
                     ) from error
                 prior_call["state"] = "OUTCOME_UNKNOWN"
                 raise AuthorityError(
                     f"HTTP_STATUS_{status_code}: host provider HTTP request failed",
                     status_code=status_code,
+                    reason_code=f"PROVIDER_HTTP_STATUS_{status_code}",
                 ) from error
             except Exception as error:
                 self._pending.pop(str(permit), None)
@@ -4424,6 +4427,7 @@ class AuthorityService:
                     settlement_state="RECONCILING",
                     status_code=None,
                     error_type=type(error).__name__,
+                    reason_code="PROVIDER_TRANSPORT_OUTCOME_UNKNOWN",
                 )
                 raise AuthorityError("host provider transport failed") from error
             return self._finalize_provider_response(
@@ -4573,7 +4577,10 @@ class AuthorityService:
             # an issuer-owned OUTCOME_UNKNOWN receipt before dropping the
             # pending permit.  A successful settlement has its own durable
             # receipt and must never be shadowed by a failure receipt.
+            reason_code = getattr(error, "reason_code", None) or "PROVIDER_RESPONSE_VALIDATION_FAILED"
             if not settled and str(permit) in self._pending:
+                if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code):
+                    reason_code = "PROVIDER_RESPONSE_VALIDATION_FAILED"
                 self._append_transport_failure_receipt(
                     session_token,
                     self._pending[str(permit)],
@@ -4581,9 +4588,17 @@ class AuthorityService:
                     settlement_state="RECONCILING",
                     status_code=None,
                     error_type=type(error).__name__,
+                    reason_code=reason_code,
                 )
             self._pending.pop(str(permit), None)
-            raise
+            if isinstance(error, AuthorityError):
+                if error.reason_code is None:
+                    error.reason_code = reason_code
+                raise
+            raise AuthorityError(
+                "host provider response validation failed",
+                reason_code=reason_code,
+            ) from error
 
     def _finalize_anthropic_provider_response(
         self,
@@ -4672,7 +4687,10 @@ class AuthorityService:
             return result
         except Exception as error:
             prior_call["state"] = "OUTCOME_UNKNOWN"
+            reason_code = getattr(error, "reason_code", None) or "PROVIDER_RESPONSE_VALIDATION_FAILED"
             if not settled and str(permit) in self._pending:
+                if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code):
+                    reason_code = "PROVIDER_RESPONSE_VALIDATION_FAILED"
                 self._append_transport_failure_receipt(
                     session_token,
                     self._pending[str(permit)],
@@ -4680,9 +4698,17 @@ class AuthorityService:
                     settlement_state="RECONCILING",
                     status_code=None,
                     error_type=type(error).__name__,
+                    reason_code=reason_code,
                 )
             self._pending.pop(str(permit), None)
-            raise
+            if isinstance(error, AuthorityError):
+                if error.reason_code is None:
+                    error.reason_code = reason_code
+                raise
+            raise AuthorityError(
+                "host provider response validation failed",
+                reason_code=reason_code,
+            ) from error
 
     def _settle_pending(
         self, session_token: str, capability: str, permit: str,
@@ -4717,6 +4743,7 @@ class AuthorityService:
         settlement_state: str,
         status_code: int | None,
         error_type: str,
+        reason_code: str | None = None,
     ) -> dict[str, Any]:
         """Record one host-observed physical failure without inventing usage.
 
@@ -4731,6 +4758,14 @@ class AuthorityService:
             raise AuthorityError("transport failure outcome state is invalid")
         if settlement_state not in {"SETTLED", "RECONCILING"}:
             raise AuthorityError("transport failure settlement state is invalid")
+        if reason_code is None:
+            reason_code = (
+                f"PROVIDER_HTTP_STATUS_{status_code}"
+                if isinstance(status_code, int)
+                else "PROVIDER_TRANSPORT_OUTCOME_UNKNOWN"
+            )
+        if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code):
+            raise AuthorityError("transport failure reason code is invalid")
         identity = _hash({
             "provider_call_id": pending.get("provider_call_id"),
             "effect_attempt_id": pending.get("effect_attempt_id"),
@@ -4750,6 +4785,7 @@ class AuthorityService:
             "settlement_state": settlement_state,
             "status_code": status_code,
             "error_type": error_type,
+            "reason_code": reason_code,
             "authority": "network-transport-boundary-v1",
         }
         for existing in self._transport.get(session_token, ()):

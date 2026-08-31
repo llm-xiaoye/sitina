@@ -385,6 +385,22 @@ def _failed_transport_call_ids(executor: Any, receipts: Sequence[Mapping[str, An
     return ids
 
 
+def _failed_transport_reason_codes(receipts: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Project stable host diagnostics without exposing provider text."""
+
+    values: list[str] = []
+    for receipt in receipts:
+        reason_code = receipt.get("reason_code")
+        if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason_code):
+            # Older HTTP receipts predate the diagnostic field.  Keep their
+            # accounting compatible while ensuring every newly emitted
+            # post-response failure has an explicit non-sensitive code.
+            continue
+        if reason_code not in values:
+            values.append(reason_code)
+    return values
+
+
 def _provider_retry_projection(calls: Sequence[Any], executor: Any) -> int:
     getter = getattr(executor, "failed_provider_retry_total", None)
     failed = int(getter() if callable(getter) else 0)
@@ -1415,99 +1431,223 @@ class TrueMultiAgentProductionRuntime:
         # bounded.
         terms = list(dict.fromkeys(terms))[:24]
         entries: list[dict[str, Any]] = []
-        directories: list[str] = ["."]
+        directories: list[str] = []
         search_hits: list[dict[str, Any]] = []
         excerpts: list[dict[str, Any]] = []
+        tool_calls: list[dict[str, Any]] = []
         excerpt_bytes = 0
         excerpt_line_budget = 96
         excerpt_byte_budget = 16 * 1024
         max_files = 512
         max_file_bytes = 4 * 1024 * 1024
-        for current, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
-            current_path = Path(current)
-            dirnames[:] = sorted(
-                name for name in dirnames
-                if name not in skip_dirs and not (current_path / name).is_symlink()
+
+        # Read-only evidence must use the same permission-enforcing built-in
+        # tools as an autonomous agent.  The controller only orchestrates
+        # list/read/search calls; it never walks or opens workspace files
+        # directly.  Each completed call is journaled and its bounded result
+        # is independently sealed in CAS for Proposal/Reviewer consumption.
+        from sitina.extensions.manager import ExtensionManager
+        from sitina.extensions.tools import ToolCatalog
+
+        catalog = ToolCatalog(
+            ExtensionManager(self.home),
+            workspace=root,
+            write_executor=None,
+            strict_workspace=True,
+        )
+        catalog.bind_run(run_id)
+
+        def invoke_read(tool_name: str, arguments: Mapping[str, Any]) -> Any:
+            call_id = f"readonly-{len(tool_calls) + 1:04d}"
+            definition = catalog.get(tool_name)
+            if definition.permission != "read":
+                raise DynamicCollaborationError("read-only evidence selected a non-read tool")
+            safe_arguments = {
+                key: (str(value) if key in {"path", "pattern", "include"} else value)
+                for key, value in dict(arguments).items()
+            }
+            run_stream.append(
+                "readonly-tool-call-intended",
+                ({
+                    "schema": "TRUE_MULTI_AGENT_READONLY_TOOL_CALL_V1",
+                    "event_type": "workspace.readonly.tool-call-intended",
+                    "run_id": run_id,
+                    "call_id": call_id,
+                    "name": tool_name,
+                    "permission": "read",
+                    "arguments": safe_arguments,
+                },),
+                actor="readonly-evidence-collector",
             )
-            for name in dirnames:
-                relative_dir = (current_path / name).relative_to(root).as_posix()
-                directories.append(relative_dir)
-            for name in sorted(filenames):
-                if len(entries) >= max_files:
-                    break
-                if name.casefold() in skip_file_names:
+            try:
+                result = catalog.execute(tool_name, arguments)
+            except Exception as error:
+                raise DynamicCollaborationError(
+                    f"read-only evidence tool {tool_name} failed: {type(error).__name__}"
+                ) from error
+            if result.status != "ok":
+                raise DynamicCollaborationError(f"read-only evidence tool {tool_name} returned {result.status}")
+            value = result.value
+            bounded_value = value
+            if tool_name == "sitina_read_file" and isinstance(value, str):
+                bounded_value = value[:max_file_bytes]
+            record = {
+                "schema": "TRUE_MULTI_AGENT_READONLY_TOOL_RESULT_V1",
+                "run_id": run_id,
+                "call_id": call_id,
+                "name": tool_name,
+                "permission": "read",
+                "status": result.status,
+                "result": bounded_value,
+            }
+            publication = cas.publish_plaintext(
+                canonical_json_bytes(record),
+                tenant_id="true-multi-agent",
+                purpose_class="readonly-tool-result",
+                compression="none",
+            )
+            result_hash = sha256_bytes(canonical_json_bytes(record))
+            run_stream.append(
+                "readonly-tool-call-completed",
+                ({
+                    "schema": "TRUE_MULTI_AGENT_READONLY_TOOL_CALL_V1",
+                    "event_type": "workspace.readonly.tool-call-completed",
+                    "run_id": run_id,
+                    "call_id": call_id,
+                    "name": tool_name,
+                    "permission": "read",
+                    "status": result.status,
+                    "result_hash": result_hash,
+                    "object_ref": publication.receipt.object_ref.reference_id,
+                },),
+                actor="readonly-evidence-collector",
+                proofs=(publication.receipt,),
+            )
+            tool_calls.append({
+                "call_id": call_id,
+                "name": tool_name,
+                "permission": "read",
+                "status": result.status,
+                "arguments": safe_arguments,
+                "result_hash": result_hash,
+                "object_ref": publication.receipt.object_ref.reference_id,
+                "result": bounded_value,
+            })
+            return value
+
+        pending_dirs = [root]
+        seen_dirs: set[str] = set()
+        while pending_dirs and len(directories) < 512 and len(entries) < max_files:
+            current = pending_dirs.pop(0)
+            try:
+                current_relative = current.relative_to(root).as_posix() or "."
+            except ValueError as error:
+                raise DynamicCollaborationError("read-only evidence directory escaped workspace") from error
+            if current_relative in seen_dirs or current.name.casefold() in skip_dirs:
+                continue
+            seen_dirs.add(current_relative)
+            directories.append(current_relative)
+            listing = invoke_read("sitina_list_directory", {"path": str(current)})
+            if not isinstance(listing, list):
+                raise DynamicCollaborationError("read-only directory tool returned malformed result")
+            for item in listing:
+                if not isinstance(item, Mapping) or not isinstance(item.get("name"), str):
                     continue
-                path = current_path / name
-                if path.is_symlink() or not path.is_file():
+                name = str(item["name"])
+                if name.casefold() in skip_file_names or name in skip_dirs:
                     continue
+                path = current / name
                 try:
                     relative = path.relative_to(root).as_posix()
-                    stat_result = path.stat()
-                    size = int(stat_result.st_size)
-                    digest = hashlib.sha256()
-                    with path.open("rb") as handle:
-                        remaining = size
-                        while remaining:
-                            chunk = handle.read(min(1024 * 1024, remaining))
-                            if not chunk:
-                                break
-                            digest.update(chunk)
-                            remaining -= len(chunk)
-                    if size <= max_file_bytes:
-                        try:
-                            text = path.read_text(encoding="utf-8", errors="strict")
-                        except (UnicodeDecodeError, OSError):
-                            text = ""
-                        if text:
-                            lines = text.splitlines()
-                            matching_lines = [
-                                number for number, line in enumerate(lines, start=1)
-                                if terms and any(term in line.casefold() for term in terms)
-                            ]
-                            if not matching_lines and path.suffix == ".py":
-                                # A small source/test file with no lexical
-                                # goal hit is still useful context (imports,
-                                # test names, and module contracts).
-                                matching_lines = [1]
-                            selected_lines: set[int] = set()
-                            for number in matching_lines[:32]:
-                                selected_lines.update(range(max(1, number - 1), min(len(lines), number + 1) + 1))
-                            for number in sorted(selected_lines):
-                                if len(excerpts) >= excerpt_line_budget or excerpt_bytes >= excerpt_byte_budget:
-                                    break
-                                excerpt = redact_text(lines[number - 1])[:512]
-                                excerpt_size = len(excerpt.encode("utf-8"))
-                                if excerpt_bytes + excerpt_size > excerpt_byte_budget:
-                                    break
-                                excerpts.append({
-                                    "path": relative,
-                                    "line": number,
-                                    "text": excerpt,
-                                    "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
-                                })
-                                excerpt_bytes += excerpt_size
-                            for number in matching_lines:
-                                if len(search_hits) >= 128:
-                                    break
-                                search_hits.append({
-                                    "path": relative,
-                                    "line": number,
-                                    "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
-                                })
-                    entries.append({
-                        "path": relative,
-                        "size": size,
-                        "sha256": digest.hexdigest(),
-                        "read": True,
-                        "searchable": bool(size <= max_file_bytes),
-                    })
+                    stat_result = path.lstat()
                 except (OSError, ValueError):
-                    # A disappearing/racing file is not evidence of a write;
-                    # omit it and let the bounded snapshot describe what was
-                    # actually observed.
                     continue
-            if len(entries) >= max_files:
-                break
+                if stat.S_ISLNK(stat_result.st_mode) or stat.S_ISSOCK(stat_result.st_mode):
+                    continue
+                if stat.S_ISDIR(stat_result.st_mode):
+                    if len(directories) + len(pending_dirs) < 512:
+                        pending_dirs.append(path)
+                    continue
+                if not stat.S_ISREG(stat_result.st_mode) or len(entries) >= max_files:
+                    continue
+                size = int(stat_result.st_size)
+                text = ""
+                if size <= max_file_bytes:
+                    value = invoke_read("sitina_read_file", {"path": str(path)})
+                    if not isinstance(value, str):
+                        raise DynamicCollaborationError("read-only file tool returned malformed result")
+                    text = value
+                # Empty files are still successfully read and must carry the
+                # digest of their observed bytes.  ``None`` is reserved for
+                # files that were intentionally not read because they exceed
+                # the bounded evidence size.
+                digest = sha256_bytes(text.encode("utf-8")) if size <= max_file_bytes else None
+                entries.append({
+                    "path": relative,
+                    "size": size,
+                    "sha256": digest,
+                    "read": size <= max_file_bytes,
+                    "searchable": size <= max_file_bytes,
+                })
+                if text:
+                    lines = text.splitlines()
+                    matching_lines = [
+                        number for number, line in enumerate(lines, start=1)
+                        if terms and any(term in line.casefold() for term in terms)
+                    ]
+                    if not matching_lines and path.suffix == ".py":
+                        matching_lines = [1]
+                    selected_lines: set[int] = set()
+                    for number in matching_lines[:32]:
+                        selected_lines.update(range(max(1, number - 1), min(len(lines), number + 1) + 1))
+                    for number in sorted(selected_lines):
+                        if len(excerpts) >= excerpt_line_budget or excerpt_bytes >= excerpt_byte_budget:
+                            break
+                        excerpt = redact_text(lines[number - 1])[:512]
+                        excerpt_size = len(excerpt.encode("utf-8"))
+                        if excerpt_bytes + excerpt_size > excerpt_byte_budget:
+                            break
+                        excerpts.append({
+                            "path": relative,
+                            "line": number,
+                            "text": excerpt,
+                            "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
+                        })
+                        excerpt_bytes += excerpt_size
+                    for number in matching_lines:
+                        if len(search_hits) >= 128:
+                            break
+                        search_hits.append({
+                            "path": relative,
+                            "line": number,
+                            "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
+                        })
+        search_pattern = "|".join(re.escape(term) for term in terms[:8]) or r"TODO|FIXME|error|fail"
+        grep_result = invoke_read(
+            "sitina_grep",
+            {
+                "path": str(root),
+                "pattern": search_pattern,
+                "include": "*.py",
+                "ignore_case": True,
+                "max_results": 128,
+            },
+        )
+        if not isinstance(grep_result, Mapping):
+            raise DynamicCollaborationError("read-only search tool returned malformed result")
+        for match in list(grep_result.get("matches") or ())[:128]:
+            if not isinstance(match, Mapping) or not isinstance(match.get("file"), str):
+                continue
+            try:
+                relative = Path(str(match["file"])).resolve(strict=False).relative_to(root).as_posix()
+            except ValueError:
+                continue
+            search_hits.append({
+                "path": relative,
+                "line": int(match.get("line") or 0),
+                "text_hash": sha256_bytes(str(match.get("text") or "").encode("utf-8")),
+                "text": redact_text(str(match.get("text") or ""))[:512],
+            })
         entries.sort(key=lambda item: str(item["path"]))
         directories = sorted(set(directories))[:512]
         payload = {
@@ -1522,6 +1662,14 @@ class TrueMultiAgentProductionRuntime:
             "search_terms": terms,
             "search_hits": search_hits,
             "excerpts": excerpts,
+            "tool_calls": [
+                {
+                    key: value for key, value in item.items()
+                    if key != "result"
+                }
+                for item in tool_calls
+            ],
+            "tool_call_count": len(tool_calls),
             "excerpt_line_count": len(excerpts),
             "excerpt_bytes": excerpt_bytes,
             "truncated": len(entries) >= max_files,
@@ -1549,6 +1697,8 @@ class TrueMultiAgentProductionRuntime:
             "entries": entries,
             "search_hits": search_hits,
             "excerpts": excerpts,
+            "tool_calls": payload["tool_calls"],
+            "tool_call_count": payload["tool_call_count"],
             "excerpt_line_count": len(excerpts),
             "excerpt_bytes": excerpt_bytes,
             "forge_count": 0,
@@ -2603,9 +2753,34 @@ class TrueMultiAgentProductionRuntime:
                             "old_review_reused": False,
                         },
                         rework_completed,
-                        requested2,
-                        response2,
-                        disposition2,
+                        {
+                            **requested2,
+                            "event_type": "review.requested",
+                            "proposal_id": proposal_ids[agent.agent_id],
+                            "proposal_output_hash": revision.output_hash,
+                            "revision": 2,
+                        },
+                        {
+                            **response2,
+                            "event_type": "review.response",
+                            "proposal_id": proposal_ids[agent.agent_id],
+                            "proposal_output_hash": revision.output_hash,
+                            "review_call_id": second_review.call_id,
+                            "review_output_hash": second_review.output_hash,
+                            "provider_verdict": str(second_review.value["verdict"]).lower(),
+                            "effective_verdict": "approved",
+                            "revision": 2,
+                        },
+                        {
+                            **disposition2,
+                            "event_type": "review.disposition",
+                            "proposal_id": proposal_ids[agent.agent_id],
+                            "proposal_output_hash": revision.output_hash,
+                            "revision": 2,
+                            "revision_allowed": True,
+                            "revision_budget": 1,
+                            "frozen_defects": list(frozen_defects),
+                        },
                         evaluated2,
                         close_rework,
                     ),
@@ -6314,7 +6489,12 @@ class TrueMultiAgentProductionRuntime:
         # recovery protocol and cannot preempt that bridge.  Remove only this
         # model-selected protocol (an explicit recovery goal still admits it).
         effective_protocols = tuple(changes.get("protocols", analysis.protocols))
-        if _execution_required(goal) and "checkpoint" in effective_protocols and not _checkpoint_restart_required(goal):
+        execution_required = (
+            _execution_goal_authorized(goal, overrides)
+            if bool(overrides.get("interactive_chat"))
+            else _execution_required(goal)
+        )
+        if execution_required and "checkpoint" in effective_protocols and not _checkpoint_restart_required(goal):
             changes["protocols"] = tuple(item for item in effective_protocols if item != "checkpoint")
             semantic_reasons.append("EXECUTION_BRIDGE_PRECEDES_OPTIONAL_CHECKPOINT")
         negative_protocol_markers = {
@@ -9210,6 +9390,7 @@ class TrueMultiAgentProductionRuntime:
                 # Journal/CAS/model-visible evidence.
                 error_hash = sha256_bytes(str(error).encode("utf-8"))
                 accounting = provider_accounting_delta(accounting_before)
+                failure_receipts = _failed_transport_receipts(executor)
                 # The executor delta is authoritative even when the exception
                 # was raised after a successful Provider settlement (for
                 # example an unknown tool call). Transport attributes are only
@@ -9247,6 +9428,7 @@ class TrueMultiAgentProductionRuntime:
                     "provider_fallback_count": accounting["fallback_count"],
                     "provider_usage_status": "unknown" if accounting["unsettled_usage_count"] else "not_sent",
                     "provider_usage_unsettled_count": accounting["unsettled_usage_count"],
+                    "provider_failure_reason_codes": _failed_transport_reason_codes(failure_receipts),
                     "provider_input_tokens": accounting["input_tokens"],
                     "provider_output_tokens": accounting["output_tokens"],
                     "provider_cache_read_tokens": accounting["cache_read_tokens"],
@@ -12744,6 +12926,7 @@ class TrueMultiAgentProductionRuntime:
             {
                 "failed_provider_transport_receipts": [dict(item) for item in failed_transport_receipts],
                 "failed_provider_call_ids": list(failed_provider_call_ids),
+                "failed_provider_reason_codes": _failed_transport_reason_codes(failed_transport_receipts),
             }
             if failed_transport_receipts
             else {}
@@ -14021,6 +14204,7 @@ class TrueMultiAgentProductionRuntime:
                         "provider_unsettled_usage_count": executor.usage_totals()["unsettled_usage_count"],
                         "failed_provider_transport_receipts": [dict(item) for item in failed_transport_receipts],
                         "failed_provider_call_ids": list(failed_provider_call_ids),
+                        "failed_provider_reason_codes": _failed_transport_reason_codes(failed_transport_receipts),
                         "rejected_provider_output_count": len(executor.rejected_calls),
                         "automatic_retry_performed": bool(
                             len((evidence.execution_result or {}).get("attempt_ledger", ())) > 1
@@ -14044,6 +14228,7 @@ class TrueMultiAgentProductionRuntime:
             result["error_type"] = type(error).__name__
             result["error_hash"] = sha256_bytes(str(error).encode())
             result["provider_http_status_code"] = provider_http_status_code
+            result["failed_provider_reason_codes"] = _failed_transport_reason_codes(failed_transport_receipts)
             result["failure_phase"] = (
                 "provider_output_contract"
                 if isinstance(error, AgentOutputContractRejected)

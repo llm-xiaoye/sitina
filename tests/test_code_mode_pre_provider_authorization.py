@@ -645,10 +645,19 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 event for event in journal.iter_events(0)
                 if event.payload.get("schema") == "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1"
             ]
+            readonly_tool_event_count = sum(
+                1 for event in journal.iter_events(0)
+                if event.payload.get("event_type") in {
+                    "workspace.readonly.tool-call-intended",
+                    "workspace.readonly.tool-call-completed",
+                }
+            )
         finally:
             journal.close()
         self.assertEqual(len(readonly_events), 1)
         self.assertTrue(any("def fixture_contract" in item.get("text", "") for item in readonly_events[0].payload.get("excerpts", [])))
+        self.assertGreater(readonly_events[0].payload.get("tool_call_count", 0), 0)
+        self.assertGreater(readonly_tool_event_count, 0)
 
     def test_live_low_risk_rework_reopens_one_bound_revision_before_selection(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
@@ -764,6 +773,18 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 "proposal/planner/candidate", "review/selection",
             ],
         )
+        review_facts = [
+            event.payload for event in self.journal.iter_events(0)
+            if event.payload.get("event_type") in {
+                "review.requested", "review.response", "review.disposition",
+            }
+        ]
+        self.assertEqual(
+            {item.get("event_type") for item in review_facts if item.get("revision") == 2},
+            {"review.requested", "review.response", "review.disposition"},
+        )
+        second_review = [item for item in review_facts if item.get("revision") == 2]
+        self.assertTrue(all(item.get("proposal_output_hash") for item in second_review))
 
     def test_real_host_structured_tool_call_accepts_explicit_empty_content(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
@@ -1477,6 +1498,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self.assertEqual(failures[0]["physical_attempts"], 1)
         self.assertEqual(failures[0]["retry_count"], 0)
         self.assertEqual(failures[0]["outcome_state"], "FAILED_CONFIRMED")
+        self.assertEqual(failures[0]["reason_code"], "PROVIDER_HTTP_STATUS_503")
         self.assertIsNone(failures[0]["token_usage"])
         self.assertFalse(failures[0]["usage_settled"])
         self.assertEqual(executor.failed_provider_call_ids(), (request.effect_id,))
@@ -1595,6 +1617,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 self.assertEqual(failures[0]["provider_call_id"], captured[0][0].effect_id)
                 self.assertEqual(failures[0]["physical_attempts"], 1)
                 self.assertEqual(failures[0]["outcome_state"], "OUTCOME_UNKNOWN")
+                self.assertEqual(failures[0]["reason_code"], "PROVIDER_RESPONSE_VALIDATION_FAILED")
                 self.assertFalse(failures[0]["usage_settled"])
                 self.assertEqual(executor.provider_call_total(), 1)
                 self.assertEqual(executor.physical_send_total(), 1)

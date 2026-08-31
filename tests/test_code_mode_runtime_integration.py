@@ -542,6 +542,8 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         """Every parent field is issuer data, not caller-supplied metadata."""
         context = self.context_factory(self.home)
         message = "Please create hello.py."
+        managed = self.home / "managed-worktree"
+        managed.mkdir()
         code_authorization = self.code_mode_policy.authorize(
             mode="MULTI", message=message, session_id="session-parent", workspace=self.workspace
         )
@@ -553,15 +555,21 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
                 "authorization_ref": "execution-authorization:canonical-parent",
                 "session_id": "session-parent", "run_id": "parent-run",
                 "workspace": str(self.workspace.resolve()),
-                "scope": [str(self.workspace.resolve())], "risk_level": "workspace",
+                "scope": [str(self.workspace.resolve()), str(managed.resolve())], "risk_level": "workspace",
                 "expires_at": expiry,
             },
             session_id="session-parent", run_id="parent-run",
             intent_hash=str(code_authorization["intent"]["intent_hash"]),
-            workspace=self.workspace, scope=(str(self.workspace),), expires_at=expiry,
+            workspace=self.workspace, scope=(str(self.workspace), str(managed)), expires_at=expiry,
             trusted_authorizer=self.code_mode_policy, authorization_message=message,
             risk_level="workspace",
         )
+        child = context.issue_execution_child_authorization(
+            parent, attempt=1, purpose="forge-attempt",
+            workspace=managed, scope=(str(managed),), expires_at=expiry,
+        )
+        self.assertEqual(child["workspace"], child["execution_root"])
+        self.assertEqual(child["scope"], [str(managed.resolve())])
         from dataclasses import replace
 
         mutations = {

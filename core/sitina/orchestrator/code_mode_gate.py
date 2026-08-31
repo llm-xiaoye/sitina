@@ -142,7 +142,12 @@ _FILE_MUTATION_MARKERS = (
     ("move", "rename"), ("install", "install"), ("build", "build"),
     ("创建", "create"), ("新建", "create"), ("修改", "modify"),
     ("修复", "modify"), ("重构", "modify"), ("实现", "modify"),
-    ("写", "modify"), ("更新", "modify"), ("改", "modify"),
+    # Do not classify the single-character Chinese words ``写``/``改``.
+    # They occur inside discussion nouns (双写、改进方案) and made a
+    # read-only request look like a mutation.  Keep explicit action phrases
+    # so imperative write requests remain executable.
+    ("写入", "modify"), ("编写", "modify"), ("写文件", "modify"),
+    ("改动", "modify"), ("改写", "modify"), ("更新", "modify"),
     ("追加", "append"), ("添加", "append"), ("删除", "delete"),
     ("移除", "delete"), ("重命名", "rename"), ("移动", "rename"),
     ("安装", "install"), ("构建", "build"),
@@ -151,7 +156,7 @@ _EXTERNAL_ACTION_MARKERS = (
     "commit", "push", "deploy", "publish", "release", "send", "提交", "推送", "部署", "发布", "发送",
 )
 _NEGATION = re.compile(
-    r"(?:\bdo\s+not\b|\bdon't\b|\bnever\b|\bwithout\b|\bno\b|不要|勿|禁止|无需|不(?:要|得|能|再)?)",
+    r"(?:\bdo\s+not\b|\bdon't\b|\bnever\b|\bwithout\b|\bno\b|不要|勿|禁止|无需|零|不(?:要|得|能|再)?)",
     re.IGNORECASE,
 )
 _CLAUSE_BREAK = re.compile(r"[,.;!?，。！？；\n]+")
@@ -164,6 +169,7 @@ _DISCUSSION_SUFFIX = re.compile(
     r"(?:方案|计划|建议|思路|策略|proposal|plan|approach|strategy)",
     re.IGNORECASE,
 )
+_DISCUSSION_OBJECT = re.compile(r"(?:双写(?:后补偿)?|事件发布|提交方案|修复方案)", re.IGNORECASE)
 
 
 def _marker_spans(message: str, markers: Sequence[tuple[str, str]]) -> list[tuple[int, int, str]]:
@@ -206,6 +212,11 @@ def _is_negated(message: str, start: int, end: int) -> bool:
 
 def _is_discussion_reference(message: str, start: int, end: int) -> bool:
     left, right = _clause_bounds(message, start, end)
+    # These are nouns/plan objects, not executable operations.  Matching the
+    # complete phrase avoids treating the action character inside a compound
+    # discussion term as an imperative.
+    if any(match.start() <= start and end <= match.end() for match in _DISCUSSION_OBJECT.finditer(message)):
+        return True
     before = message[left:start]
     after = message[end:right]
     # A marker mentioned as the subject of an analysis/plan is not an

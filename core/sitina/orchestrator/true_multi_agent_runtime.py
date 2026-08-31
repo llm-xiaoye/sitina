@@ -1608,9 +1608,21 @@ class OneShotProviderTransport:
                     self.physical_send_count += 1
                     setattr(error, "sitina_host_failure_receipt", True)
                     setattr(error, "sitina_host_failure_receipt_hash", failure_receipt.get("receipt_hash"))
-                raise TrueMultiAgentRuntimeError(
+                    setattr(error, "sitina_failure_reason_code", failure_receipt.get("reason_code"))
+                wrapped = TrueMultiAgentRuntimeError(
                     "authoritative Provider request was not executed by the host transport"
-                ) from error
+                )
+                setattr(
+                    wrapped,
+                    "sitina_failure_reason_code",
+                    failure_receipt.get("reason_code") if failure_receipt is not None else getattr(error, "reason_code", None),
+                )
+                setattr(
+                    wrapped,
+                    "sitina_host_failure_receipt_hash",
+                    failure_receipt.get("receipt_hash") if failure_receipt is not None else None,
+                )
+                raise wrapped from error
             completion = ProviderCompletion(
                 str(transport_body.get("completion_text") or ""),
                 dict(transport_body.get("metadata") or {}),
