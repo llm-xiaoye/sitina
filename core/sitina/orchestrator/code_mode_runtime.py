@@ -3646,7 +3646,7 @@ class CodeModeScriptedProvider:
                 "agent_id": agent_id, "kind": "readonly_answer",
                 "claim_id": str(claim["claim_id"]), "evidence_hash": str(claim.get("evidence_hash") or "0" * 64),
                 "answer_fragment": "\n".join(
-                    str(item.get("expected_value") or "") for item in claims if item.get("status") == "satisfied"
+                    str(item.get("required_answer_value") or "") for item in claims if item.get("status") == "satisfied"
                 ),
             }
         if "contract_hash=" in user_prompt and "selected_proposal_projection" in user_prompt:

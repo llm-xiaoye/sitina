@@ -329,6 +329,33 @@ class ProviderTransportTests(unittest.TestCase):
         })
         self.assertEqual(executor._consume_embedded_receipt_delta(), (1, 1, 0, 0))
 
+    def test_forge_attempt_uses_child_authorization_domain(self) -> None:
+        executor = object.__new__(ProviderExecutor)
+        executor.run_id = "root-run"
+        executor._transport_authorization_by_attempt = {
+            ("root-run", 1): "pre-provider-auth",
+        }
+        executor._active_transport_attempt = 1
+
+        with self.assertRaises(TrueMultiAgentRuntimeError):
+            executor.bind_transport_authorization_for_attempt(
+                run_id="root-run", attempt=1, authorization_id="forge-auth", domain="forge",
+            )
+        executor.bind_forge_transport_authorization_for_attempt(
+            child_run_id="forge-exec-root-run-1", attempt=1, authorization_id="forge-auth-1",
+        )
+        executor.bind_forge_transport_authorization_for_attempt(
+            child_run_id="forge-exec-root-run-2", attempt=2, authorization_id="forge-auth-2",
+        )
+        self.assertEqual(executor._transport_authorization_by_attempt[("root-run", 1)], "pre-provider-auth")
+        self.assertEqual(
+            executor._transport_authorization_by_attempt[("forge-exec-root-run-1", 1)], "forge-auth-1"
+        )
+        self.assertEqual(
+            executor._transport_authorization_by_attempt[("forge-exec-root-run-2", 2)], "forge-auth-2"
+        )
+        self.assertEqual(executor._active_transport_attempt, 2)
+
     def test_host_failure_receipt_is_idempotent_and_usage_free(self) -> None:
         service = object.__new__(AuthorityService)
         service._transport = {"session-1": []}

@@ -996,6 +996,21 @@ class AuthorityService:
         if not ordered:
             return "EXPECT_DISCOVERY"
         rework_state = self._root_proposal_rework_state(snapshot, run_id)
+        if isinstance(rework_state, Mapping) and rework_state.get("state") == "CLOSED_REJECTED":
+            # A rejected second review is terminal for this bounded rework;
+            # never let the generic proposal counters reopen root admission.
+            return "CLOSED_REJECTED"
+        if isinstance(rework_state, Mapping) and rework_state.get("state") == "CLOSED":
+            # Revision produces a second proposal/review pair.  Its schedule
+            # count is not necessarily reflected in legacy required_reviews,
+            # so derive the post-review state from the authenticated selection
+            # fact directly instead of falling through to EXPECT_PROPOSAL.
+            selections = self._root_fact_events(
+                snapshot, run_id, "CODE_MODE_ROOT_SELECTION_FACT_V1", "code-mode.root-selection-committed"
+            )
+            if len(selections) > 1:
+                raise AuthorityError("root selection facts are not unique")
+            return "ROOT_COMPLETE" if selections else "WAIT_SELECTION"
         if isinstance(rework_state, Mapping) and rework_state.get("state") in {
             "EXPECT_REVISION", "EXPECT_REVISION_REVIEW",
         }:
@@ -3990,6 +4005,11 @@ class AuthorityService:
                     }:
                         raise AuthorityError("root provider call already has a live or terminal permit")
                     root_state = self._root_fsm_from_snapshot(current_snapshot, root_run)
+                    if root_state == "CLOSED_REJECTED":
+                        raise AuthorityError(
+                            "root planning is closed after rejected revision",
+                            reason_code="ROOT_REWORK_CLOSED_REJECTED",
+                        )
                     if root_state in {"WAIT_SELECTION", "ROOT_COMPLETE"}:
                         raise AuthorityError("root planning is closed for new provider permits")
                     retry_in_progress = isinstance(prior_provider_call, Mapping) and prior_provider_call.get("state") == "PREPARED"

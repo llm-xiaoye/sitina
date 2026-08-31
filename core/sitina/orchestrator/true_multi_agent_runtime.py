@@ -1957,19 +1957,35 @@ class ProviderExecutor:
 
     def bind_transport_authorization_for_attempt(
         self, *, run_id: str, attempt: int, authorization_id: str,
+        domain: str = "root",
     ) -> None:
         """Register one immutable transport capability for one attempt."""
         if not isinstance(run_id, str) or not run_id or isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
             raise TrueMultiAgentRuntimeError("transport attempt binding is invalid")
         if not isinstance(authorization_id, str) or not authorization_id:
             raise TrueMultiAgentRuntimeError("transport authorization identity is missing")
+        if domain not in {"root", "forge"}:
+            raise TrueMultiAgentRuntimeError("transport authorization domain is invalid")
+        if domain == "forge" and not run_id.startswith(f"forge-exec-{self.run_id}-"):
+            raise TrueMultiAgentRuntimeError("Forge authorization must use its child run domain")
         key = (run_id, attempt)
         previous = self._transport_authorization_by_attempt.get(key)
         if previous is not None and previous != authorization_id:
             raise TrueMultiAgentRuntimeError("transport attempt authorization was rebound")
         self._transport_authorization_by_attempt[key] = authorization_id
-        if run_id == self.run_id:
+        if run_id == self.run_id or domain == "forge":
             self._active_transport_attempt = attempt
+
+    def bind_forge_transport_authorization_for_attempt(
+        self, *, child_run_id: str, attempt: int, authorization_id: str,
+    ) -> None:
+        """Bind Forge transport in the child execution authorization domain."""
+        self.bind_transport_authorization_for_attempt(
+            run_id=child_run_id,
+            attempt=attempt,
+            authorization_id=authorization_id,
+            domain="forge",
+        )
 
     def _usage_cost(self, usage: Mapping[str, int]) -> int:
         pricing = dict(self.policy["pricing"])

@@ -1249,6 +1249,28 @@ def _readonly_claim_id(path: str | None, line: int | None, query: str, value: st
     return "claim-" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()[:32]
 
 
+def _readonly_observed_value(query: str, matched_text: str) -> str:
+    """Derive the answer value from one exact, path/line-bound match.
+
+    A marker is a search query, not automatically the answer.  When the
+    observed line carries an assignment (``MARKER=value``), only the value is
+    required in the reviewed answer; the raw line remains bounded evidence.
+    """
+    line = str(matched_text or "").strip()
+    if not line:
+        return ""
+    query = str(query or "").strip()
+    if query:
+        assignment = re.search(r"%s\s*=\s*(.+?)\s*$" % re.escape(query), line)
+        if assignment:
+            return assignment.group(1).strip().strip("`\"'")
+    if "=" in line:
+        value = line.split("=", 1)[1].strip().strip("`\"'")
+        if value:
+            return value
+    return line
+
+
 def _extract_required_evidence_claims(user_request: str) -> list[dict[str, Any]]:
     """Extract only explicit, auditable evidence claims from the full request.
 
@@ -1303,7 +1325,10 @@ def _extract_required_evidence_claims(user_request: str) -> list[dict[str, Any]]
             "path": path,
             "line": line,
             "exact_query": value,
-            "expected_value": value,
+            "observed_value": None,
+            "observed_value_hash": None,
+            "required_answer_value": None,
+            "required_answer_value_hash": None,
             "status": "pending",
         })
     return claims[:128]
@@ -1775,12 +1800,21 @@ class TrueMultiAgentProductionRuntime:
                 claim["path"] = claim.get("path") or rel
                 claim["line"] = int(match.get("line") or claim.get("line") or 0) or None
                 matched_text = str(match.get("text") or "")
+                observed_value = _readonly_observed_value(query, matched_text)
+                if not observed_value:
+                    claim["status"] = "missing"
+                    continue
                 claim["matched_text"] = redact_text(matched_text)[:512]
                 claim["matched_text_hash"] = sha256_bytes(matched_text.encode("utf-8"))
+                claim["observed_value"] = observed_value
+                claim["observed_value_hash"] = sha256_bytes(observed_value.encode("utf-8"))
+                claim["required_answer_value"] = observed_value
+                claim["required_answer_value_hash"] = claim["observed_value_hash"]
                 claim["evidence_hash"] = sha256_bytes(canonical_json_bytes({
                     "claim_id": claim["claim_id"], "path": claim.get("path"),
                     "line": claim.get("line"), "query": query,
                     "matched_text_hash": claim["matched_text_hash"],
+                    "observed_value_hash": claim["observed_value_hash"],
                 }))
                 claim["status"] = "satisfied"
             elif len(matches) == 0 and claim.get("status") not in {"missing", "ambiguous"}:
@@ -2578,7 +2612,8 @@ class TrueMultiAgentProductionRuntime:
                     claim = next((item for item in satisfied_claims if item.get("claim_id") == claim_id), None)
                     if claim is None or value.get("evidence_hash") != claim.get("evidence_hash"):
                         raise DynamicCollaborationError("readonly proposal claim evidence is not bound")
-                    if str(value.get("answer_fragment") or "").find(str(claim.get("expected_value") or "")) < 0:
+                    required_value = str(claim.get("required_answer_value") or "")
+                    if not required_value or required_value not in str(value.get("answer_fragment") or ""):
                         raise DynamicCollaborationError("readonly proposal omitted the required exact value")
                     return
                 for key in ("summary", "approach"):
@@ -3150,7 +3185,11 @@ class TrueMultiAgentProductionRuntime:
                 if isinstance(raw_verified, list):
                     verified = {str(item) for item in raw_verified}
             answer = str(winner_result.value.get("answer_fragment") or "")
-            if verified != required or any(str(item.get("expected_value") or "") not in answer for item in satisfied_claims):
+            if verified != required or any(
+                not str(item.get("required_answer_value") or "")
+                or str(item.get("required_answer_value")) not in answer
+                for item in satisfied_claims
+            ):
                 raise DynamicCollaborationError("read-only answer evidence closure is incomplete")
         return winner_result, winner_agent, results, proposal_decision
 
@@ -9563,16 +9602,9 @@ class TrueMultiAgentProductionRuntime:
                     forge_authorization = forge_binder(
                         child_authorization_locator=child_receipt.object_ref.reference_id,
                     )
-                    executor._transport_authorization_id = str(
-                        forge_authorization.get("authorization_id") or ""
-                    )
-                    executor._transport_authorization_run_id = str(evidence.run_id)
-                    executor.bind_transport_authorization_for_attempt(
-                        run_id=str(evidence.run_id), attempt=attempt,
-                        authorization_id=str(forge_authorization.get("authorization_id") or ""),
-                    )
-                    executor.bind_transport_authorization_for_attempt(
-                        run_id=exec_run_id, attempt=attempt,
+                    executor.bind_forge_transport_authorization_for_attempt(
+                        child_run_id=exec_run_id,
+                        attempt=attempt,
                         authorization_id=str(forge_authorization.get("authorization_id") or ""),
                     )
                     executor.transport.execution_authorization_ref = str(

@@ -174,6 +174,98 @@ class CodeModeHostBoundaryTests(unittest.TestCase):
                 pre_provider_scope=None,
             )
 
+    def test_revision_closed_with_two_reviews_waits_for_selection(self) -> None:
+        """A legal five-stage revision cannot fall through as EXPECT_PROPOSAL."""
+        service = object.__new__(AuthorityService)
+        run_id = "revision-fsm-run"
+        agent = "agent-atlas"
+        common = {
+            "run_id": run_id, "session_instance_id": "instance-1",
+            "conversation_session_id": "conversation-1", "turn_index": 1,
+            "generation": "generation-1", "run_attempt": 1,
+            "required_capabilities": [], "selected_agents": [agent],
+            "requested_slots": 1,
+        }
+        phases = (
+            ("discovery/controller", "goal-discovery"),
+            ("proposal/planner/candidate", "proposal-1"),
+            ("review/selection", "review-1"),
+        )
+        schedules = []
+        dispatch_acceptances = []
+        dispatches = []
+        settled = []
+        accepted = []
+        for call_index, (phase, task_id) in enumerate(
+            (phases + phases[1:]), 1
+        ):
+            decision_id = f"decision-{call_index}"
+            decision_commitment = f"decision-commitment-{call_index}"
+            schedule = {
+                **common, "task_id": task_id, "phase": phase,
+                "decision_id": decision_id, "decision_commitment": decision_commitment,
+                "purpose": "code-mode-agent-scheduling",
+                "purpose_class": "code-mode-agent-scheduling-decision",
+                "decision": {
+                    "decision_id": decision_id,
+                    "decision_commitment": decision_commitment,
+                },
+            }
+            schedules.append(schedule)
+            dispatch_command_id = f"dispatch-command-{call_index}"
+            dispatch_commitment = f"dispatch-commitment-{call_index}"
+            dispatch_acceptances.append({
+                **common, "task_id": task_id, "phase": phase,
+                "decision_id": decision_id, "decision_commitment": decision_commitment,
+                "state": "ACCEPTED", "dispatch_command_id": dispatch_command_id,
+                "dispatch_commitment": dispatch_commitment,
+            })
+            provider_call_id = f"provider-call-{call_index}"
+            dispatch = {
+                **common, "agent_id": agent, "task_id": task_id, "phase": phase,
+                "role": "planner", "call_index": call_index,
+                "dispatch_commitment": dispatch_commitment,
+                "predecessor_identity": f"predecessor-{call_index}",
+                "pre_provider_call_identity": f"pre-provider-{call_index}",
+                "provider_profile": "offline", "provider_model": "offline",
+                "provider_call_id": provider_call_id,
+                "scheduling_task_id": task_id, "scheduling_decision_id": decision_id,
+                "scheduling_decision_commitment": decision_commitment,
+                "dispatch_command_id": dispatch_command_id,
+                "dispatch_command_commitment": dispatch_commitment,
+                "selected_agent_id": agent, "slot": 1,
+            }
+            dispatches.append(dispatch)
+            settled_fact = {
+                **dispatch, "state": "SETTLED", "response_id": f"response-{call_index}",
+                "response_receipt_hash": f"response-hash-{call_index}",
+            }
+            settled.append(settled_fact)
+            accepted.append({
+                **dispatch, "state": "ACCEPTED", "response_id": settled_fact["response_id"],
+                "response_receipt_hash": settled_fact["response_receipt_hash"],
+                "output_ref": f"cas:output-{call_index}", "output_hash": f"output-hash-{call_index}",
+                "task_attempt_id": f"task-attempt-{call_index}",
+            })
+
+        selection_facts = []
+
+        def facts(_snapshot, _run, schema, _event_type):
+            return {
+                "AGENT_SCHEDULING_DECISION_V1": schedules,
+                "DISPATCH_COMMAND_ACCEPTED_V1": dispatch_acceptances,
+                "CODE_MODE_ROOT_DISPATCH_FACT_V1": dispatches,
+                "CODE_MODE_ROOT_SETTLED_FACT_V1": settled,
+                "CODE_MODE_ROOT_RESULT_ACCEPTED_V1": accepted,
+                "CODE_MODE_ROOT_SELECTION_FACT_V1": selection_facts,
+            }.get(schema, [])
+
+        service._root_fact_events = facts
+        service._root_proposal_rework_state = lambda _snapshot, _run: {"state": "CLOSED"}
+        self.assertEqual(service._root_fsm_from_snapshot((), run_id), "WAIT_SELECTION")
+        selection_facts.append({"run_id": run_id})
+        self.assertEqual(service._root_fsm_from_snapshot((), run_id), "ROOT_COMPLETE")
+
     def test_import_cannot_start_or_issue_an_authority(self) -> None:
         self.assertFalse(hasattr(CodeModeAuthorityBroker, "launch"))
         self.assertFalse(hasattr(CodeModeAuthorityBroker, "connect_host"))

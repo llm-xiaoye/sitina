@@ -287,7 +287,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             return {
                 "agent_id": agent_id, "kind": "readonly_answer",
                 "claim_id": claim["claim_id"], "evidence_hash": claim["evidence_hash"],
-                "answer_fragment": "\n".join(item["expected_value"] for item in satisfied),
+                "answer_fragment": "\n".join(item["required_answer_value"] for item in satisfied),
             }
         if kind == "readonly_review":
             claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user, re.DOTALL)
@@ -716,10 +716,11 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             journal.close()
         self.assertEqual(len(evidence_events), 1)
         claims = evidence_events[0].payload["required_evidence_claims"]
-        marker_claims = [item for item in claims if item.get("expected_value") == "READ_ONLY_MARKER"]
+        marker_claims = [item for item in claims if item.get("exact_query") == "READ_ONLY_MARKER"]
         self.assertEqual(len(marker_claims), 1)
         self.assertEqual(marker_claims[0]["status"], "satisfied")
         self.assertEqual(marker_claims[0]["line"], 3)
+        self.assertEqual(marker_claims[0]["required_answer_value"], "READ_ONLY_MARKER")
         self.assertEqual(evidence_events[0].payload["forge_count"], 0)
         self.assertEqual(evidence_events[0].payload["write_count"], 0)
 
@@ -749,6 +750,83 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         }
         result = multi.execute(
             goal, label="readonly-missing-claim-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "FAILED", result)
+        self.assertEqual(result["external_mutation_count"], 0)
+
+    def test_readonly_exact_observed_value_is_required_not_query(self) -> None:
+        (self.workspace / "README.md").write_text(
+            "generic words\nmore generic words\nREAD_ONLY_MARKER=batch9-cobalt-913\n",
+            encoding="utf-8",
+        )
+        _LocalProviderHandler.response_factory = self._root_fsm_response
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "d" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-exact-value-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
+        self.assertIn("batch9-cobalt-913", str(result.get("response") or ""))
+        self.assertNotEqual(str(result.get("response") or "").strip(), "READ_ONLY_MARKER")
+        journal = self.context.open_runtime_state_reader()
+        try:
+            evidence = next(
+                event.payload for event in journal.iter_events(0)
+                if event.payload.get("schema") == "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1"
+            )
+        finally:
+            journal.close()
+        claim = next(item for item in evidence["required_evidence_claims"] if item.get("exact_query") == "READ_ONLY_MARKER")
+        self.assertEqual(claim["observed_value"], "batch9-cobalt-913")
+        self.assertEqual(claim["required_answer_value"], "batch9-cobalt-913")
+
+    def test_readonly_query_only_answer_fails_closed(self) -> None:
+        (self.workspace / "README.md").write_text(
+            "generic words\nmore generic words\nREAD_ONLY_MARKER=batch9-cobalt-913\n",
+            encoding="utf-8",
+        )
+
+        def query_only_response(request: dict[str, object]) -> dict[str, object]:
+            value = self._root_fsm_response(request)
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            if "kind exactly 'readonly_answer'" in system:
+                value["answer_fragment"] = "READ_ONLY_MARKER"
+            return value
+
+        _LocalProviderHandler.response_factory = query_only_response
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "e" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-query-only-fixture", overrides={
                 "live_opt_in": True, "interactive_chat": True,
                 "conversation_user_message": goal,
                 "conversation_session_id": conversation, "conversation_turn_index": 1,
