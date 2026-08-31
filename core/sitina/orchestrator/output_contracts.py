@@ -136,6 +136,28 @@ _EXECUTION_REPLAN = OutputContractSpec(
         "acceptance_checks": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1000}, "minItems": 1, "maxItems": 8},
     },
 )
+_READONLY_ANSWER = OutputContractSpec(
+    "sitina.readonly-answer.v1", "readonly_answer", "SITINA_READONLY_ANSWER_V1",
+    ("agent_id", "kind", "claim_id", "evidence_hash", "answer_fragment"),
+    {
+        **_ENVELOPE,
+        "claim_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "evidence_hash": {"type": "string", "minLength": 64, "maxLength": 64},
+        "answer_fragment": {"type": "string", "minLength": 1, "maxLength": 12000},
+    },
+)
+_READONLY_REVIEW = OutputContractSpec(
+    "sitina.readonly-review.v1", "readonly_review", "SITINA_READONLY_REVIEW_V1",
+    ("agent_id", "kind", "verdict", "score", "reason", "defects", "verified_claim_ids"),
+    {
+        **_ENVELOPE,
+        "verdict": {"type": "string", "enum": ["approved", "changes_requested", "reject"]},
+        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "defects": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "verified_claim_ids": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 160}, "minItems": 1, "maxItems": 128},
+    },
+)
 _GENERIC = OutputContractSpec(
     "sitina.agent-envelope.v1", "agent_envelope", "SITINA_AGENT_ENVELOPE_V1",
     ("agent_id", "kind"), _ENVELOPE, additional_properties=True,
@@ -146,6 +168,8 @@ _TASK_SPECS: tuple[tuple[str, OutputContractSpec], ...] = (
     ("goal-discovery", _DISCOVERY),
     ("execution-review", _EXECUTION_REVIEW),
     ("execution-replan", _EXECUTION_REPLAN),
+    ("readonly-answer", _READONLY_ANSWER),
+    ("readonly-review", _READONLY_REVIEW),
     ("proposal-revision", _REVISION),
     ("review", _REVIEW),
     ("proposal", _CANDIDATE),
@@ -194,6 +218,10 @@ def resolve_output_contract(task_id: str, kind: str, *, task_type: str | None = 
         return _EXECUTION_REVIEW
     if lowered.startswith("execution-replan-"):
         return _EXECUTION_REPLAN
+    if lowered.startswith("readonly-answer-"):
+        return _READONLY_ANSWER
+    if lowered.startswith("readonly-review-"):
+        return _READONLY_REVIEW
     if lowered.startswith("proposal-revision-"):
         return _REVISION
     if lowered.startswith("review-") or lowered.startswith("review-revision-"):
@@ -222,6 +250,8 @@ def is_critical_contract_task(task_id: str) -> bool:
         or lowered.startswith("review-")
         or lowered.startswith("execution-review-")
         or lowered.startswith("execution-replan-")
+        or lowered.startswith("readonly-answer-")
+        or lowered.startswith("readonly-review-")
     )
 
 

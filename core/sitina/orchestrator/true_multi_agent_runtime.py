@@ -1932,10 +1932,44 @@ class ProviderExecutor:
         else:
             self._transport_authorization_id = ""
             self._transport_authorization_run_id = self.run_id
+        # Authorizations are immutable per execution attempt.  The scalar
+        # below is retained only for legacy diagnostics; receipt validation
+        # uses this exact-attempt map so an attempt-two capability can never
+        # retroactively validate attempt-one receipts (or vice versa).
+        self._transport_authorization_by_attempt: dict[tuple[str, int], str] = {}
+        initial_attempt = None
+        for candidate in (current_authorization, self.pre_provider_authorization):
+            if isinstance(candidate, Mapping):
+                raw_attempt = candidate.get("run_attempt")
+                if isinstance(raw_attempt, int) and not isinstance(raw_attempt, bool) and raw_attempt > 0:
+                    initial_attempt = raw_attempt
+                    break
+        if initial_attempt is not None and self._transport_authorization_id:
+            self._transport_authorization_by_attempt[(self.run_id, initial_attempt)] = self._transport_authorization_id
+            self._active_transport_attempt = initial_attempt
+        else:
+            self._active_transport_attempt = None
+        self._transport_receipt_cursor_by_attempt: dict[tuple[str, int], int] = {}
         # Only receipts accepted by ``record_embedded_transport_receipt`` are
         # eligible for canary-grade physical accounting.  Keep a settlement
         # cursor so one receipt cannot be counted again on a later callback.
         self._settled_embedded_transport_receipt_count = 0
+
+    def bind_transport_authorization_for_attempt(
+        self, *, run_id: str, attempt: int, authorization_id: str,
+    ) -> None:
+        """Register one immutable transport capability for one attempt."""
+        if not isinstance(run_id, str) or not run_id or isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+            raise TrueMultiAgentRuntimeError("transport attempt binding is invalid")
+        if not isinstance(authorization_id, str) or not authorization_id:
+            raise TrueMultiAgentRuntimeError("transport authorization identity is missing")
+        key = (run_id, attempt)
+        previous = self._transport_authorization_by_attempt.get(key)
+        if previous is not None and previous != authorization_id:
+            raise TrueMultiAgentRuntimeError("transport attempt authorization was rebound")
+        self._transport_authorization_by_attempt[key] = authorization_id
+        if run_id == self.run_id:
+            self._active_transport_attempt = attempt
 
     def _usage_cost(self, usage: Mapping[str, int]) -> int:
         pricing = dict(self.policy["pricing"])
@@ -2215,9 +2249,9 @@ class ProviderExecutor:
                 continue
             if phase == "discovery/controller" and task_id != "goal-discovery":
                 continue
-            if phase == "proposal/planner/candidate" and not task_id.startswith(("proposal-", "proposal")):
+            if phase == "proposal/planner/candidate" and not task_id.startswith(("proposal-", "proposal", "readonly-answer-")):
                 continue
-            if phase == "review/selection" and not task_id.startswith(("review-", "review")):
+            if phase == "review/selection" and not task_id.startswith(("review-", "review", "readonly-review-")):
                 continue
             if phase == CODE_MODE_FAST_PRE_PROVIDER_PHASE and task_id != "conversation-answer":
                 continue
@@ -2490,10 +2524,20 @@ class ProviderExecutor:
         return "receipt-canonical:" + sha256_bytes(canonical_json_bytes(dict(receipt)))
 
     def _validate_embedded_receipt_binding(self, receipt: Mapping[str, Any]) -> None:
-        expected_authorization_id = str(
-            getattr(self, "_transport_authorization_id", "") or ""
-        )
         receipt_authorization_id = str(receipt.get("authorization_id") or "")
+        receipt_run_id = str(receipt.get("run_id") or "")
+        raw_attempt = receipt.get("attempt", receipt.get("run_attempt"))
+        expected_authorization_id = ""
+        if isinstance(raw_attempt, int) and not isinstance(raw_attempt, bool) and raw_attempt > 0:
+            expected_authorization_id = str(
+                getattr(self, "_transport_authorization_by_attempt", {}).get((receipt_run_id, raw_attempt)) or ""
+            )
+        if not expected_authorization_id and receipt_run_id.startswith(f"forge-exec-{self.run_id}-"):
+            raise PermissionError("embedded transport receipt attempt binding is missing")
+        if not expected_authorization_id:
+            # Root receipts from older ledgers may omit an explicit attempt;
+            # only the executor's immutable root mapping is a valid fallback.
+            expected_authorization_id = str(getattr(self, "_transport_authorization_id", "") or "")
         if not expected_authorization_id or receipt_authorization_id != expected_authorization_id:
             raise PermissionError("embedded transport receipt authorization binding mismatch")
         executor_run_id = str(getattr(self, "run_id", "") or "")
@@ -2590,11 +2634,31 @@ class ProviderExecutor:
         """Return physical/retry/fallback/unsettled facts since last consume."""
         self._sync_embedded_transport_receipts()
         receipts = list(getattr(self, "_embedded_transport_receipts", ()))
-        cursor = int(getattr(self, "_settled_embedded_transport_receipt_count", 0))
+        active_attempt = getattr(self, "_active_transport_attempt", None)
+        cursor_key = (
+            str(getattr(self, "run_id", "") or ""),
+            active_attempt if isinstance(active_attempt, int) and active_attempt > 0 else 0,
+        )
+        cursors = getattr(self, "_transport_receipt_cursor_by_attempt", {})
+        cursor = int(cursors.get(cursor_key, 0))
         if cursor < 0 or cursor > len(receipts):
             raise TrueMultiAgentRuntimeError("embedded transport receipt cursor is invalid")
         current = receipts[cursor:]
-        self._settled_embedded_transport_receipt_count = len(receipts)
+        if isinstance(active_attempt, int) and active_attempt > 0:
+            current = [
+                item for item in current
+                if not isinstance(item, Mapping)
+                or item.get("attempt", item.get("run_attempt")) in (None, active_attempt)
+            ]
+        # Keep a cursor for every immutable root-run/attempt pair.  The
+        # process-wide scalar remains a compatibility diagnostic, but cannot
+        # cause attempt-two settlement to consume attempt-one receipts.
+        cursors[cursor_key] = len(receipts)
+        self._transport_receipt_cursor_by_attempt = cursors
+        self._settled_embedded_transport_receipt_count = max(
+            int(getattr(self, "_settled_embedded_transport_receipt_count", 0)),
+            len(receipts),
+        )
         # A retry is a retransmission, not a retryable response class.  The
         # issuer-owned physical_attempts field is cumulative per logical
         # provider call, so one failed attempt (including a 429/503 with

@@ -150,6 +150,8 @@ class _LocalProviderHandler(BaseHTTPRequestHandler):
                 }]
             elif case == "missing_tool_function":
                 message["tool_calls"] = [{"id": "local-tool-1", "type": "function"}]
+            elif case == "tool_arguments_invalid_json":
+                message["tool_calls"][0]["function"]["arguments"] = '{"broken"'
             elif case == "extra_tool_key":
                 message["tool_calls"] = [{
                     "id": "local-tool-1", "type": "function",
@@ -277,6 +279,24 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         kind_match = re.search(r"kind exactly '([^']+)'", system)
         agent_id = agent_match.group(1) if agent_match else "agent-atlas"
         kind = kind_match.group(1) if kind_match else "proposal"
+        if kind == "readonly_answer":
+            claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user, re.DOTALL)
+            claims = json.loads(claims_match.group(1)) if claims_match else []
+            satisfied = [item for item in claims if item.get("status") == "satisfied"]
+            claim = satisfied[0]
+            return {
+                "agent_id": agent_id, "kind": "readonly_answer",
+                "claim_id": claim["claim_id"], "evidence_hash": claim["evidence_hash"],
+                "answer_fragment": "\n".join(item["expected_value"] for item in satisfied),
+            }
+        if kind == "readonly_review":
+            claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user, re.DOTALL)
+            claims = json.loads(claims_match.group(1)) if claims_match else []
+            return {
+                "agent_id": agent_id, "kind": "readonly_review", "verdict": "approved",
+                "score": 90, "reason": "all required evidence is present", "defects": [],
+                "verified_claim_ids": [item["claim_id"] for item in claims if item.get("status") == "satisfied"],
+            }
         if kind == "review":
             return {
                 "agent_id": agent_id,
@@ -658,6 +678,88 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         self.assertTrue(any("def fixture_contract" in item.get("text", "") for item in readonly_events[0].payload.get("excerpts", [])))
         self.assertGreater(readonly_events[0].payload.get("tool_call_count", 0), 0)
         self.assertGreater(readonly_tool_event_count, 0)
+
+    def test_readonly_required_claims_are_exactly_bound_to_answer_and_journal(self) -> None:
+        (self.workspace / "README.md").write_text(
+            "generic words\nmore generic words\nREAD_ONLY_MARKER\n",
+            encoding="utf-8",
+        )
+        _LocalProviderHandler.response_factory = self._root_fsm_response
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "b" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-required-claims-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "SUCCEEDED", result)
+        self.assertIn("READ_ONLY_MARKER", str(result.get("response") or ""))
+        journal = self.context.open_runtime_state_reader()
+        try:
+            evidence_events = [
+                event for event in journal.iter_events(0)
+                if event.payload.get("schema") == "TRUE_MULTI_AGENT_READONLY_WORKSPACE_EVIDENCE_V1"
+            ]
+        finally:
+            journal.close()
+        self.assertEqual(len(evidence_events), 1)
+        claims = evidence_events[0].payload["required_evidence_claims"]
+        marker_claims = [item for item in claims if item.get("expected_value") == "READ_ONLY_MARKER"]
+        self.assertEqual(len(marker_claims), 1)
+        self.assertEqual(marker_claims[0]["status"], "satisfied")
+        self.assertEqual(marker_claims[0]["line"], 3)
+        self.assertEqual(evidence_events[0].payload["forge_count"], 0)
+        self.assertEqual(evidence_events[0].payload["write_count"], 0)
+
+    def test_readonly_missing_claim_fails_closed_even_when_review_is_accepted(self) -> None:
+        (self.workspace / "README.md").write_text(
+            "generic words\nmore generic words\nREAD_ONLY_MARKER\n",
+            encoding="utf-8",
+        )
+
+        def missing_claim_response(request: dict[str, object]) -> dict[str, object]:
+            value = self._root_fsm_response(request)
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            if "kind exactly 'readonly_answer'" in system:
+                value["claim_id"] = "claim-not-in-evidence"
+                value["evidence_hash"] = "0" * 64
+            return value
+
+        _LocalProviderHandler.response_factory = missing_claim_response
+        _runtime_home, multi, _run_id, conversation, _generation, _authorization, _activation = self._runtime()
+        goal = "请只读核验 `README.md` 第3行的 `READ_ONLY_MARKER`，不要修改文件。"
+        route = {
+            "requested_mode": "MULTI", "resolved_mode": "MULTI", "source": "user_forced",
+            "reasons": ["bounded evidence review"], "policy_version": "fixture-v1",
+            "input_hash": "c" * 64, "confidence": "1", "threshold": "0.65",
+            "upgrade_reason": None, "initial_fast_decision": None, "decision_path": "USER_FORCED_MULTI",
+        }
+        result = multi.execute(
+            goal, label="readonly-missing-claim-fixture", overrides={
+                "live_opt_in": True, "interactive_chat": True,
+                "conversation_user_message": goal,
+                "conversation_session_id": conversation, "conversation_turn_index": 1,
+                "conversation_route_decision": route,
+                "execution_workspace": str(self.workspace),
+                "session_instance_id": self.context.session_instance_id,
+                "code_mode_intent": {"explicit_mutation": False}, "intent_authorized": False,
+            },
+        )
+        self.assertEqual(result["terminal_state"], "FAILED", result)
+        self.assertEqual(result["external_mutation_count"], 0)
 
     def test_live_low_risk_rework_reopens_one_bound_revision_before_selection(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
@@ -1560,7 +1662,7 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
             "missing_content", "nonstring_content", "fenced_content",
             "natural_content", "truncated_content", "whitespace_content", "wrong_tool_calls",
             "missing_tool_type", "fake_tool_type", "missing_tool_id",
-            "missing_tool_function", "extra_tool_key",
+            "missing_tool_function", "extra_tool_key", "tool_arguments_invalid_json",
             "tool_call_index_bool", "tool_call_index_negative", "tool_call_index_float",
             "usage_bool", "usage_string", "usage_float",
             "missing_finish_reason", "finish_reason_stop", "finish_reason_length",
@@ -1617,7 +1719,12 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 self.assertEqual(failures[0]["provider_call_id"], captured[0][0].effect_id)
                 self.assertEqual(failures[0]["physical_attempts"], 1)
                 self.assertEqual(failures[0]["outcome_state"], "OUTCOME_UNKNOWN")
-                self.assertEqual(failures[0]["reason_code"], "PROVIDER_RESPONSE_VALIDATION_FAILED")
+                self.assertEqual(
+                    failures[0]["reason_code"],
+                    "PROVIDER_TOOL_ARGUMENTS_INVALID_JSON"
+                    if case == "tool_arguments_invalid_json"
+                    else "PROVIDER_RESPONSE_VALIDATION_FAILED",
+                )
                 self.assertFalse(failures[0]["usage_settled"])
                 self.assertEqual(executor.provider_call_total(), 1)
                 self.assertEqual(executor.physical_send_total(), 1)

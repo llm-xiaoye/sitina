@@ -63,6 +63,31 @@ class OutputContractTests(unittest.TestCase):
                 system_prompt="", user_prompt="", input_context={}, validate=lambda value: None,
             )
 
+    def test_readonly_claim_contract_has_identical_wire_and_local_bounds(self) -> None:
+        answer = resolve_output_contract("readonly-answer-1", "readonly_answer")
+        review = resolve_output_contract("readonly-review-1", "readonly_review")
+        answer_value = {
+            "agent_id": "agent", "kind": "readonly_answer", "claim_id": "claim-1",
+            "evidence_hash": "a" * 64, "answer_fragment": "READ_ONLY_MARKER",
+        }
+        validate_output_contract(answer_value, answer)
+        for protocol in ("openai_chat_completions", "anthropic_messages"):
+            wire = provider_tools_for_wire(structured_response_tools(answer), protocol)
+            schema = wire[0]["function"]["parameters"] if protocol == "openai_chat_completions" else wire[0]["input_schema"]
+            self.assertEqual(set(schema["required"]), set(answer.required))
+        review_value = {
+            "agent_id": "agent", "kind": "readonly_review", "verdict": "approved",
+            "score": 90, "reason": "verified", "defects": [], "verified_claim_ids": ["claim-1"],
+        }
+        validate_output_contract(review_value, review)
+        for invalid in (
+            {**answer_value, "answer_fragment": ""},
+            {**review_value, "verified_claim_ids": [1]},
+            {**review_value, "defects": ["x"] * 9},
+        ):
+            with self.assertRaises(OutputContractError):
+                validate_output_contract(invalid, answer if "answer_fragment" in invalid else review)
+
 
 if __name__ == "__main__":
     unittest.main()

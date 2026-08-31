@@ -1234,11 +1234,79 @@ class CodeModeExecutionFacts:
 def render_selected_user_response(value: Mapping[str, Any]) -> str:
     """Render the reviewed winning proposal as a concise terminal response."""
 
+    answer_fragment = str(value.get("answer_fragment") or "").strip()
+    if answer_fragment:
+        return answer_fragment
     summary = str(value.get("summary") or "").strip()
     approach = str(value.get("approach") or "").strip()
     if summary and approach and summary != approach:
         return f"{summary}\n\n{approach}"
     return summary or approach
+
+
+def _readonly_claim_id(path: str | None, line: int | None, query: str, value: str) -> str:
+    payload = {"path": path or "", "line": line, "query": query, "value": value}
+    return "claim-" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()[:32]
+
+
+def _extract_required_evidence_claims(user_request: str) -> list[dict[str, Any]]:
+    """Extract only explicit, auditable evidence claims from the full request.
+
+    Broad goal words are intentionally excluded.  Claims come from quoted or
+    backtick-delimited values, upper snake identifiers, and relative paths
+    (optionally carrying a line number).  The collector resolves these facts
+    through the bound read/search tools before making them visible to agents.
+    """
+    text = str(user_request or "")
+    candidates: list[tuple[str, str | None, int | None]] = []
+    path_pattern = re.compile(
+        r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.[A-Za-z0-9_-]+)(?::(\d+))?"
+    )
+    for match in re.finditer(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'|“([^”]+)”|‘([^’]+)’", text):
+        value = next((item for item in match.groups() if item is not None), "").strip()
+        if value:
+            path_match = re.fullmatch(path_pattern, value)
+            candidates.append((
+                value,
+                path_match.group(1) if path_match else None,
+                int(path_match.group(2)) if path_match and path_match.group(2) else None,
+            ))
+    for match in re.finditer(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b", text):
+        candidates.append((match.group(0), None, None))
+    for match in path_pattern.finditer(text):
+        path = match.group(1)
+        if path.startswith(".") or path.startswith("/") or "/../" in ("/" + path):
+            continue
+        line = int(match.group(2)) if match.group(2) else None
+        if line is None:
+            suffix = text[match.end():match.end() + 24]
+            line_match = re.search(
+                r"(?:line\s*[:#]?\s*(\d+)|第\s*(\d+)\s*行|行\s*[:#]?\s*(\d+))",
+                suffix,
+                re.IGNORECASE,
+            )
+            if line_match:
+                line = int(next(item for item in line_match.groups() if item is not None))
+        candidates.append((path, path, line))
+    claims: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None, int | None]] = set()
+    line_paths = {path for _, path, line in candidates if path and line is not None}
+    for value, path, line in candidates:
+        if path and line is None and path in line_paths:
+            continue
+        key = (value, path, line)
+        if key in seen:
+            continue
+        seen.add(key)
+        claims.append({
+            "claim_id": _readonly_claim_id(path, line, value, value),
+            "path": path,
+            "line": line,
+            "exact_query": value,
+            "expected_value": value,
+            "status": "pending",
+        })
+    return claims[:128]
 
 
 class TrueMultiAgentProductionRuntime:
@@ -1393,6 +1461,7 @@ class TrueMultiAgentProductionRuntime:
         run_stream: CanonicalStream,
         evidence: Any,
         workspace: Path,
+        user_request: str | None = None,
     ) -> Mapping[str, Any]:
         """Collect bounded list/read/search facts before Proposal/Review.
 
@@ -1421,6 +1490,9 @@ class TrueMultiAgentProductionRuntime:
             ".env", ".env.local", ".env.production", "credentials", "secrets",
             "id_rsa", "id_ed25519", "authorized_keys",
         }
+        required_claims = _extract_required_evidence_claims(
+            user_request if user_request is not None else str(getattr(evidence, "goal", "") or "")
+        )
         terms = [
             token.casefold()
             for token in re.findall(r"[A-Za-z0-9_\u3400-\u9fff]{2,}", str(getattr(evidence, "goal", "") or ""))
@@ -1435,6 +1507,7 @@ class TrueMultiAgentProductionRuntime:
         search_hits: list[dict[str, Any]] = []
         excerpts: list[dict[str, Any]] = []
         tool_calls: list[dict[str, Any]] = []
+        read_text_by_path: dict[str, str] = {}
         excerpt_bytes = 0
         excerpt_line_budget = 96
         excerpt_byte_budget = 16 * 1024
@@ -1577,6 +1650,7 @@ class TrueMultiAgentProductionRuntime:
                     if not isinstance(value, str):
                         raise DynamicCollaborationError("read-only file tool returned malformed result")
                     text = value
+                    read_text_by_path[relative] = text
                 # Empty files are still successfully read and must carry the
                 # digest of their observed bytes.  ``None`` is reserved for
                 # files that were intentionally not read because they exceed
@@ -1622,6 +1696,104 @@ class TrueMultiAgentProductionRuntime:
                             "line": number,
                             "text_hash": sha256_bytes(lines[number - 1].encode("utf-8")),
                         })
+        # README is a first-class directed evidence target.  It is read as a
+        # text file even though generic evidence search is intentionally
+        # limited to source extensions; an explicit marker is searched with
+        # exact, case-sensitive semantics and no ``*.py`` filter.
+        readme = root / "README.md"
+        if readme.is_file() and readme.name not in skip_file_names:
+            readme_value = invoke_read("sitina_read_file", {"path": str(readme)})
+            if isinstance(readme_value, str):
+                read_text_by_path["README.md"] = readme_value
+        if "READ_ONLY_MARKER" in str(user_request or ""):
+            directed = invoke_read(
+                "sitina_grep",
+                {
+                    "path": str(root), "pattern": re.escape("READ_ONLY_MARKER"),
+                    "ignore_case": False, "max_results": 32,
+                },
+            )
+            if isinstance(directed, Mapping):
+                for match in list(directed.get("matches") or ()):
+                    if not isinstance(match, Mapping):
+                        continue
+                    try:
+                        rel = Path(str(match.get("file") or "")).resolve(strict=False).relative_to(root).as_posix()
+                    except ValueError:
+                        continue
+                    search_hits.append({
+                        "path": rel, "line": int(match.get("line") or 0),
+                        "text": redact_text(str(match.get("text") or ""))[:512],
+                        "text_hash": sha256_bytes(str(match.get("text") or "").encode("utf-8")),
+                        "query": "READ_ONLY_MARKER",
+                    })
+        # Resolve explicit claims with directed reads and exact, case-sensitive
+        # searches.  Generic term search below is supplementary only.
+        for claim in required_claims:
+            claim_path = claim.get("path")
+            query = str(claim.get("exact_query") or "")
+            matches: list[Mapping[str, Any]] = []
+            if isinstance(claim_path, str) and claim_path:
+                target = (root / claim_path).resolve(strict=False)
+                try:
+                    target.relative_to(root)
+                except ValueError:
+                    claim["status"] = "ambiguous"
+                    continue
+                if target.is_file() and target.name not in skip_file_names and target.stat().st_size <= max_file_bytes:
+                    if claim_path not in read_text_by_path:
+                        value = invoke_read("sitina_read_file", {"path": str(target)})
+                        if isinstance(value, str):
+                            read_text_by_path[claim_path] = value
+                    text_value = read_text_by_path.get(claim_path, "")
+                    lines = text_value.splitlines()
+                    if claim.get("line") is not None:
+                        line_no = int(claim["line"])
+                        if 1 <= line_no <= len(lines):
+                            line_text = lines[line_no - 1]
+                            if query == claim_path or query in line_text:
+                                matches = [{"file": str(target), "line": line_no, "text": line_text}]
+                    elif query == claim_path or query in text_value:
+                        line_no = next((i for i, line in enumerate(lines, 1) if query in line), 1)
+                        matches = [{"file": str(target), "line": line_no, "text": lines[line_no - 1] if lines else ""}]
+                else:
+                    claim["status"] = "missing"
+            else:
+                exact = invoke_read(
+                    "sitina_grep",
+                    {"path": str(root), "pattern": re.escape(query), "ignore_case": False, "max_results": 128},
+                )
+                if isinstance(exact, Mapping):
+                    matches = [item for item in list(exact.get("matches") or ()) if isinstance(item, Mapping)]
+            if len(matches) == 1:
+                match = matches[0]
+                try:
+                    rel = Path(str(match.get("file") or "")).resolve(strict=False).relative_to(root).as_posix()
+                except ValueError:
+                    claim["status"] = "ambiguous"
+                    continue
+                claim["path"] = claim.get("path") or rel
+                claim["line"] = int(match.get("line") or claim.get("line") or 0) or None
+                matched_text = str(match.get("text") or "")
+                claim["matched_text"] = redact_text(matched_text)[:512]
+                claim["matched_text_hash"] = sha256_bytes(matched_text.encode("utf-8"))
+                claim["evidence_hash"] = sha256_bytes(canonical_json_bytes({
+                    "claim_id": claim["claim_id"], "path": claim.get("path"),
+                    "line": claim.get("line"), "query": query,
+                    "matched_text_hash": claim["matched_text_hash"],
+                }))
+                claim["status"] = "satisfied"
+            elif len(matches) == 0 and claim.get("status") not in {"missing", "ambiguous"}:
+                claim["status"] = "missing"
+            else:
+                claim["status"] = "ambiguous"
+            if claim.get("status") == "satisfied" and claim.get("matched_text"):
+                excerpts.append({
+                    "path": claim.get("path"), "line": claim.get("line"),
+                    "text": claim.get("matched_text"), "text_hash": claim.get("matched_text_hash"),
+                    "claim_id": claim.get("claim_id"),
+                })
+
         search_pattern = "|".join(re.escape(term) for term in terms[:8]) or r"TODO|FIXME|error|fail"
         grep_result = invoke_read(
             "sitina_grep",
@@ -1661,6 +1833,7 @@ class TrueMultiAgentProductionRuntime:
             "entries": entries,
             "search_terms": terms,
             "search_hits": search_hits,
+            "required_evidence_claims": required_claims,
             "excerpts": excerpts,
             "tool_calls": [
                 {
@@ -1696,6 +1869,7 @@ class TrueMultiAgentProductionRuntime:
             "search_hit_count": len(search_hits),
             "entries": entries,
             "search_hits": search_hits,
+            "required_evidence_claims": required_claims,
             "excerpts": excerpts,
             "tool_calls": payload["tool_calls"],
             "tool_call_count": payload["tool_call_count"],
@@ -2322,6 +2496,14 @@ class TrueMultiAgentProductionRuntime:
         overrides: Mapping[str, Any],
     ) -> tuple[AgentCallResult, AgentIdentity, list[AgentCallResult], AgentSchedulingDecision]:
         readonly_evidence = getattr(evidence, "readonly_workspace_evidence", None)
+        readonly_mode = isinstance(readonly_evidence, Mapping) and bool(
+            readonly_evidence.get("required_evidence_claims")
+        )
+        readonly_claims = tuple(
+            item for item in (readonly_evidence.get("required_evidence_claims", ()) if readonly_mode else ())
+            if isinstance(item, Mapping)
+        )
+        satisfied_claims = tuple(item for item in readonly_claims if item.get("status") == "satisfied")
         readonly_context = (
             {"readonly_workspace_evidence": readonly_evidence}
             if isinstance(readonly_evidence, Mapping)
@@ -2391,6 +2573,14 @@ class TrueMultiAgentProductionRuntime:
             proposal_ids[agent.agent_id] = proposal_id
 
             def validate_proposal(value: Mapping[str, Any]) -> None:
+                if readonly_mode:
+                    claim_id = value.get("claim_id")
+                    claim = next((item for item in satisfied_claims if item.get("claim_id") == claim_id), None)
+                    if claim is None or value.get("evidence_hash") != claim.get("evidence_hash"):
+                        raise DynamicCollaborationError("readonly proposal claim evidence is not bound")
+                    if str(value.get("answer_fragment") or "").find(str(claim.get("expected_value") or "")) < 0:
+                        raise DynamicCollaborationError("readonly proposal omitted the required exact value")
+                    return
                 for key in ("summary", "approach"):
                     _require_string(value, key)
                 for key in ("risks", "assumptions"):
@@ -2401,14 +2591,21 @@ class TrueMultiAgentProductionRuntime:
                 executor,
                 evidence,
                 agent,
-                task_id=f"proposal-{index}",
-                kind="proposal",
+                task_id=(f"readonly-answer-{index}" if readonly_mode else f"proposal-{index}"),
+                kind=("readonly_answer" if readonly_mode else "proposal"),
                 root_phase="proposal/planner/candidate",
-                contract="Submit an independently reasoned proposal with summary, approach, risks, assumptions, and acceptance_checks. acceptance_checks must be a JSON string array; risks and assumptions may each be a concise string or string array.",
+                contract=(
+                    "Return claim_id, evidence_hash, and answer_fragment for one satisfied required evidence claim; "
+                    "answer_fragment must contain its exact value."
+                    if readonly_mode else
+                    "Submit an independently reasoned proposal with summary, approach, risks, assumptions, and acceptance_checks. acceptance_checks must be a JSON string array; risks and assumptions may each be a concise string or string array."
+                ),
                 prompt=(
-                    "Create an independent solution for this goal. Do not copy another Agent. "
+                    ("Return a reviewed read-only answer grounded only in the required claims. " if readonly_mode else "Create an independent solution for this goal. Do not copy another Agent. ")
+                    +
                     f"Goal: {evidence.goal}\nTask graph: {json.dumps(list(analysis.task_graph), ensure_ascii=False)}\n"
                     f"Frozen rubric hash: {rubric}\n"
+                    + ("READONLY_CLAIMS_JSON=" + json.dumps(list(readonly_claims), ensure_ascii=False, sort_keys=True) + "\n" if readonly_mode else "")
                     + (
                         "Bounded read-only workspace evidence (bounded facts and excerpts; no execution authorization): "
                         + json.dumps(readonly_evidence, ensure_ascii=False, sort_keys=True)
@@ -2470,6 +2667,11 @@ class TrueMultiAgentProductionRuntime:
                     raise DynamicCollaborationError("approved Review score is below the frozen minimum")
                 _require_string(value, "reason")
                 _require_strings(value, "defects", minimum=0, maximum=8)
+                if readonly_mode:
+                    verified = value.get("verified_claim_ids")
+                    expected = {str(item.get("claim_id")) for item in satisfied_claims}
+                    if not isinstance(verified, list) or set(str(item) for item in verified) != expected:
+                        raise DynamicCollaborationError("readonly Reviewer did not verify every required claim")
 
             instruction = (
                 "This goal explicitly requires a real rework path. Identify one specific repairable defect and return verdict changes_requested with score below 70."
@@ -2482,10 +2684,13 @@ class TrueMultiAgentProductionRuntime:
                 executor,
                 evidence,
                 reviewer,
-                task_id=f"review-{index}",
-                kind="review",
+                task_id=(f"readonly-review-{index}" if readonly_mode else f"review-{index}"),
+                kind=("readonly_review" if readonly_mode else "review"),
                 root_phase="review/selection",
                 contract=(
+                    "Return the standard review fields plus verified_claim_ids containing every satisfied required claim id. "
+                    if readonly_mode else ""
+                ) + (
                     "Return verdict, integer score on a 0-100 scale, reason, and defects. verdict MUST be exactly "
                     "one of: approved, changes_requested, reject. defects MUST be a JSON array containing only "
                     "zero to eight short strings (use [] when there are no defects and combine related concerns rather "
@@ -2498,6 +2703,7 @@ class TrueMultiAgentProductionRuntime:
                     + f"\nGoal: {evidence.goal}\nProposal hash: {result.output_hash}\nProposal: "
                     + json.dumps(dict(result.value), ensure_ascii=False, sort_keys=True)
                     + f"\nFrozen rubric hash: {rubric}"
+                    + ("\nREADONLY_CLAIMS_JSON=" + json.dumps(list(readonly_claims), ensure_ascii=False, sort_keys=True) if readonly_mode else "")
                     + (
                         "\nBounded read-only workspace evidence (bounded facts and excerpts; no execution authorization): "
                         + json.dumps(readonly_evidence, ensure_ascii=False, sort_keys=True)
@@ -2934,6 +3140,18 @@ class TrueMultiAgentProductionRuntime:
                 producer_role="root_selection",
                 command_id="root-selection-" + evidence.run_id,
             )
+        if readonly_mode:
+            required = {str(item.get("claim_id")) for item in satisfied_claims}
+            if not required or len(satisfied_claims) != len(readonly_claims):
+                raise DynamicCollaborationError("required read-only evidence claims are missing or ambiguous")
+            verified = set()
+            if review_results:
+                raw_verified = review_results[-1].value.get("verified_claim_ids")
+                if isinstance(raw_verified, list):
+                    verified = {str(item) for item in raw_verified}
+            answer = str(winner_result.value.get("answer_fragment") or "")
+            if verified != required or any(str(item.get("expected_value") or "") not in answer for item in satisfied_claims):
+                raise DynamicCollaborationError("read-only answer evidence closure is incomplete")
         return winner_result, winner_agent, results, proposal_decision
 
     def _debate(
@@ -7446,9 +7664,20 @@ class TrueMultiAgentProductionRuntime:
                 "run_id": latest_attempt.get("run_id"),
                 "run_attempt": latest_attempt.get("run_attempt"),
                 "previous_authorization_ref": latest_attempt.get("previous_authorization_ref"),
+                "original_intent_hash": (
+                    (authorization.get("intent") or {}).get("intent_hash")
+                    if isinstance(authorization.get("intent"), Mapping)
+                    else None
+                ),
+                "execution_mode": "forge",
+                "mutation_required": True,
                 "prior_plan_hash": latest_attempt.get("prior_plan_hash"),
                 "prior_failure_type": latest_attempt.get("prior_failure_type"),
                 "prior_failure_hash": latest_attempt.get("prior_failure_hash"),
+                "typed_prior_failure": {
+                    "failure_type": latest_attempt.get("prior_failure_type"),
+                    "failure_hash": latest_attempt.get("prior_failure_hash"),
+                },
                 "plan_hash": latest_attempt.get("replan_plan_hash"),
                 **dict(latest_attempt.get("replan_plan") or {}),
             }
@@ -9257,6 +9486,7 @@ class TrueMultiAgentProductionRuntime:
                     }, ensure_ascii=False, sort_keys=True)
                 )
             embedded_client: BoundedToolTurnClient | None = None
+            forge_bound = False
             try:
                 # ToolCatalog binds each embedded invocation to its own
                 # autonomous run id.  Derive a narrowly scoped child view of
@@ -9337,9 +9567,21 @@ class TrueMultiAgentProductionRuntime:
                         forge_authorization.get("authorization_id") or ""
                     )
                     executor._transport_authorization_run_id = str(evidence.run_id)
+                    executor.bind_transport_authorization_for_attempt(
+                        run_id=str(evidence.run_id), attempt=attempt,
+                        authorization_id=str(forge_authorization.get("authorization_id") or ""),
+                    )
+                    executor.bind_transport_authorization_for_attempt(
+                        run_id=exec_run_id, attempt=attempt,
+                        authorization_id=str(forge_authorization.get("authorization_id") or ""),
+                    )
                     executor.transport.execution_authorization_ref = str(
                         forge_authorization.get("authorization_ref") or ""
                     )
+                # The attempt is replan-eligible only after both the durable
+                # child fact and (for authoritative transport) its host
+                # attempt-control binding have committed.
+                forge_bound = True
                 embedded_client = BoundedToolTurnClient(
                     executor.transport.client,
                     executor.transport.profile,
@@ -9438,6 +9680,7 @@ class TrueMultiAgentProductionRuntime:
                     "tool_call_count": 0,
                     "mutation_events": [],
                     "external_mutation_count": 0,
+                    "forge_bound": forge_bound,
                 }
                 try:
                     audit.append(
@@ -9535,7 +9778,17 @@ class TrueMultiAgentProductionRuntime:
                 )
                 if declared_mutations != journal_mutations:
                     raise DynamicCollaborationError("Forge child mutation facts contradict its Journal")
-            r = {**r, **child_facts}
+            r = {
+                **r,
+                **child_facts,
+                "forge_bound": bool(r.get("forge_bound", forge_bound) or forge_bound),
+                "attempt_binding": {
+                    "authorization_ref": str(getattr(executor.transport, "execution_authorization_ref", "") or authorization_ref),
+                    "child_run_id": exec_run_id,
+                    "attempt": attempt,
+                    "receipt_cursor": len(getattr(executor, "_embedded_transport_receipts", ())),
+                },
+            }
             accounting = provider_accounting_delta(accounting_before)
             provider_identity = getattr(embedded_client, "last_profile", None) or executor.actual_provider_profile()
             r = _merge_embedded_attempt_accounting(
@@ -10038,6 +10291,9 @@ class TrueMultiAgentProductionRuntime:
                     "prior_failure": dict(failure),
                     "prior_plan_hash": str(failure.get("plan_hash") or winner.output_hash),
                     "attempt": attempt,
+                    "original_intent_hash": intent_hash,
+                    "execution_mode": "forge",
+                    "mutation_required": True,
                 },
                 validate=validate_replan,
             )
@@ -10066,9 +10322,16 @@ class TrueMultiAgentProductionRuntime:
                 "run_id": evidence.run_id,
                 "run_attempt": attempt,
                 "previous_authorization_ref": str(authorization_ref),
+                "original_intent_hash": intent_hash,
+                "execution_mode": "forge",
+                "mutation_required": True,
                 "prior_plan_hash": prior_plan_hash,
                 "prior_failure_type": prior_failure_type,
                 "prior_failure_hash": prior_failure_hash,
+                "typed_prior_failure": {
+                    "failure_type": prior_failure_type,
+                    "failure_hash": prior_failure_hash,
+                },
                 "plan_hash": normalized_plan_hash,
                 **normalized_plan,
             }
@@ -10086,6 +10349,13 @@ class TrueMultiAgentProductionRuntime:
                 "prior_plan_hash": prior_plan_hash,
                 "prior_failure_type": prior_failure_type,
                 "prior_failure_hash": prior_failure_hash,
+                "original_intent_hash": intent_hash,
+                "execution_mode": "forge",
+                "mutation_required": True,
+                "typed_prior_failure": {
+                    "failure_type": prior_failure_type,
+                    "failure_hash": prior_failure_hash,
+                },
             }
             replan_context[attempt] = record
             return record
@@ -13910,6 +14180,7 @@ class TrueMultiAgentProductionRuntime:
                     run_stream=run_stream,
                     evidence=evidence,
                     workspace=Path(raw_workspace),
+                    user_request=str(controls.get("conversation_user_message") or evidence.goal or ""),
                 )
             self._materialize_topology(journal, run_stream, evidence, analysis)
             winner, winner_agent, proposals, proposal_decision = self._proposal_and_review(

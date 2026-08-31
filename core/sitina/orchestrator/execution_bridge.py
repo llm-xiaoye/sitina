@@ -627,6 +627,8 @@ def run_safe_execution(
         failure_hash: str,
         replan_result: Mapping[str, Any],
         stage: str,
+        forge_bound: bool | None = None,
+        attempt_binding: Mapping[str, Any] | None = None,
     ) -> None:
         """Append the immutable per-attempt failure record.
 
@@ -641,12 +643,14 @@ def run_safe_execution(
             and str(previous.get("failure_type") or "") == failure_type
             and str(previous.get("failure_hash") or "") == failure_hash
         )
+        binding_facts = dict(attempt_binding) if isinstance(attempt_binding, Mapping) else {}
         attempt_ledger.append(
             {
                 "attempt": attempt,
                 "plan_hash": plan_hash,
                 "result": "FAILED",
                 "stage": stage,
+                "forge_bound": bool(stage != "Forge" if forge_bound is None else forge_bound),
                 "failure_type": failure_type,
                 "failure_hash": failure_hash,
                 "prior_failure_type": str(previous.get("failure_type")) if previous else None,
@@ -654,6 +658,9 @@ def run_safe_execution(
                 "same_failure": same_failure,
                 "replan": bool(replan_result),
                 "rollback": "pending",
+                "authorization_ref": binding_facts.get("authorization_ref"),
+                "child_run_id": binding_facts.get("child_run_id"),
+                "receipt_cursor": binding_facts.get("receipt_cursor"),
             }
         )
         last_failure_update = {
@@ -691,6 +698,20 @@ def run_safe_execution(
         last_failure = failure_holder[0]
         replan_result: Mapping[str, Any] = {}
         if attempt > 1 and last_failure is not None and replan is not None:
+            previous_attempt = attempt_ledger[-1] if attempt_ledger else {}
+            if previous_attempt.get("forge_bound") is not True:
+                error_hash = hashlib.sha256(b"replan-before-forge-binding").hexdigest()
+                attempt_ledger.append({
+                    "attempt": attempt, "plan_hash": str(last_failure.get("plan_hash") or binding.winner_output_hash),
+                    "result": "FAILED", "failure_type": "ReplanAdmissionError", "failure_hash": error_hash,
+                    "stage": "Planner", "forge_bound": False, "replan": False,
+                    "same_failure": False, "rollback": "not_started",
+                })
+                notes.append(f"attempt{attempt}:replan_rejected_before_forge_binding:{error_hash}")
+                return _make_result(
+                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, notes=tuple(notes),
+                )
             try:
                 replan_result = dict(replan(attempt, dict(last_failure)))
                 notes.append(
@@ -732,6 +753,12 @@ def run_safe_execution(
                 "error_type": type(error).__name__,
                 "error_hash": error_hash,
                 "secret_values_included": False,
+                # A thrown runner exception represents an execution attempt
+                # that reached the runner boundary.  Production callers that
+                # fail before child binding return an explicit mapping with
+                # forge_bound=False, so this compatibility path cannot turn
+                # an admission rejection into a blind replan.
+                "forge_bound": True,
             }
         # If the Forge loop itself failed/hit its guards, isolate and retry.
         if str(forge_result.get("terminal_state")) != "SUCCEEDED":
@@ -743,6 +770,8 @@ def run_safe_execution(
             _record_failure(
                 attempt, plan_hash=plan_hash, failure_type=failure_type,
                 failure_hash=failure_hash, replan_result=replan_result, stage="Forge",
+                forge_bound=bool(forge_result.get("forge_bound")),
+                attempt_binding=forge_result.get("attempt_binding"),
             )
             if _rollback_or_fail(attempt) is not None:
                 return _make_result(
@@ -914,6 +943,19 @@ def run_safe_execution(
                     "same_failure": False,
                     "replan": bool(replan_result),
                     "rollback": "not_required",
+                    "forge_bound": True,
+                    "authorization_ref": (
+                        forge_result.get("attempt_binding", {}).get("authorization_ref")
+                        if isinstance(forge_result.get("attempt_binding"), Mapping) else None
+                    ),
+                    "child_run_id": (
+                        forge_result.get("attempt_binding", {}).get("child_run_id")
+                        if isinstance(forge_result.get("attempt_binding"), Mapping) else None
+                    ),
+                    "receipt_cursor": (
+                        forge_result.get("attempt_binding", {}).get("receipt_cursor")
+                        if isinstance(forge_result.get("attempt_binding"), Mapping) else None
+                    ),
                 }
             )
             notes.append(f"attempt{attempt}:accepted")

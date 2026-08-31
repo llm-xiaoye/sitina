@@ -3618,6 +3618,37 @@ class CodeModeScriptedProvider:
 
     def _value(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         agent_id = self._agent_id(system_prompt)
+        declared_kind = (re.search(r"kind exactly '([^']+)'", system_prompt) or [None, ""])[1]
+        if (
+            "READONLY_CLAIMS_JSON=" in user_prompt
+            or declared_kind in {"readonly_answer", "readonly_review"}
+            or "verified_claim_ids" in system_prompt
+            or "answer_fragment" in system_prompt
+        ):
+            claims_match = re.search(r"READONLY_CLAIMS_JSON=(\[.*?\])", user_prompt, re.DOTALL)
+            claims = []
+            if claims_match:
+                try:
+                    parsed = json.loads(claims_match.group(1))
+                    claims = [item for item in parsed if isinstance(item, Mapping)]
+                except Exception:
+                    claims = []
+            if "readonly-review" in user_prompt or "VERIFIED_CLAIM_IDS" in user_prompt or "verified_claim_ids" in user_prompt or "verified_claim_ids" in system_prompt or "required claim id" in user_prompt:
+                return {
+                    "agent_id": agent_id, "kind": "readonly_review", "verdict": "approved",
+                    "score": 90, "reason": "The required workspace claims are verified.", "defects": [],
+                    "verified_claim_ids": [str(item.get("claim_id")) for item in claims if item.get("status") == "satisfied"],
+                }
+            claim = next((item for item in claims if item.get("status") == "satisfied"), None)
+            if claim is None:
+                raise ValueError("scripted readonly provider received no satisfied claim")
+            return {
+                "agent_id": agent_id, "kind": "readonly_answer",
+                "claim_id": str(claim["claim_id"]), "evidence_hash": str(claim.get("evidence_hash") or "0" * 64),
+                "answer_fragment": "\n".join(
+                    str(item.get("expected_value") or "") for item in claims if item.get("status") == "satisfied"
+                ),
+            }
         if "contract_hash=" in user_prompt and "selected_proposal_projection" in user_prompt:
             contract_match = re.search(r"contract_hash=([0-9a-f]{64})", user_prompt)
             projection_match = re.search(r'"selected_proposal_projection_hash"\s*:\s*"([0-9a-f]{64})"', user_prompt)

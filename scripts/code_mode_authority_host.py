@@ -3496,6 +3496,11 @@ class AuthorityService:
             # cannot advance the FSM by supplying a phase, role, or selected
             # agent in the bind RPC.
             root_state = self._root_fsm_from_snapshot(snapshot, root_run_id)
+            if root_state == "CLOSED_REJECTED":
+                raise AuthorityError(
+                    "Forge root planning FSM closed after rejected revision",
+                    reason_code="ROOT_REWORK_CLOSED_REJECTED",
+                )
             selections = self._root_fact_events(
                 snapshot, root_run_id, "CODE_MODE_ROOT_SELECTION_FACT_V1",
                 "code-mode.root-selection-committed",
@@ -3527,7 +3532,10 @@ class AuthorityService:
             ) or type(selection.get("turn_index")) is not int or selection.get("turn_index") < 0 or type(selection.get("run_attempt")) is not int or selection.get("run_attempt") < 1 or not isinstance(selection.get("selected_agent_capabilities"), list):
                 raise AuthorityError("authenticated root selection is incomplete")
             if root_state != "ROOT_COMPLETE":
-                raise AuthorityError("Forge root planning FSM has not completed authenticated selection")
+                raise AuthorityError(
+                    "Forge root planning FSM has not completed authenticated selection",
+                    reason_code="ROOT_PLANNING_SELECTION_INCOMPLETE",
+                )
             if selection.get("session_instance_id") != session["binding"].get("session_instance_id"):
                 raise AuthorityError("root selection session instance changed")
             if selection.get("conversation_session_id") != current_execution_auth.get("session_id"):
@@ -4497,7 +4505,10 @@ class AuthorityService:
                     try:
                         arguments = json.loads(arguments_raw)
                     except (TypeError, json.JSONDecodeError) as error:
-                        raise AuthorityError("host provider tool arguments are invalid") from error
+                        raise AuthorityError(
+                            "host provider tool arguments are invalid",
+                            reason_code="PROVIDER_TOOL_ARGUMENTS_INVALID_JSON",
+                        ) from error
                     if not isinstance(arguments, Mapping):
                         raise AuthorityError("host provider tool arguments are not an object")
                     normalized_calls.append({"id": call_id, "name": name, "arguments": dict(arguments)})
