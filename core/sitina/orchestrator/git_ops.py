@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
+import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -41,11 +43,71 @@ class GitWorktreeManager:
             "status": "ok" if proc.returncode == 0 and not worktree_dir.exists() else "failed",
             "repo": str(repo_path),
             "worktree": str(worktree_dir),
+            "isolation_kind": "git_worktree",
             "returncode": proc.returncode,
             "stdout": proc.stdout[-1000:],
             "stderr": proc.stderr[-1000:],
             "removed": proc.returncode == 0 and not worktree_dir.exists(),
             "path_absent": not worktree_dir.exists(),
+        }
+
+    def _unborn_snapshot_marker(self, snapshot_dir: Path) -> Path:
+        return snapshot_dir / ".git" / "sitina-unborn-snapshot-v1"
+
+    def _remove_unborn_snapshot(self, snapshot_dir: Path, run_id: str) -> dict[str, Any]:
+        """Remove one run-scoped Git snapshot without touching the source repo."""
+        managed_root = (self.home / "artifacts" / "worktrees").expanduser().resolve(strict=False)
+        snapshot_dir = snapshot_dir.expanduser().resolve(strict=False)
+        try:
+            snapshot_dir.relative_to(managed_root)
+        except ValueError:
+            return {
+                "status": "failed",
+                "worktree": str(snapshot_dir),
+                "reason": "unborn snapshot is outside the managed worktree root",
+                "removed": False,
+                "path_absent": not snapshot_dir.exists(),
+                "isolation_kind": "unborn_snapshot",
+            }
+        marker = self._unborn_snapshot_marker(snapshot_dir)
+        expected_marker = f"SITINA_UNBORN_SNAPSHOT_V1\nrun_id={run_id}\n"
+        try:
+            marker_value = marker.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            marker_value = None
+        if marker_value != expected_marker:
+            return {
+                "status": "failed",
+                "worktree": str(snapshot_dir),
+                "reason": "unborn snapshot marker is missing or mismatched",
+                "removed": False,
+                "path_absent": not snapshot_dir.exists(),
+                "isolation_kind": "unborn_snapshot",
+            }
+        try:
+            with authorized_extension_effect(
+                permission="shell", approval_granted=True,
+                purpose="sitina-authorized-unborn-snapshot-cleanup",
+            ):
+                shutil.rmtree(snapshot_dir)
+            removed = not snapshot_dir.exists()
+        except OSError as error:
+            return {
+                "status": "failed",
+                "worktree": str(snapshot_dir),
+                "reason": "unborn snapshot cleanup failed",
+                "error_type": type(error).__name__,
+                "stderr": str(error)[-1000:],
+                "removed": False,
+                "path_absent": not snapshot_dir.exists(),
+                "isolation_kind": "unborn_snapshot",
+            }
+        return {
+            "status": "ok" if removed else "failed",
+            "worktree": str(snapshot_dir),
+            "removed": removed,
+            "path_absent": not snapshot_dir.exists(),
+            "isolation_kind": "unborn_snapshot",
         }
 
     def _worktree_porcelain(self, repo_path: Path) -> tuple[str, int]:
@@ -76,17 +138,143 @@ class GitWorktreeManager:
         worktree_dir = self.home / "artifacts" / "worktrees" / run_id
         ensure_dir(worktree_dir.parent)
         if worktree_dir.exists():
-            result = {"status": "ok", "repo": str(repo_path), "worktree": str(worktree_dir), "note": "already exists"}
+            result = {
+                "status": "ok", "repo": str(repo_path), "worktree": str(worktree_dir),
+                "note": "already exists",
+                "isolation_kind": "unborn_snapshot" if (worktree_dir / ".git").is_dir() else "git_worktree",
+            }
             self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="ok")
             return result
+        # ``git worktree add ... HEAD`` rejects an unborn repository because
+        # HEAD has no commit-ish yet.  Use a self-contained, run-scoped Git
+        # snapshot instead.  Its empty baseline objects live only under the
+        # managed snapshot directory; the source repo's HEAD, refs, index, and
+        # object database are read-only.  The execution controller overlays the
+        # selected workspace immediately after prepare().
         with authorized_extension_effect(
             permission="shell", approval_granted=True,
             purpose="sitina-authorized-worktree-prepare",
         ):
-            proc = subprocess.run(["git", "-C", str(repo_path), "worktree", "add", "--detach", str(worktree_dir), "HEAD"], capture_output=True, text=True)
-        status = "ok" if proc.returncode == 0 else "failed"
+            head = subprocess.run(
+                ["git", "-C", str(repo_path), "rev-parse", "--verify", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+        unborn = head.returncode != 0
+        checkout_ref: str | None = "HEAD"
+        temporary_baseline_commit: str | None = None
+        isolation_kind = "git_worktree"
+        stdout = ""
+        stderr = ""
+        worktree_returncode = 0
+        if unborn:
+            isolation_kind = "unborn_snapshot"
+            checkout_ref = None
+            commit_env = os.environ.copy()
+            commit_env.update({
+                "GIT_AUTHOR_NAME": "Sitina worktree anchor",
+                "GIT_AUTHOR_EMAIL": "sitina-worktree-anchor@invalid",
+                "GIT_COMMITTER_NAME": "Sitina worktree anchor",
+                "GIT_COMMITTER_EMAIL": "sitina-worktree-anchor@invalid",
+            })
+            with authorized_extension_effect(
+                permission="shell", approval_granted=True,
+                purpose="sitina-authorized-unborn-snapshot-prepare",
+            ):
+                init = subprocess.run(
+                    ["git", "init", "--quiet", str(worktree_dir)],
+                    env=commit_env,
+                    capture_output=True,
+                    text=True,
+                )
+            if init.returncode != 0:
+                with authorized_extension_effect(
+                    permission="shell", approval_granted=True,
+                    purpose="sitina-authorized-unborn-snapshot-cleanup",
+                ):
+                    shutil.rmtree(worktree_dir, ignore_errors=True)
+                result = {
+                    "status": "failed", "repo": str(repo_path), "worktree": str(worktree_dir),
+                    "isolation_kind": isolation_kind,
+                    "reason": "unborn repository could not initialize isolated snapshot",
+                    "stderr": init.stderr[-1000:],
+                }
+                self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="failed")
+                return result
+            marker = self._unborn_snapshot_marker(worktree_dir)
+            try:
+                marker.write_text(f"SITINA_UNBORN_SNAPSHOT_V1\nrun_id={run_id}\n", encoding="utf-8")
+            except OSError as error:
+                with authorized_extension_effect(
+                    permission="shell", approval_granted=True,
+                    purpose="sitina-authorized-unborn-snapshot-cleanup",
+                ):
+                    shutil.rmtree(worktree_dir, ignore_errors=True)
+                result = {
+                    "status": "failed", "repo": str(repo_path), "worktree": str(worktree_dir),
+                    "isolation_kind": isolation_kind,
+                    "reason": "unborn snapshot marker could not be written",
+                    "stderr": str(error)[-1000:],
+                }
+                self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="failed")
+                return result
+            with authorized_extension_effect(
+                permission="shell", approval_granted=True,
+                purpose="sitina-authorized-unborn-snapshot-prepare",
+            ):
+                anchor = subprocess.run(
+                    ["git", "-C", str(worktree_dir), "commit", "--allow-empty", "--quiet", "-m", "Sitina temporary unborn worktree anchor"],
+                    env=commit_env,
+                    capture_output=True,
+                    text=True,
+                )
+                snapshot_head = subprocess.run(
+                    ["git", "-C", str(worktree_dir), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                )
+            temporary_baseline_commit = snapshot_head.stdout.strip()
+            if anchor.returncode != 0 or snapshot_head.returncode != 0 or not temporary_baseline_commit:
+                with authorized_extension_effect(
+                    permission="shell", approval_granted=True,
+                    purpose="sitina-authorized-unborn-snapshot-cleanup",
+                ):
+                    shutil.rmtree(worktree_dir, ignore_errors=True)
+                result = {
+                    "status": "failed", "repo": str(repo_path), "worktree": str(worktree_dir),
+                    "isolation_kind": isolation_kind,
+                    "reason": "unborn repository could not create isolated snapshot baseline",
+                    "stderr": (anchor.stderr or snapshot_head.stderr)[-1000:],
+                }
+                self.store.record_audit("git_worktree_prepare", result, run_id=run_id, exit_status="failed")
+                return result
+            stdout = anchor.stdout[-1000:]
+            stderr = anchor.stderr[-1000:]
+        else:
+            with authorized_extension_effect(
+                permission="shell", approval_granted=True,
+                purpose="sitina-authorized-worktree-prepare",
+            ):
+                proc = subprocess.run(
+                    ["git", "-C", str(repo_path), "worktree", "add", "--detach", str(worktree_dir), checkout_ref],
+                    capture_output=True,
+                    text=True,
+                )
+            worktree_returncode = proc.returncode
+            stdout = proc.stdout[-1000:]
+            stderr = proc.stderr[-1000:]
+        status = "ok" if (unborn or worktree_returncode == 0) else "failed"
         porcelain_after, _ = self._worktree_porcelain(repo_path)
-        result = {"status": status, "repo": str(repo_path), "worktree": str(worktree_dir), "stdout": proc.stdout[-1000:], "stderr": proc.stderr[-1000:]}
+        result = {
+            "status": status, "repo": str(repo_path), "worktree": str(worktree_dir),
+            "stdout": stdout,
+            "stderr": stderr,
+            "returncode": worktree_returncode,
+            "unborn_repository": unborn,
+            "isolation_kind": isolation_kind,
+            "checkout_ref": checkout_ref,
+            "temporary_baseline_commit": temporary_baseline_commit,
+        }
         result.update(
             {
                 "registration_before_sha256": hashlib.sha256(porcelain_before.encode()).hexdigest(),
@@ -101,7 +289,11 @@ class GitWorktreeManager:
             # fails after git has registered the worktree, remove this exact
             # registration before surfacing the original failure.  A caller
             # must never receive an un-audited successful prepare.
-            cleanup = self._remove_worktree(repo_path, worktree_dir)
+            cleanup = (
+                self._remove_unborn_snapshot(worktree_dir, run_id)
+                if isolation_kind == "unborn_snapshot"
+                else self._remove_worktree(repo_path, worktree_dir)
+            )
             if cleanup["status"] != "ok":
                 raise RuntimeError(
                     "worktree audit failed and exact cleanup failed: "
@@ -114,7 +306,11 @@ class GitWorktreeManager:
         """Clean one prepared worktree and return auditable final state."""
         repo_path = Path(repo).expanduser().resolve(strict=False)
         worktree_path = Path(worktree).expanduser().resolve(strict=False)
-        result = self._remove_worktree(repo_path, worktree_path)
+        if (worktree_path / ".git").is_dir():
+            result = self._remove_unborn_snapshot(worktree_path, run_id)
+            result.setdefault("repo", str(repo_path))
+        else:
+            result = self._remove_worktree(repo_path, worktree_path)
         try:
             self.store.record_audit("git_worktree_cleanup", result, run_id=run_id, exit_status=result["status"])
             result["audit_recorded"] = True
