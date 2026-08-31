@@ -11539,6 +11539,17 @@ class TrueMultiAgentProductionRuntime:
                 raise DynamicCollaborationError("Code Mode pending checkpoint is missing or duplicated")
             checkpoint_event = checkpoint_events[0]
             checkpoint = dict(checkpoint_event.payload)
+            abandonment_events = [
+                event for event in events
+                if isinstance(event.payload, Mapping)
+                and event.payload.get("schema") == "CODE_MODE_REVIEW_ABANDONED_V1"
+                and event.payload.get("event_type") == "code-mode.review-abandoned"
+                and event.payload.get("run_id") == run_id
+            ]
+            if len(abandonment_events) > 1:
+                raise DynamicCollaborationError("Code Mode review abandonment is duplicated")
+            if abandonment_events:
+                raise DynamicCollaborationError("Code Mode review was durably abandoned")
             checkpoint_locator = {
                 "run_id": run_id,
                 "event_id": checkpoint_event.event_id,
@@ -11966,6 +11977,133 @@ class TrueMultiAgentProductionRuntime:
         finally:
             journal.close()
 
+    def _code_mode_run_has_internal_gate_fact(self, context: Any, run_id: str) -> bool:
+        """Return whether this run reached the durable internal Gate fact.
+
+        A managed root that disappeared before this fact is not recoverable:
+        there is no authenticated Gate to replay.  Conversely, a crash after
+        this fact (including after cleanup) remains the existing bounded
+        finalization-retry path.
+        """
+        reader = None
+        try:
+            reader = context.open_runtime_state_reader()
+            return any(
+                str(getattr(event, "stream_id", "")) == f"run/{run_id}"
+                and isinstance(getattr(event, "payload", None), Mapping)
+                and event.payload.get("event_type") == "code-mode.internal-gate-accepted"
+                and event.payload.get("run_id") == run_id
+                for event in reader.iter_events(0)
+            )
+        except Exception:
+            # If the durable frontier cannot prove a Gate fact, do not leave a
+            # deleted managed root looking retryable.
+            return False
+        finally:
+            if reader is not None:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
+
+    def _abandon_code_mode_review(
+        self,
+        *,
+        run_id: str,
+        pending: Mapping[str, Any],
+        context: Any,
+        reason_code: str,
+    ) -> None:
+        """Close an unrecoverable managed review after its root is gone.
+
+        This is deliberately distinct from terminalization: no successful
+        terminal or final-root fact is minted after a pre-Gate observation
+        failure.  A durable abandonment fact fences restart recovery, while
+        the process-local pending entry and controller session (including its
+        namespace lock) are released exactly once.
+        """
+        run_id = str(run_id)
+        journal = None
+        try:
+            journal = context.open_runtime_writer()
+            events = tuple(
+                event for event in journal.iter_events(0)
+                if str(getattr(event, "stream_id", "")) == f"run/{run_id}"
+            )
+            existing = [
+                event for event in events
+                if isinstance(getattr(event, "payload", None), Mapping)
+                and event.payload.get("schema") == "CODE_MODE_REVIEW_ABANDONED_V1"
+                and event.payload.get("event_type") == "code-mode.review-abandoned"
+                and event.payload.get("run_id") == run_id
+            ]
+            if len(existing) > 1:
+                raise DynamicCollaborationError("Code Mode review abandonment is duplicated")
+            if not existing:
+                cleanup_events = [
+                    event for event in events
+                    if isinstance(getattr(event, "payload", None), Mapping)
+                    and event.payload.get("event_type") == "execution.worktree.cleanup.finally"
+                ]
+                cleanup = cleanup_events[0].payload if len(cleanup_events) == 1 else {}
+                cleanup_event = cleanup_events[0] if len(cleanup_events) == 1 else None
+                stream = CanonicalStream(journal, run_id, f"run/{run_id}", self.policy_hash)
+                stream.append(
+                    "code-mode-review-abandoned",
+                    ({
+                        "schema": "CODE_MODE_REVIEW_ABANDONED_V1",
+                        "event_type": "code-mode.review-abandoned",
+                        "run_id": run_id,
+                        "terminal_state": "FAILED",
+                        "recoverable": False,
+                        "reason_code": str(reason_code),
+                        "cleanup_event_id": (
+                            cleanup_event.event_id if cleanup_event is not None else None
+                        ),
+                        "cleanup_event_hash": (
+                            cleanup_event.event_hash if cleanup_event is not None else None
+                        ),
+                        "cleanup_status": cleanup.get("status"),
+                        "cleanup_removed": cleanup.get("removed"),
+                    },),
+                    actor="code-mode-review-controller",
+                )
+        except Exception:
+            # Abandonment is a fail-closed fence.  Even if a best-effort
+            # Journal marker cannot be appended, never retain a process-local
+            # pending run or its controller lock after its root is gone.
+            pass
+        finally:
+            if journal is not None:
+                try:
+                    journal.close()
+                except Exception:
+                    pass
+            self._pending_code_mode_runs.pop(run_id, None)
+            controllers: list[Any] = []
+            active = getattr(self, "_active_code_mode_controller", None)
+            if active is not None and getattr(active, "run_id", None) == run_id:
+                controllers.append(active)
+            context_controller = getattr(context, "_active_controller_session", None)
+            if (
+                context_controller is not None
+                and getattr(context_controller, "run_id", None) == run_id
+                and all(context_controller is not item for item in controllers)
+            ):
+                controllers.append(context_controller)
+            for controller in controllers:
+                try:
+                    controller.close()
+                except Exception:
+                    pass
+                if getattr(self, "_active_code_mode_controller", None) is controller:
+                    self._active_code_mode_controller = None
+                if getattr(context, "_active_controller_session", None) is controller:
+                    try:
+                        setattr(context, "_active_controller_session", None)
+                    except Exception:
+                        pass
+
     def _publish_code_mode_completion_plan(
         self,
         *,
@@ -12184,6 +12322,7 @@ class TrueMultiAgentProductionRuntime:
                 and pending["checkpoint_payload"].get("managed_worktree_for_review") is True
             )
         )
+        finalization_error: BaseException | None = None
         try:
             return self._finalize_code_mode_review_impl(
                 run_id=run_id,
@@ -12193,24 +12332,43 @@ class TrueMultiAgentProductionRuntime:
                 conversation_session_id=conversation_session_id,
                 conversation_turn_index=conversation_turn_index,
             )
+        except BaseException as error:
+            finalization_error = error
+            raise
         finally:
             # The implementation performs cleanup immediately after the
             # machine/internal Gate and marks it complete.  This outer guard
             # covers every earlier validation failure (checkpoint reopen,
             # reviewer receipt, conversation binding, or Gate) as well.
             context = pending.get("runtime_context")
+            expected_worktree = (
+                self.home / "artifacts" / "worktrees" / str(run_id)
+            ).expanduser().resolve(strict=False)
             if managed and context is not None:
-                expected_worktree = (
-                    self.home / "artifacts" / "worktrees" / str(run_id)
-                ).expanduser().resolve(strict=False)
                 # The implementation's success path removes the root before
                 # returning.  If it still exists, this is an early failure
-                # and the same authoritative helper must clean it.
-                if expected_worktree.is_dir() and not expected_worktree.is_symlink():
-                    self._cleanup_pending_code_mode_worktree(
-                        run_id=str(run_id), pending=pending, context=context,
-                        managed_worktree_for_review=True,
-                    )
+                # and the same authoritative helper must clean it.  Keep the
+                # abandonment decision below in a nested finally so a
+                # cleanup exception cannot strand the controller lock.
+                try:
+                    if expected_worktree.is_dir() and not expected_worktree.is_symlink():
+                        self._cleanup_pending_code_mode_worktree(
+                            run_id=str(run_id), pending=pending, context=context,
+                            managed_worktree_for_review=True,
+                        )
+                finally:
+                    if (
+                        finalization_error is not None
+                        and not expected_worktree.exists()
+                        and not expected_worktree.is_symlink()
+                        and not self._code_mode_run_has_internal_gate_fact(
+                            context, str(run_id)
+                        )
+                    ):
+                        self._abandon_code_mode_review(
+                            run_id=str(run_id), pending=pending, context=context,
+                            reason_code="MANAGED_REVIEW_ROOT_CLEANED_BEFORE_GATE",
+                        )
 
     def _finalize_code_mode_review_impl(
         self,

@@ -352,6 +352,31 @@ class ConversationRuntime:
                             max_turns=self.context.policy.max_recent_turns,
                         )
             except (EOFError, OSError, PermissionError, TimeoutError, RuntimeError, ValueError) as error:
+                run_id = str(result.get("run_id") or "")
+                pending_runs = getattr(self.multi_runtime, "_pending_code_mode_runs", None)
+                managed_review_abandoned = bool(
+                    result.get("managed_worktree_for_review") is True
+                    and run_id
+                    and isinstance(pending_runs, Mapping)
+                    and run_id not in pending_runs
+                )
+                if managed_review_abandoned:
+                    # A pre-Gate managed-root observation failure is
+                    # unrecoverable once the outer cleanup guard has removed
+                    # the root.  Do not hand the CLI a REVIEW_PENDING result
+                    # that points at an absent worktree; the controller has
+                    # already fenced the run and released its namespace lock.
+                    self._pending_code_mode_sessions.pop(run_id, None)
+                    updated = dict(result)
+                    updated.update({
+                        "terminal_state": "FAILED",
+                        "code_mode_status": "CODE_MODE_FAILED",
+                        "review_status": "FAILED",
+                        "review_reason_type": "CODE_MODE_REVIEW_ABANDONED",
+                        "execution_failed_closed": True,
+                        "review_abandoned": True,
+                    })
+                    return updated
                 updated = dict(result)
                 updated["code_mode_status"] = "CODE_MODE_REVIEW_PENDING"
                 updated["review_status"] = "REVIEW_PENDING"

@@ -1821,41 +1821,58 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         self.assertFalse(managed_root.exists())
 
     def test_managed_tester_observation_drift_fails_and_cleans(self) -> None:
-        """A changed managed root cannot be promoted after the checkpoint."""
+        """A changed managed root is abandoned, not returned as retryable."""
         result, managed_root = self._managed_pending_run(
             "Please create managed-drift.py and run the focused test; do not commit or push."
         )
         self.runtime.code_mode_reviewer_session = self.reviewer
-        captured: dict[str, object] = {}
-        original_finalize = self.multi.finalize_code_mode_review
+        controller = self.multi._active_code_mode_controller
+        self.assertIsNotNone(controller)
+        original_gate = CodeModeAcceptanceV1.evaluate_offline
+        gate_calls = 0
 
-        def capture_and_stop(**kwargs: object) -> dict[str, object]:
-            captured.update(kwargs)
-            raise RuntimeError("pause before finalization")
+        def gate_then_drift(gate: CodeModeAcceptanceV1, *args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal gate_calls
+            evaluated = original_gate(gate, *args, **kwargs)
+            gate_calls += 1
+            if gate_calls == 1:
+                (managed_root / "hello.py").write_text(
+                    (managed_root / "hello.py").read_text(encoding="utf-8") + "\n# drift\n",
+                    encoding="utf-8",
+                )
+            return evaluated
 
-        # First take the real TTY path to obtain the attested receipt and
-        # controller Gate arguments, but stop before the finalizer can clean
-        # the root.  This is only a test seam for sequencing, not evidence.
+        # The first Gate is the real ConversationRuntime path.  The mutation
+        # occurs only after that attestation and before the finalizer reopens
+        # the machine receipt, so the second Gate detects the live drift and
+        # exercises the production abandonment/cleanup guard.
         with patch.object(self.reviewer, "_rpc", side_effect=self._managed_tty_rpc), patch.object(
-            self.multi, "finalize_code_mode_review", side_effect=capture_and_stop
+            CodeModeAcceptanceV1, "evaluate_offline", autospec=True, side_effect=gate_then_drift
         ):
-            pending = self.runtime.maybe_confirm_tty_review(result)
-        self.assertEqual(pending["terminal_state"], "REVIEW_PENDING")
-        self.assertTrue(managed_root.is_dir())
-        (managed_root / "hello.py").write_text(
-            (managed_root / "hello.py").read_text(encoding="utf-8") + "\n# drift\n",
-            encoding="utf-8",
-        )
-        self.assertTrue(captured)
-        with self.assertRaises(DynamicCollaborationError):
-            original_finalize(**captured)
+            failed = self.runtime.maybe_confirm_tty_review(result)
+        self.assertEqual(failed["terminal_state"], "FAILED", failed)
+        self.assertEqual(failed["review_status"], "FAILED")
+        self.assertEqual(failed["review_reason_type"], "CODE_MODE_REVIEW_ABANDONED")
+        self.assertTrue(failed["review_abandoned"])
+        self.assertEqual(gate_calls, 1)
         self.assertFalse(managed_root.exists())
+        self.assertNotIn(result["run_id"], self.multi._pending_code_mode_runs)
+        self.assertIsNone(self.multi._active_code_mode_controller)
+        self.assertTrue(getattr(controller, "_closed", False))
         context = self.context_factory(self.home)
         journal = context.open_runtime_state_reader()
         try:
             events = [event for event in journal.iter_events(0) if event.stream_id == f"run/{result['run_id']}"]
         finally:
             journal.close()
+        self.assertEqual(
+            sum(event.payload.get("event_type") == "execution.worktree.cleanup.finally" for event in events),
+            1,
+        )
+        self.assertEqual(
+            sum(event.payload.get("event_type") == "code-mode.review-abandoned" for event in events),
+            1,
+        )
         self.assertFalse(any(
             event.event_type == "code-mode.terminal-success"
             or event.payload.get("schema") == "CODE_MODE_FINAL_ROOT_V2"
