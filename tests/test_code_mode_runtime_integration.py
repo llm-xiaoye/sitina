@@ -53,7 +53,7 @@ from sitina.orchestrator.true_multi_agent import (
 from sitina.orchestrator.true_multi_agent_runtime import CanonicalStream, TrueMultiAgentRuntimeError
 from sitina.runners.provider import (
     AnthropicCompatibleClient, ProviderCompletion, ProviderConnectTimeout,
-    ProviderProfile, ProviderToolCall, ProviderToolTurn,
+    ProviderHTTPError, ProviderProfile, ProviderToolCall, ProviderToolTurn,
 )
 from sitina.security.key_provider import InMemoryKeyProvider
 from sitina.runners.tool_executor import ToolExecutor
@@ -100,6 +100,7 @@ class _ScriptedCodeModeProvider:
         if (
             "Produce a new implementation plan after a failed execution attempt" in user_prompt
             or "Re-plan the requested code change" in user_prompt
+            or "Recover the original requested implementation" in user_prompt
         ):
             return {
                 "agent_id": agent_id, "kind": "replan",
@@ -862,6 +863,112 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             "opaque authorization token leaked into temporary Journal/CAS/log state",
         )
         self.assertTrue(any(event.event_type == "execution.stage" and event.payload.get("stage") == "Reviewer" for event in events))
+
+    def test_existing_untracked_unittest_is_selected_for_code_mode_tester(self) -> None:
+        """A pre-existing test file is executable evidence, not a patch path."""
+        test_file = self.workspace / "test_hello.py"
+        test_file.write_text(
+            "import unittest\n"
+            "from hello import hello\n\n"
+            "class HelloTests(unittest.TestCase):\n"
+            "    def test_hello(self):\n"
+            "        self.assertEqual(hello(), 'hello')\n",
+            encoding="utf-8",
+        )
+        baseline_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
+        session = self.runtime.resume_or_create_session()
+        result = self.runtime.execute_turn(
+            session, "Please create hello.py and run the focused test; do not commit or push."
+        )
+        self.assertEqual(result["terminal_state"], "REVIEW_PENDING", result)
+        context = self.context_factory(self.home)
+        journal = context.open_runtime_state_reader()
+        try:
+            run_events = [
+                event for event in journal.iter_events(0)
+                if event.stream_id == f"run/{result['run_id']}"
+            ]
+        finally:
+            journal.close()
+        tester = [
+            event for event in run_events
+            if event.event_type == "execution.stage" and event.payload.get("stage") == "Tester"
+        ][-1]
+        evidence_ref = tester.payload.get("test_evidence_ref")
+        self.assertIsInstance(evidence_ref, str)
+        cas = context.open_cas_reader()
+        evidence = json.loads(cas.open_verified(cas.resolve_reference(evidence_ref)).decode())
+        self.assertEqual(evidence["runner_argv"][1:3], ["-m", "unittest"])
+        self.assertEqual(evidence["runner_argv"][3:], ["test_hello.py"])
+        self.assertEqual(evidence["collected_test_count"], 1)
+        self.assertEqual(evidence["executed_test_count"], 1)
+        self.assertEqual(evidence["passed_test_count"], 1)
+        self.assertEqual(evidence["failed_test_count"], 0)
+        self.assertEqual(
+            baseline_hash,
+            hashlib.sha256(test_file.read_bytes()).hexdigest(),
+            "unchanged test evidence must not be mutated",
+        )
+        forge = [event for event in run_events if event.event_type == "forge.execution.result"][-1]
+        self.assertEqual(forge.payload.get("diff_paths"), [str((self.workspace / "hello.py").resolve())])
+
+    def test_provider_http_failure_resumes_original_plan_without_replan_provider_call(self) -> None:
+        """A no-write transport fault cannot rewrite the product goal."""
+        class HTTPFailingProvider(_ScriptedCodeModeProvider):
+            def __init__(self, workspace: Path):
+                super().__init__(workspace)
+                self.fail_once = True
+                self.replan_prompts: list[str] = []
+
+            def _value(self, system_prompt: str, user_prompt: str) -> dict[str, object]:
+                if "Recover the original requested implementation" in user_prompt:
+                    self.replan_prompts.append(user_prompt)
+                return super()._value(system_prompt, user_prompt)
+
+            def complete_tool_turn(self, _profile: ProviderProfile, **kwargs: object) -> ProviderToolTurn:
+                if self.fail_once:
+                    self.fail_once = False
+                    self.tool_calls = 0
+                    raise ProviderHTTPError(400, "controlled local transport fault")
+                return super().complete_tool_turn(_profile, **kwargs)
+
+        provider = HTTPFailingProvider(self.workspace)
+        runtime = TrueMultiAgentProductionRuntime(
+            self.home, runtime_context_factory=self.context_factory,
+            provider_client=provider, provider_profile=provider.profile,
+        )
+        conversation = ConversationRuntime(
+            self.home, workspace=self.workspace, multi_runtime=runtime,
+            runtime_context_factory=self.context_factory,
+        )
+        session = conversation.resume_or_create_session()
+        result = conversation.execute_turn(
+            session, "Please create http-recovery.py and run the focused test; do not commit or push."
+        )
+        self.assertEqual(result["terminal_state"], "REVIEW_PENDING", result)
+        self.assertEqual(provider.replan_prompts, [])
+        context = self.context_factory(self.home)
+        journal = context.open_runtime_state_reader()
+        try:
+            events = [event for event in journal.iter_events(0) if event.stream_id == f"run/{result['run_id']}"]
+        finally:
+            journal.close()
+        forge = [event for event in events if event.event_type == "forge.execution.result"][-1]
+        self.assertTrue(forge.payload.get("accepted"))
+        self.assertEqual(forge.payload.get("attempts"), 2)
+        ledger = forge.payload.get("attempt_ledger")
+        self.assertEqual(ledger[0].get("reason_code"), "PROVIDER_HTTP_FAILURE")
+        self.assertEqual(ledger[0].get("mutation_count"), 0)
+        advance = [
+            event for event in events
+            if event.payload.get("schema") == "SITINA_EXECUTION_ATTEMPT_ADVANCED_V1"
+        ][0].payload
+        self.assertEqual(advance["execution_authorization"].get("recovery_mode"), "resume-original")
+        self.assertEqual(
+            advance["execution_authorization"].get("original_plan_hash"),
+            advance["code_mode_authorization"].get("original_plan_hash"),
+        )
+        self.assertNotIn("Provider retry/backoff", json.dumps(advance, ensure_ascii=False))
 
     def test_post_execution_reviewer_rejection_replans_with_new_attempt_child(self) -> None:
         provider = _ScriptedCodeModeProvider(self.workspace)

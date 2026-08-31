@@ -45,6 +45,8 @@ def verify_execution_diff(
     sandbox_executable: Path = Path("/usr/bin/sandbox-exec"),
     limits: SandboxResourceLimits | None = None,
     worker_executor: Any | None = None,
+    execution_root: Path | str | None = None,
+    baseline_test_inventory: Sequence[Mapping[str, Any] | str] = (),
 ) -> VerificationVerdict:
     """Statically inspect the diff, then execute tests only in a qualified OS sandbox.
 
@@ -100,6 +102,60 @@ def verify_execution_diff(
         )
 
     py_files = [Path(value).expanduser() for value in diff_paths if Path(value).suffix == ".py"]
+
+    def baseline_unittest_targets() -> list[Path]:
+        """Validate the controller-owned pre-attempt test inventory.
+
+        The inventory is deliberately separate from ``diff_paths``: an
+        unchanged test is valid execution evidence, but it must never become
+        mutation or patch evidence.  Every selected file is re-hashed at the
+        verifier boundary so a stale or caller-forged inventory fails closed.
+        """
+        if execution_root is None:
+            return []
+        root = Path(execution_root).expanduser().resolve(strict=True)
+        if not root.is_dir() or root.is_symlink():
+            raise ValueError("execution root must be a real directory")
+        targets: list[Path] = []
+        for raw in baseline_test_inventory:
+            if isinstance(raw, Mapping):
+                relative_value = raw.get("relative_path") or raw.get("path")
+                expected_hash = raw.get("sha256") or raw.get("hash")
+            else:
+                relative_value = raw
+                expected_hash = None
+            if not isinstance(relative_value, str) or not relative_value.strip():
+                raise ValueError("baseline test inventory path is invalid")
+            relative = Path(relative_value)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("baseline test inventory path must be relative")
+            if relative.name.startswith(".") or not relative.name.startswith("test_") or relative.suffix != ".py":
+                raise ValueError("baseline test inventory contains a non-unittest target")
+            target = (root / relative).resolve(strict=True)
+            if target.is_symlink() or not target.is_file():
+                raise ValueError("baseline test inventory target is not a regular file")
+            try:
+                target.relative_to(root)
+            except ValueError as error:
+                raise ValueError("baseline test inventory target escapes execution root") from error
+            if expected_hash is not None:
+                if not isinstance(expected_hash, str):
+                    raise ValueError("baseline test inventory hash is invalid")
+                digest = hashlib.sha256(target.read_bytes()).hexdigest()
+                normalized = expected_hash.removeprefix("sha256:")
+                if digest != normalized:
+                    raise ValueError("baseline test inventory hash changed")
+            targets.append(target)
+        return sorted(set(targets), key=lambda value: value.relative_to(root).as_posix())
+
+    baseline_targets: list[Path] = []
+    try:
+        baseline_targets = baseline_unittest_targets()
+    except (OSError, ValueError, TypeError) as error:
+        return verdict(
+            False, checked_diff=True, checked_tests=False,
+            reasons=(f"baseline test inventory rejected ({type(error).__name__})",),
+        )
     changed_unittest_targets: list[Path] = []
     changed_doctest_targets: list[Path] = []
     for path in py_files:
@@ -120,6 +176,8 @@ def verify_execution_diff(
     test_targets = (
         changed_unittest_targets
         if changed_unittest_targets
+        else baseline_targets
+        if baseline_targets
         else changed_doctest_targets
     )
 
@@ -151,9 +209,22 @@ def verify_execution_diff(
             evidence_paths = tuple(Path(value).expanduser().resolve(strict=True) for value in diff_paths)
             diff_before, target_hashes = hash_diff(evidence_paths)
             test_plan, test_plan_hash = _trusted_test_plan(tuple(test_targets))
-            common = Path(os.path.commonpath([str(path) for path in evidence_paths])).resolve(strict=True)
-            cwd = common if common.is_dir() else common.parent
-            unittest_mode = bool(changed_unittest_targets)
+            if execution_root is not None:
+                cwd = Path(execution_root).expanduser().resolve(strict=True)
+                if not cwd.is_dir() or cwd.is_symlink():
+                    raise ValueError("execution root is not a real directory")
+                if any(not path.is_relative_to(cwd) for path in evidence_paths):
+                    raise ValueError("diff evidence escapes the bound execution root")
+            else:
+                common = Path(os.path.commonpath([str(path) for path in evidence_paths])).resolve(strict=True)
+                cwd = common if common.is_dir() else common.parent
+            # The final target set, rather than only changed paths, determines
+            # the runner protocol.  A baseline test therefore invokes
+            # unittest while its unchanged bytes remain solely test evidence.
+            unittest_mode = bool(test_targets) and all(
+                path.name.startswith("test_") and path.suffix == ".py"
+                for path in test_targets
+            )
             runner_module = "unittest" if unittest_mode else "doctest"
             if unittest_mode:
                 relative_targets: list[str] = []

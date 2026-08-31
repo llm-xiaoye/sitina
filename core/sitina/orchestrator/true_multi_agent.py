@@ -7783,14 +7783,56 @@ class TrueMultiAgentProductionRuntime:
                     if isinstance(authorization.get("intent"), Mapping)
                     else None
                 ),
+                "original_plan_hash": (
+                    latest_attempt.get("original_plan_hash")
+                    or (latest_attempt.get("execution_authorization") or {}).get("original_plan_hash")
+                ),
+                "original_execution_plan": (
+                    latest_attempt.get("original_execution_plan")
+                    or (latest_attempt.get("execution_authorization") or {}).get("original_execution_plan")
+                ),
                 "execution_mode": "forge",
                 "mutation_required": True,
+                "recovery_mode": (
+                    latest_attempt.get("recovery_mode")
+                    or (latest_attempt.get("execution_authorization") or {}).get("recovery_mode")
+                ),
                 "prior_plan_hash": latest_attempt.get("prior_plan_hash"),
                 "prior_failure_type": latest_attempt.get("prior_failure_type"),
                 "prior_failure_hash": latest_attempt.get("prior_failure_hash"),
+                "reason_code": (
+                    latest_attempt.get("reason_code")
+                    or (latest_attempt.get("execution_authorization") or {}).get("reason_code")
+                    or "EXECUTION_FAILURE"
+                ),
+                "failure_stage": (
+                    latest_attempt.get("failure_stage")
+                    or (latest_attempt.get("execution_authorization") or {}).get("failure_stage")
+                    or "Forge"
+                ),
+                "mutation_count": (
+                    latest_attempt.get("mutation_count")
+                    if latest_attempt.get("mutation_count") is not None
+                    else (latest_attempt.get("execution_authorization") or {}).get("mutation_count") or 0
+                ),
                 "typed_prior_failure": {
                     "failure_type": latest_attempt.get("prior_failure_type"),
                     "failure_hash": latest_attempt.get("prior_failure_hash"),
+                    "reason_code": (
+                        latest_attempt.get("reason_code")
+                        or (latest_attempt.get("execution_authorization") or {}).get("reason_code")
+                        or "EXECUTION_FAILURE"
+                    ),
+                    "failure_stage": (
+                        latest_attempt.get("failure_stage")
+                        or (latest_attempt.get("execution_authorization") or {}).get("failure_stage")
+                        or "Forge"
+                    ),
+                    "mutation_count": (
+                        latest_attempt.get("mutation_count")
+                        if latest_attempt.get("mutation_count") is not None
+                        else (latest_attempt.get("execution_authorization") or {}).get("mutation_count") or 0
+                    ),
                 },
                 "plan_hash": latest_attempt.get("replan_plan_hash"),
                 **dict(latest_attempt.get("replan_plan") or {}),
@@ -8687,6 +8729,21 @@ class TrueMultiAgentProductionRuntime:
             if isinstance(code_mode_authorization, Mapping)
             else sha256_bytes(intent_text.encode("utf-8"))
         )
+        # Freeze the user-approved execution plan before the first Forge
+        # attempt.  Rework may add a bounded recovery delta, but its durable
+        # facts always point back to this exact goal/acceptance/root.
+        original_execution_plan = {
+            "goal": evidence.goal,
+            "approach": approach,
+            "acceptance_checks": list(acceptance),
+            "intent_hash": intent_hash,
+            "winner_hash": winner.output_hash.removeprefix("sha256:"),
+            "mutation_required": True,
+            "execution_root": str(execution_root),
+        }
+        original_execution_plan_hash = sha256_bytes(
+            canonical_json_bytes(original_execution_plan)
+        )
         before_hashes = target_baseline.before_hashes()
         before_hashes_record = {
             "schema": "SITINA_EXECUTION_BEFORE_HASHES_V1",
@@ -9040,6 +9097,11 @@ class TrueMultiAgentProductionRuntime:
         }
         attempt_results: dict[int, Mapping[str, Any]] = {}
         attempt_baselines: dict[int, WorkspaceBaseline] = {}
+        # Captured before each Forge child starts.  This inventory is
+        # controller-owned test evidence, not mutation/patch input; it keeps
+        # an existing untracked test available to the Tester without adding
+        # it to the attempt diff.
+        attempt_test_inventories: dict[int, tuple[Mapping[str, str], ...]] = {}
         attempt_workers: dict[int, Any] = {}
         replan_context: dict[int, Mapping[str, Any]] = {}
 
@@ -9230,6 +9292,12 @@ class TrueMultiAgentProductionRuntime:
                         "prior_failure_type": replan_record["prior_failure_type"],
                         "prior_failure_hash": replan_record["prior_failure_hash"],
                         "replan_plan": dict(replan_record["replan_plan"]),
+                        "original_plan_hash": replan_record.get("original_plan_hash"),
+                        "original_execution_plan": dict(replan_record.get("original_execution_plan") or {}),
+                        "recovery_mode": replan_record.get("recovery_mode"),
+                        "reason_code": replan_record.get("reason_code"),
+                        "failure_stage": replan_record.get("failure_stage"),
+                        "mutation_count": replan_record.get("mutation_count", 0),
                     }
                     next_execution_authorization["authorization_ref"] = execution_authorization_attempt_ref(
                         next_execution_authorization
@@ -9251,6 +9319,12 @@ class TrueMultiAgentProductionRuntime:
                         "prior_failure_type": replan_record["prior_failure_type"],
                         "prior_failure_hash": replan_record["prior_failure_hash"],
                         "replan_plan": dict(replan_record["replan_plan"]),
+                        "original_plan_hash": replan_record.get("original_plan_hash"),
+                        "original_execution_plan": dict(replan_record.get("original_execution_plan") or {}),
+                        "recovery_mode": replan_record.get("recovery_mode"),
+                        "reason_code": replan_record.get("reason_code"),
+                        "failure_stage": replan_record.get("failure_stage"),
+                        "mutation_count": replan_record.get("mutation_count", 0),
                     }
                     try:
                         durable_next_auth = durable_code_mode_authorization_projection(live_next_auth)
@@ -9546,6 +9620,16 @@ class TrueMultiAgentProductionRuntime:
                     )
             accounting_before = provider_accounting_snapshot()
             attempt_baselines[attempt] = WorkspaceBaseline.capture(ws)
+            attempt_test_inventories[attempt] = tuple(
+                {
+                    "relative_path": relative,
+                    "sha256": record.before_hash,
+                }
+                for relative, record in sorted(
+                    attempt_baselines[attempt].records.items(), key=lambda item: item[0]
+                )
+                if Path(relative).name.startswith("test_") and Path(relative).suffix == ".py"
+            )
             exec_run_id = f"forge-exec-{evidence.run_id}-{attempt}"
             audit = JournalAutonomousAudit(
                 journal, cas, context.provider, run_id=exec_run_id, policy_hash=self.policy_hash
@@ -9590,10 +9674,15 @@ class TrueMultiAgentProductionRuntime:
             if isinstance(prior_replan, Mapping):
                 task += (
                     "\n\nThis is an automatic rework after a failed attempt. "
-                    "Use this exact authenticated re-plan and immutable failure summary; do not use the prior approach.\n"
+                    "Use this exact authenticated re-plan and immutable failure summary. "
+                    "The original product goal and acceptance checks remain binding; apply only the bounded "
+                    "recovery delta recorded below.\n"
                     + json.dumps({
                         "plan_hash": prior_replan.get("plan_hash"),
                         "replan_plan": prior_replan.get("replan_plan"),
+                        "original_plan_hash": prior_replan.get("original_plan_hash"),
+                        "original_execution_plan": prior_replan.get("original_execution_plan"),
+                        "recovery_mode": prior_replan.get("recovery_mode"),
                         "prior_plan_hash": prior_replan.get("prior_plan_hash"),
                         "prior_failure_type": prior_replan.get("prior_failure_type"),
                         "prior_failure_hash": prior_replan.get("prior_failure_hash"),
@@ -9740,6 +9829,23 @@ class TrueMultiAgentProductionRuntime:
                 error_hash = sha256_bytes(str(error).encode("utf-8"))
                 accounting = provider_accounting_delta(accounting_before)
                 failure_receipts = _failed_transport_receipts(executor)
+                cause = getattr(error, "__cause__", None)
+                reason_code = (
+                    getattr(error, "sitina_failure_reason_code", None)
+                    or getattr(cause, "sitina_failure_reason_code", None)
+                    or getattr(error, "reason_code", None)
+                    or getattr(cause, "reason_code", None)
+                )
+                if not isinstance(reason_code, str) or not re.fullmatch(
+                    r"[A-Z][A-Z0-9_]{2,96}", reason_code
+                ):
+                    error_name = type(cause).__name__ if cause is not None else type(error).__name__
+                    if "ProviderHTTP" in error_name or "HTTP" in error_name and "Provider" in error_name:
+                        reason_code = "PROVIDER_HTTP_FAILURE"
+                    elif "Provider" in error_name or "Transport" in error_name:
+                        reason_code = "PROVIDER_TRANSPORT_FAILURE"
+                    else:
+                        reason_code = "FORGE_EXECUTION_FAILURE"
                 # The executor delta is authoritative even when the exception
                 # was raised after a successful Provider settlement (for
                 # example an unknown tool call). Transport attributes are only
@@ -9778,6 +9884,9 @@ class TrueMultiAgentProductionRuntime:
                     "provider_usage_status": "unknown" if accounting["unsettled_usage_count"] else "not_sent",
                     "provider_usage_unsettled_count": accounting["unsettled_usage_count"],
                     "provider_failure_reason_codes": _failed_transport_reason_codes(failure_receipts),
+                    "reason_code": reason_code,
+                    "failure_stage": "Forge",
+                    "mutation_count": 0,
                     "provider_input_tokens": accounting["input_tokens"],
                     "provider_output_tokens": accounting["output_tokens"],
                     "provider_cache_read_tokens": accounting["cache_read_tokens"],
@@ -9889,6 +9998,9 @@ class TrueMultiAgentProductionRuntime:
                 **r,
                 **child_facts,
                 "forge_bound": bool(r.get("forge_bound", forge_bound) or forge_bound),
+                "mutation_count": int(
+                    r.get("mutation_count") or child_facts.get("file_mutation_event_count") or 0
+                ),
                 "attempt_binding": {
                     "authorization_ref": str(getattr(executor.transport, "execution_authorization_ref", "") or authorization_ref),
                     "child_run_id": exec_run_id,
@@ -10148,6 +10260,10 @@ class TrueMultiAgentProductionRuntime:
                 code_mode_parent_authority=context,
                 code_mode_parent=sandbox_parent,
                 code_mode_scratch_root=sandbox_scratch_root,
+                execution_root=attempt_ws(int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1))),
+                baseline_test_inventory=attempt_test_inventories.get(
+                    int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1)), ()
+                ),
                 evidence_publisher=CASTestEvidencePublisher(cas, context.provider),
                 worker_executor=attempt_workers.get(int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1))),
             )
@@ -10374,42 +10490,86 @@ class TrueMultiAgentProductionRuntime:
             )
 
         def replan(attempt: int, failure: Mapping[str, Any]) -> Mapping[str, Any]:
-            """Run a fresh Planner call from the prior attempt ledger."""
+            """Build a bounded replan from the prior typed attempt ledger.
+
+            A Provider transport/HTTP failure before any mutation is not a
+            product failure the model may reinterpret.  The controller
+            deterministically resumes the frozen original plan, avoiding a
+            second Planner call and preventing a "retry/backoff" goal rewrite.
+            Other failures may receive a model-supplied delta, but the
+            original acceptance checks remain complete in the resulting plan.
+            """
             def validate_replan(value: Mapping[str, Any]) -> None:
                 _require_string(value, "approach")
                 _require_text_or_strings(value, "acceptance_checks", maximum=8)
 
-            replanned = self._call(
-                executor,
-                evidence,
-                winner_agent,
-                task_id=f"execution-replan-{attempt}",
-                kind="replan",
-                contract=(
-                    "Produce a new implementation plan after a failed execution attempt. "
-                    "Return approach and acceptance_checks; address the typed failure summary."
-                ),
-                prompt=(
-                    "Re-plan the requested code change. The prior attempt failed with this immutable summary; "
-                    "change the plan where needed and do not repeat the same failure blindly.\n"
-                    + json.dumps(dict(failure), ensure_ascii=False, sort_keys=True)
-                ),
-                context={
-                    "prior_failure": dict(failure),
-                    "prior_plan_hash": str(failure.get("plan_hash") or winner.output_hash),
-                    "attempt": attempt,
-                    "original_intent_hash": intent_hash,
-                    "execution_mode": "forge",
-                    "mutation_required": True,
-                },
-                validate=validate_replan,
+            failure_type = str(failure.get("failure_type") or "")
+            reason_code = str(failure.get("reason_code") or "")
+            try:
+                mutation_count = int(failure.get("mutation_count") or 0)
+            except (TypeError, ValueError) as error:
+                raise DynamicCollaborationError("typed replan mutation count is invalid") from error
+            provider_failure = (
+                mutation_count == 0
+                and (
+                    reason_code in {"PROVIDER_HTTP_FAILURE", "PROVIDER_TRANSPORT_FAILURE"}
+                    or "providerhttp" in failure_type.casefold()
+                    or ("provider" in failure_type.casefold() and "transport" in failure_type.casefold())
+                )
             )
-            normalized_plan = {
-                "approach": _require_string(replanned.value, "approach"),
-                "acceptance_checks": _require_text_or_strings(
+            recovery_mode = "resume-original" if provider_failure else "model-delta"
+            if provider_failure:
+                normalized_plan = {
+                    "approach": str(original_execution_plan["approach"]),
+                    "acceptance_checks": list(original_execution_plan["acceptance_checks"]),
+                }
+            else:
+                replanned = self._call(
+                    executor,
+                    evidence,
+                    winner_agent,
+                    task_id=f"execution-replan-{attempt}",
+                    kind="replan",
+                    contract=(
+                        "Produce a bounded recovery delta for the failed execution attempt. "
+                        "Return approach and acceptance_checks; preserve the original product goal "
+                        "and all original acceptance checks."
+                    ),
+                    prompt=(
+                        "Recover the original requested implementation. Preserve this immutable original "
+                        "execution plan and its acceptance checks; any response is only a bounded recovery "
+                        "delta and must not replace the product goal with a Provider retry/backoff task.\n"
+                        "ORIGINAL_EXECUTION_PLAN=\n"
+                        + json.dumps(original_execution_plan, ensure_ascii=False, sort_keys=True)
+                        + "\nTYPED_PRIOR_FAILURE=\n"
+                        + json.dumps(dict(failure), ensure_ascii=False, sort_keys=True)
+                    ),
+                    context={
+                        "prior_failure": dict(failure),
+                        "prior_plan_hash": str(failure.get("plan_hash") or winner.output_hash),
+                        "attempt": attempt,
+                        "original_execution_plan": dict(original_execution_plan),
+                        "original_execution_plan_hash": original_execution_plan_hash,
+                        "original_intent_hash": intent_hash,
+                        "execution_mode": "forge",
+                        "mutation_required": True,
+                    },
+                    validate=validate_replan,
+                )
+                delta_approach = _require_string(replanned.value, "approach")
+                delta_acceptance = _require_text_or_strings(
                     replanned.value, "acceptance_checks", maximum=8
-                ),
-            }
+                )
+                combined_acceptance = list(original_execution_plan["acceptance_checks"])
+                for check in delta_acceptance:
+                    if check not in combined_acceptance:
+                        combined_acceptance.append(check)
+                if len(combined_acceptance) > 8:
+                    raise DynamicCollaborationError("replan acceptance checks exceed bounded original plan")
+                normalized_plan = {
+                    "approach": str(original_execution_plan["approach"]) + "\nRecovery delta:\n" + delta_approach,
+                    "acceptance_checks": combined_acceptance,
+                }
             normalized_plan_hash = sha256_bytes(canonical_json_bytes(normalized_plan))
             prior_plan_hash = str(
                 failure.get("plan_hash") or winner.output_hash
@@ -10430,14 +10590,23 @@ class TrueMultiAgentProductionRuntime:
                 "run_attempt": attempt,
                 "previous_authorization_ref": str(authorization_ref),
                 "original_intent_hash": intent_hash,
+                "original_plan_hash": original_execution_plan_hash,
+                "original_execution_plan": dict(original_execution_plan),
                 "execution_mode": "forge",
                 "mutation_required": True,
+                "recovery_mode": recovery_mode,
                 "prior_plan_hash": prior_plan_hash,
                 "prior_failure_type": prior_failure_type,
                 "prior_failure_hash": prior_failure_hash,
+                "reason_code": reason_code or "EXECUTION_FAILURE",
+                "failure_stage": str(failure.get("failure_stage") or "Forge"),
+                "mutation_count": mutation_count,
                 "typed_prior_failure": {
                     "failure_type": prior_failure_type,
                     "failure_hash": prior_failure_hash,
+                    "reason_code": reason_code or "EXECUTION_FAILURE",
+                    "failure_stage": str(failure.get("failure_stage") or "Forge"),
+                    "mutation_count": mutation_count,
                 },
                 "plan_hash": normalized_plan_hash,
                 **normalized_plan,
@@ -10456,12 +10625,21 @@ class TrueMultiAgentProductionRuntime:
                 "prior_plan_hash": prior_plan_hash,
                 "prior_failure_type": prior_failure_type,
                 "prior_failure_hash": prior_failure_hash,
+                "original_plan_hash": original_execution_plan_hash,
+                "original_execution_plan": dict(original_execution_plan),
                 "original_intent_hash": intent_hash,
                 "execution_mode": "forge",
                 "mutation_required": True,
+                "recovery_mode": recovery_mode,
+                "reason_code": reason_code or "EXECUTION_FAILURE",
+                "failure_stage": str(failure.get("failure_stage") or "Forge"),
+                "mutation_count": mutation_count,
                 "typed_prior_failure": {
                     "failure_type": prior_failure_type,
                     "failure_hash": prior_failure_hash,
+                    "reason_code": reason_code or "EXECUTION_FAILURE",
+                    "failure_stage": str(failure.get("failure_stage") or "Forge"),
+                    "mutation_count": mutation_count,
                 },
             }
             replan_context[attempt] = record
@@ -10473,6 +10651,7 @@ class TrueMultiAgentProductionRuntime:
             boundary_check=boundary_check, verifier=verifier, rollback=rollback,
             max_attempts=int(self.policy.get("max_execution_attempts", 2)),
             replan=replan,
+            original_plan_hash=original_execution_plan_hash,
         )
         if not result.accepted and managed_worktree is not None:
             cleanup_report = worktree_manager.cleanup(

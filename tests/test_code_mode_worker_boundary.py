@@ -278,6 +278,48 @@ class CodeModeWorkerBoundaryTests(unittest.TestCase):
         self.assertEqual(projected, evidence["runner_argv"])
         self.assertNotIn("python-doctest-supervisor", projected)
 
+    def test_unchanged_baseline_unittest_is_executed_without_diff_membership(self) -> None:
+        """Existing untracked tests remain executable evidence, never mutation."""
+        source = self.root / "hello.py"
+        target = self.root / "test_hello.py"
+        source.write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
+        target.write_text(
+            "import unittest\n"
+            "from hello import hello\n\n"
+            "class HelloTests(unittest.TestCase):\n"
+            "    def test_hello(self):\n"
+            "        self.assertEqual(hello(), 'hello')\n",
+            encoding="utf-8",
+        )
+        target_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+        identity = ExecutionIdentityBinding.fixture(verifier_id="agent-delta")
+        verdict = verify_execution_diff(
+            [str(source)],
+            "agent-delta",
+            {},
+            run_id="worker-baseline-unittest",
+            home=self.runtime_root,
+            identity_binding=identity,
+            fixture_authorization=True,
+            execution_root=self.root,
+            baseline_test_inventory=(
+                {"relative_path": "test_hello.py", "sha256": target_hash},
+            ),
+            evidence_publisher=FilesystemTestEvidencePublisher(self.runtime_root / "test-evidence-baseline"),
+            worker_executor=self.executor,
+        )
+        self.assertTrue(verdict.accepted, verdict.reasons)
+        evidence = json.loads(
+            (self.runtime_root / "test-evidence-baseline" / f"{verdict.test_evidence_hash}.json").read_text()
+        )
+        self.assertEqual(evidence["runner_argv"][1:3], ["-m", "unittest"])
+        self.assertEqual(evidence["runner_argv"][3:], ["test_hello.py"])
+        self.assertEqual(evidence["target_hashes"], [[str(source.resolve()), hashlib.sha256(source.read_bytes()).hexdigest()]])
+        self.assertEqual(evidence["collected_test_count"], 1)
+        self.assertEqual(evidence["executed_test_count"], 1)
+        self.assertEqual(evidence["passed_test_count"], 1)
+        self.assertEqual(evidence["failed_test_count"], 0)
+
     def test_unittest_worker_failure_and_malformed_summary_fail_closed(self) -> None:
         source = self.root / "hello.py"
         target = self.root / "test_hello.py"

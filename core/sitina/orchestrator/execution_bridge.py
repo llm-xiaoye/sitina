@@ -46,6 +46,19 @@ def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _stable_failure_reason_code(failure_type: str, stage: str) -> str:
+    """Map controller failures to a bounded, provider-neutral diagnostic."""
+    normalized = str(failure_type or "").casefold()
+    if "providerhttp" in normalized or "http" in normalized and "provider" in normalized:
+        return "PROVIDER_HTTP_FAILURE"
+    if "provider" in normalized and ("transport" in normalized or "connection" in normalized):
+        return "PROVIDER_TRANSPORT_FAILURE"
+    if "replan" in normalized:
+        return "REPLAN_FAILURE"
+    stage_code = re.sub(r"[^A-Za-z0-9]+", "_", str(stage or "execution")).strip("_").upper() or "EXECUTION"
+    return f"EXECUTION_{stage_code}_FAILURE"
+
+
 def _authority_ref(resolution_id: str, frontier_hash: str) -> str:
     return "authority-resolution:" + _sha256(
         {
@@ -577,6 +590,7 @@ def run_safe_execution(
     rollback: Callable[[int], None],
     max_attempts: int = 2,
     replan: Callable[[int, Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    original_plan_hash: str | None = None,
 ) -> ExecutionResult:
     """Deterministic safe-execution orchestrator. All effects are injected so
     this is fully unit-testable without a provider.
@@ -591,6 +605,8 @@ def run_safe_execution(
         raise ExecutionBridgeError("max_attempts must be >= 1")
     if executor_id != binding.identity.executor_id:
         raise ExecutionBridgeError("executor differs from the authorized execution role")
+    if original_plan_hash is not None and not _SHA256.fullmatch(str(original_plan_hash)):
+        raise ExecutionBridgeError("original execution plan hash is invalid")
     workspace_path = Path(workspace).expanduser().resolve(strict=False)
     approved_roots = tuple(
         (
@@ -629,6 +645,8 @@ def run_safe_execution(
         stage: str,
         forge_bound: bool | None = None,
         attempt_binding: Mapping[str, Any] | None = None,
+        reason_code: str | None = None,
+        mutation_count: int = 0,
     ) -> None:
         """Append the immutable per-attempt failure record.
 
@@ -643,6 +661,11 @@ def run_safe_execution(
             and str(previous.get("failure_type") or "") == failure_type
             and str(previous.get("failure_hash") or "") == failure_hash
         )
+        if isinstance(mutation_count, bool) or not isinstance(mutation_count, int) or mutation_count < 0:
+            raise ExecutionBridgeError("execution failure mutation count is invalid")
+        reason = str(reason_code or _stable_failure_reason_code(failure_type, stage))
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,96}", reason):
+            raise ExecutionBridgeError("execution failure reason code is invalid")
         binding_facts = dict(attempt_binding) if isinstance(attempt_binding, Mapping) else {}
         attempt_ledger.append(
             {
@@ -653,6 +676,10 @@ def run_safe_execution(
                 "forge_bound": bool(stage != "Forge" if forge_bound is None else forge_bound),
                 "failure_type": failure_type,
                 "failure_hash": failure_hash,
+                "reason_code": reason,
+                "failure_stage": stage,
+                "mutation_count": mutation_count,
+                "original_plan_hash": original_plan_hash,
                 "prior_failure_type": str(previous.get("failure_type")) if previous else None,
                 "prior_failure_hash": str(previous.get("failure_hash")) if previous else None,
                 "same_failure": same_failure,
@@ -667,6 +694,10 @@ def run_safe_execution(
             "failure_type": failure_type,
             "failure_hash": failure_hash,
             "plan_hash": plan_hash,
+            "reason_code": reason,
+            "failure_stage": stage,
+            "mutation_count": mutation_count,
+            "original_plan_hash": original_plan_hash,
         }
         # Python closures cannot rebind a local without nonlocal.  Mutate a
         # stable holder instead so every later stage sees the latest signature.
@@ -705,6 +736,9 @@ def run_safe_execution(
                     "attempt": attempt, "plan_hash": str(last_failure.get("plan_hash") or binding.winner_output_hash),
                     "result": "FAILED", "failure_type": "ReplanAdmissionError", "failure_hash": error_hash,
                     "stage": "Planner", "forge_bound": False, "replan": False,
+                    "reason_code": "REPLAN_BEFORE_FORGE_BINDING",
+                    "failure_stage": "Planner", "mutation_count": 0,
+                    "original_plan_hash": original_plan_hash,
                     "same_failure": False, "rollback": "not_started",
                 })
                 notes.append(f"attempt{attempt}:replan_rejected_before_forge_binding:{error_hash}")
@@ -727,6 +761,10 @@ def run_safe_execution(
                         "failure_type": type(error).__name__,
                         "failure_hash": error_hash,
                         "stage": "Planner",
+                        "reason_code": _stable_failure_reason_code(type(error).__name__, "Planner"),
+                        "failure_stage": "Planner",
+                        "mutation_count": 0,
+                        "original_plan_hash": original_plan_hash,
                         "replan": False,
                         "same_failure": False,
                         "rollback": "not_started",
@@ -772,6 +810,13 @@ def run_safe_execution(
                 failure_hash=failure_hash, replan_result=replan_result, stage="Forge",
                 forge_bound=bool(forge_result.get("forge_bound")),
                 attempt_binding=forge_result.get("attempt_binding"),
+                reason_code=forge_result.get("reason_code"),
+                mutation_count=int(
+                    forge_result.get("mutation_count")
+                    or forge_result.get("external_mutation_count")
+                    or forge_result.get("file_mutation_event_count")
+                    or 0
+                ),
             )
             if _rollback_or_fail(attempt) is not None:
                 return _make_result(

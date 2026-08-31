@@ -249,6 +249,31 @@ class ExecutionBridgeTests(unittest.TestCase):
         self.assertEqual(result.attempt_ledger[1]["plan_hash"], "c" * 64)
         self.assertTrue(all(item["rollback"] == "ok" for item in result.attempt_ledger))
 
+    def test_forge_failure_ledger_seals_reason_stage_mutation_and_original_plan(self) -> None:
+        original_plan_hash = "d" * 64
+        result = run_safe_execution(
+            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
+            forge_runner=lambda _attempt, _workspace: {
+                "terminal_state": "FAILED",
+                "error_type": "ProviderHTTPError",
+                "error_hash": "e" * 64,
+                "reason_code": "PROVIDER_HTTP_FAILURE",
+                "failure_stage": "Forge",
+                "mutation_count": 0,
+                "forge_bound": True,
+            },
+            collect_diff=lambda: [], boundary_check=lambda _diff: [],
+            verifier=lambda _diff, _result: accepted_verdict(),
+            rollback=lambda _attempt: None, max_attempts=1,
+            original_plan_hash=original_plan_hash,
+        )
+        self.assertFalse(result.accepted)
+        failure = result.attempt_ledger[0]
+        self.assertEqual(failure["reason_code"], "PROVIDER_HTTP_FAILURE")
+        self.assertEqual(failure["failure_stage"], "Forge")
+        self.assertEqual(failure["mutation_count"], 0)
+        self.assertEqual(failure["original_plan_hash"], original_plan_hash)
+
     def test_rollback_failure_terminalizes_failed_and_is_recorded(self) -> None:
         result = run_safe_execution(
             binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
