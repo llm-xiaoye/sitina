@@ -53,4 +53,4 @@ export PYTHONPATH="$ROOT/core${PYTHONPATH:+:$PYTHONPATH}"
 "$ROOT/bin/sitina" --help >/dev/null
 
 printf 'Sitina clean checkout is ready at %s\n' "$ROOT"
-printf 'Create profiles/<name>.env from profiles/*.env.example and keep raw tokens in Keychain.\n'
+printf 'Create profiles/<name>.env from profiles/default.env.template and keep raw tokens in Keychain.\n'

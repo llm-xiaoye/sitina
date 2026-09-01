@@ -22,15 +22,16 @@ The script verifies Python 3.12, installs the locked dependencies when
 requested, creates empty runtime directories, and performs a Provider-free
 CLI smoke check.
 
-Create a local Provider profile from a checked-in example:
+Create a local Provider profile from the checked-in template:
 
 ```bash
-cp profiles/deepseek.env.example profiles/deepseek.env
+cp profiles/default.env.template profiles/deepseek.env
 chmod 600 profiles/deepseek.env
 ```
 
 Edit the endpoint and model, then put the raw token in macOS Keychain and keep
-only its `keychain://` reference in the profile. See `profiles/README.md`.
+only its `keychain://` reference in the profile. `ANTHROPIC_AUTH_TOKEN` is
+forbidden in profile files. See `profiles/README.md`.
 
 Optionally expose the command on `PATH`:
 
