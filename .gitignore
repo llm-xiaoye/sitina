@@ -22,3 +22,4 @@ state/run_archive_registry.json
 __pycache__/
 *.pyc
 .DS_Store
+tmp*/
