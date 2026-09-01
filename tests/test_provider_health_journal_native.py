@@ -57,6 +57,19 @@ class ProviderHealthJournalNativeTests(unittest.TestCase):
             journal_append=append or self.events.append,
         )
 
+    def test_default_status_path_does_not_require_legacy_production_genesis(self) -> None:
+        """A Journal-native home has no Legacy Production Genesis, so reading
+        Provider health must not route through the retired Production runtime."""
+        # Mirror the documented clean install (restore-clean-install.sh).
+        for relative in ("journal", "cas", "projections", "output"):
+            (self.home / relative).mkdir(mode=0o700, exist_ok=True)
+
+        registry = ProviderHealthRegistry(self.home)
+
+        self.assertTrue(registry._journal_native, "fixture must be Journal-native")
+        self.assertIsNone(registry.store, "Journal-native mode must not open Legacy storage")
+        self.assertEqual(registry.status("gpt")["status"], "unknown")
+
     def test_status_and_writes_use_journal_events_without_legacy_database(self) -> None:
         with patch.object(SitinaStore, "init_db", side_effect=AssertionError("Legacy init called")), patch.object(
             SitinaStore, "get_provider_health", side_effect=AssertionError("Legacy read called")

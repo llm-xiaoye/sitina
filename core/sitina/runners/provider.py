@@ -30,6 +30,10 @@ OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
 ANTHROPIC_MESSAGES = "anthropic_messages"
 SUPPORTED_WIRE_PROTOCOLS = frozenset({OPENAI_CHAT_COMPLETIONS, ANTHROPIC_MESSAGES})
 
+# The Production trust root is bound to this path, matching sitina.cli and
+# sitina.legacy.retirement.
+_PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+
 
 def infer_wire_protocol(
     profile_name: str,
@@ -582,24 +586,50 @@ class ProviderHealthRegistry:
         self._journal_events = journal_events or self._default_journal_events
         self._journal_append = journal_append or self._default_journal_append
 
-    def _default_journal_events(self) -> Sequence[Any]:
+    def _journal_trust_root_installed(self) -> bool:
+        """True when a durable Journal trust root exists for this home.
+
+        Provider health lives in the Journal, so without a trust root there is
+        no recorded history to read -- and no way to open one.
+        """
+        if (self.home / "state/bplus-production-genesis/genesis.json").is_file():
+            return True
+        root = self.home.expanduser().resolve(strict=False)
+        return root != _PRODUCTION_HOME and (self.home / "state/clean-acceptance/genesis.json").is_file()
+
+    def _default_runtime_context(self) -> Any:
+        """Resolve this home's Journal runtime context.
+
+        Mirrors the CLI's context selection so Provider health does not assume
+        the Production trust root when a clean-acceptance Journal is installed.
+        """
+        root = self.home.expanduser().resolve(strict=False)
+        if root != _PRODUCTION_HOME and (self.home / "state/clean-acceptance/genesis.json").is_file():
+            from sitina.orchestrator.clean_acceptance import CleanAcceptanceContext
+
+            return CleanAcceptanceContext.load(self.home)
         from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 
-        context = ProductionRuntimeContext.load(
+        return ProductionRuntimeContext.load(
             self.home,
             allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
         )
-        return context.events
+
+    def _default_journal_events(self) -> Sequence[Any]:
+        if not self._journal_trust_root_installed():
+            # No trust root means no recorded observations. Reporting an empty
+            # history yields an honest "unknown" status instead of failing every
+            # Provider command; reads stay strict once a root is installed.
+            return ()
+        return self._default_runtime_context().events
 
     def _default_journal_append(self, observation: Mapping[str, Any]) -> int:
         from sitina.commands.model import CommandEnvelope
         from sitina.journal.model import EventEnvelope, canonical_json_bytes
-        from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 
-        context = ProductionRuntimeContext.load(
-            self.home,
-            allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
-        )
+        if not self._journal_trust_root_installed():
+            raise ProviderError("Provider health cannot be recorded without a durable Journal trust root")
+        context = self._default_runtime_context()
         profile = str(observation["profile"])
         stream_id = f"provider/health/{profile}"
         digest = sha256_text(canonical_json_bytes(dict(observation)).decode("utf-8"))
