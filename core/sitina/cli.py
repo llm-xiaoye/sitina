@@ -36,6 +36,7 @@ from sitina.extensions.manager import ExtensionInstallError, ExtensionManager, P
 from sitina.extensions.runtime import AutonomousRuntime
 from sitina.extensions.tools import ApprovalRequest
 from sitina.guards.risk import RiskScanner
+from sitina.install_identity import canonical_journal_native_home
 from sitina.memory.native import MemoryAccessDenied, MemoryRepository, MemoryStateError
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.arbitration import ArbitrationManager
@@ -86,11 +87,10 @@ from sitina.utils import ensure_dir, iso_now, load_json_yaml, write_json
 
 
 _LAST_PRINTED_JSON: Any = None
-_PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
 
 
 def _is_production_home() -> bool:
-    return SITINA_HOME.expanduser().resolve(strict=False) == _PRODUCTION_HOME
+    return SITINA_HOME.expanduser().resolve(strict=False) == canonical_journal_native_home()
 
 
 def _bplus_installed() -> bool:
@@ -821,8 +821,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         if not _is_production_home() and (SITINA_HOME / "state/clean-acceptance/genesis.json").is_file():
             print_json({
                 "status": "blocked",
-                "reason": "clean acceptance is immutable; ordinary runs belong to the default Production home",
-                "production_home": "/Users/moss/SitinaHub",
+                "reason": "clean acceptance is immutable; ordinary runs belong to the active Sitina installation",
+                "production_home": str(canonical_journal_native_home()),
                 "legacy_read_enabled": False,
                 "legacy_write_enabled": False,
                 "fallback_attempted": False,

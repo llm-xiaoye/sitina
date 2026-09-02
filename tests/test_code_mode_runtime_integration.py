@@ -1168,6 +1168,97 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
         self.assertTrue(ledger[1].get("replan"))
         self.assertEqual(result_events[-1].payload.get("attempts"), 2)
 
+    def test_stable_conversation_binding_rejects_mismatched_or_future_attempt(self) -> None:
+        """Stable turn bindings cannot disagree or outrun the latest attempt."""
+        from types import SimpleNamespace
+
+        from scripts.code_mode_authority_host import AuthorityService
+
+        session_id = "stable-conversation-session"
+        run_id = "stable-conversation-run"
+        session_instance_id = "stable-session-instance"
+        generation = "stable-generation"
+        body = "stable conversation body"
+        body_hash = hashlib.sha256(body.encode()).hexdigest()
+        body_ref = "cas:" + "a" * 64
+        message = {
+            "schema": "SESSION_MESSAGE_APPENDED_V1",
+            "event_type": "session.message-appended",
+            "session_id": session_id,
+            "role": "user",
+            "turn_index": 1,
+            "session_instance_id": session_instance_id,
+            "run_attempt": 1,
+            "generation": generation,
+            "body_ref": body_ref,
+            "body_hash": body_hash,
+        }
+        link = {
+            "schema": "SESSION_RUN_LINKED_V1",
+            "event_type": "session.run-linked",
+            "session_id": session_id,
+            "turn_index": 1,
+            "run_id": run_id,
+            "session_instance_id": session_instance_id,
+            "run_attempt": 1,
+            "generation": generation,
+            "workspace": str(self.workspace),
+        }
+
+        class _MessageCAS:
+            @staticmethod
+            def resolve_reference(reference: str) -> str:
+                return reference
+
+            @staticmethod
+            def verify_existing(_reference: str) -> SimpleNamespace:
+                return SimpleNamespace(purpose_class="session-message")
+
+            @staticmethod
+            def open_verified(_reference: str) -> bytes:
+                return body.encode()
+
+        service = object.__new__(AuthorityService)
+        service._workspace = self.workspace
+        service._workspace_identity = str(self.workspace)
+        service._formal_cas = lambda: _MessageCAS()
+
+        def snapshot(message_payload: Mapping[str, object], link_payload: Mapping[str, object]):
+            message_event = SimpleNamespace(
+                event_type="session.message-appended",
+                payload=dict(message_payload),
+                stream_version=1,
+            )
+            link_event = SimpleNamespace(
+                event_type="session.run-linked",
+                payload=dict(link_payload),
+                stream_version=2,
+            )
+            transaction = SimpleNamespace(
+                stream_id=f"session/{session_id}",
+                events=(message_event, link_event),
+            )
+            return (SimpleNamespace(transaction=transaction),)
+
+        def reopen(message_payload: Mapping[str, object], link_payload: Mapping[str, object]):
+            return service._bound_conversation(
+                f"session/{session_id}",
+                session_id=session_id,
+                turn_index=1,
+                run_id=run_id,
+                session_instance_id=session_instance_id,
+                run_attempt=2,
+                generation=generation,
+                message_hash=body_hash,
+                snapshot=snapshot(message_payload, link_payload),
+            )
+
+        self.assertEqual(reopen(message, link)[0], f"session/{session_id}")
+        with self.assertRaises(PermissionError):
+            reopen(message, dict(link, run_attempt=2))
+        with self.assertRaises(PermissionError):
+            reopen(dict(message, run_attempt=3), dict(link, run_attempt=3))
+
     def test_ordinary_append_cannot_create_or_replay_attempt_advance(self) -> None:
         """Reserved rebound facts require the Journal's dedicated API."""
         session = self.runtime.resume_or_create_session()

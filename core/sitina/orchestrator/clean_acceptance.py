@@ -15,6 +15,7 @@ from sitina.commands.model import CommandEnvelope
 from sitina.compatibility.feature_flags import FeatureActivationRegistry
 from sitina.journal.local import LocalJournal
 from sitina.journal.model import EventEnvelope, canonical_json_bytes, domain_hash
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.legacy.retirement import DisabledLegacyStore, LegacyRuntimePolicy
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext, VerifiedJournalReadView
 from sitina.security.key_provider import JournalAuthProvider
@@ -114,8 +115,12 @@ class CleanAcceptanceContext:
     @classmethod
     def initialize(cls, home: Path) -> "CleanAcceptanceContext":
         root = Path(home).expanduser().resolve(strict=True)
-        if root == Path("/Users/moss/SitinaHub") or not (root / cls.MARKER).is_file():
-            raise CleanAcceptanceError("clean acceptance requires a marked non-Production root")
+        if root == canonical_journal_native_home():
+            raise CleanAcceptanceError("clean acceptance cannot use the active Sitina installation")
+        if root == LEGACY_PRODUCTION_HOME:
+            raise CleanAcceptanceError("clean acceptance cannot use the fixed Legacy Production root")
+        if not (root / cls.MARKER).is_file():
+            raise CleanAcceptanceError("clean acceptance requires a marked non-installation root")
         policy = LegacyRuntimePolicy.load(root)
         if not policy.fully_disabled or not policy.missing_legacy_is_valid:
             raise CleanAcceptanceError("clean acceptance policy does not fully disable Legacy")
@@ -212,7 +217,11 @@ class CleanAcceptanceContext:
     @classmethod
     def load(cls, home: Path) -> "CleanAcceptanceContext":
         root = Path(home).expanduser().resolve(strict=True)
-        if root == Path("/Users/moss/SitinaHub") or not (root / cls.MARKER).is_file():
+        if root == canonical_journal_native_home():
+            raise CleanAcceptanceError("clean acceptance cannot use the active Sitina installation")
+        if root == LEGACY_PRODUCTION_HOME:
+            raise CleanAcceptanceError("clean acceptance cannot use the fixed Legacy Production root")
+        if not (root / cls.MARKER).is_file():
             raise CleanAcceptanceError("clean acceptance marker is missing")
         policy = LegacyRuntimePolicy.load(root)
         if not policy.fully_disabled or not policy.missing_legacy_is_valid:

@@ -14,6 +14,16 @@ from sitina.protocols.handoff_contracts import HandoffContract, HandoffContractE
 
 
 class HandoffContractTests(unittest.TestCase):
+    def test_canary_harness_source_is_current_repository_root(self) -> None:
+        import scripts._deepseek_token_canary_harness as canary_harness
+
+        self.assertEqual(canary_harness.SOURCE, Path(__file__).resolve().parents[1])
+        self.assertNotEqual(canary_harness.SOURCE, Path("/Users/moss/Desktop/sitina/source-worktree"))
+        for protected in (canary_harness.SOURCE, canary_harness.PRODUCTION):
+            self.assertNotEqual(canary_harness.CANARY_ROOT, protected)
+            self.assertNotIn(protected, canary_harness.CANARY_ROOT.parents)
+        self.assertTrue(canary_harness.ARTIFACTS.is_relative_to(canary_harness.CANARY_ROOT))
+
     def contract(self, generation: int = 1) -> HandoffContract:
         return HandoffContract(
             "handoff-a", generation, "agent-source", "agent-target", "task-a", "verify a bounded result",

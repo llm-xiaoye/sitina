@@ -16,6 +16,7 @@ from typing import Any, Iterator, Mapping
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.journal.model import canonical_json_bytes, domain_hash, parse_canonical_json
 from sitina.security.key_provider import InMemoryKeyProvider
 
@@ -62,8 +63,8 @@ class LocalCAS:
         if namespace_kind in {"production", "production_simulation"}:
             self._authorize_production_open(namespace_kind)
         else:
-            if self.home == Path("/Users/moss/SitinaHub"):
-                raise CASError("Production CAS requires a Phase 6B or resolved runtime capability")
+            if self.home in {LEGACY_PRODUCTION_HOME, canonical_journal_native_home()}:
+                raise CASError("active Sitina installation CAS requires a Phase 6B or resolved runtime capability")
             if namespace_kind not in {"shadow", "controlled_fixture", "code_mode", "session"}:
                 raise CASError("CAS namespace must be shadow, controlled_fixture, code_mode, session, or manifest-bound Production")
             marker = {
@@ -115,9 +116,9 @@ class LocalCAS:
         if value.get("genesis_hash") != self.genesis_hash:
             raise CASError("Production CAS Genesis bytes differ")
         if namespace_kind == "production_simulation":
-            if self.home == Path("/Users/moss/SitinaHub") or not (self.home / ".sitina-bplus-disposable-v1").is_file():
+            if self.home == LEGACY_PRODUCTION_HOME or not (self.home / ".sitina-bplus-disposable-v1").is_file():
                 raise CASError("Production CAS simulation requires a disposable root")
-        elif self.home != Path("/Users/moss/SitinaHub"):
+        elif self.home != LEGACY_PRODUCTION_HOME:
             raise CASError("Production CAS namespace requires the Production installation")
         if self.operational_capability is not None:
             try:

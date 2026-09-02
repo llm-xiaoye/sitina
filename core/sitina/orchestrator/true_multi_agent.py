@@ -19,6 +19,7 @@ from sitina.conversation.lifecycle import ConversationLifecycle
 from sitina.conversation.models import route_decision_from_mapping
 from sitina.contracts.models import BlackboardDocumentRecord, SourceDescriptor
 from sitina.extensions.runtime import decode_workspace_relative_path
+from sitina.install_identity import canonical_journal_native_home
 from sitina.orchestrator.code_mode_gate import classify_code_mode_intent
 from sitina.journal.model import (
     EventEnvelope,
@@ -61,7 +62,7 @@ from sitina.orchestrator.true_multi_agent_runtime import (
     sha256_bytes,
     stable_hash,
 )
-from sitina.orchestrator.output_contracts import resolve_output_contract
+from sitina.orchestrator.output_contracts import PROPOSAL_REVIEW_VERDICTS, resolve_output_contract
 from sitina.projections.production import production_handlers
 from sitina.projections.rebuild import ProjectionGeneration
 from sitina.protocols.arbitration import Arbitration
@@ -89,6 +90,15 @@ from sitina.protocols.terminal import (
 )
 from sitina.scheduling.agents import AgentScheduler, AgentSchedulingDecision
 from sitina.scheduling.processes import ProcessManager
+
+
+PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE = (
+    "Pre-execution proposal-review scope: review the executable plan/specification, not an already executed "
+    "migration. Check that the plan explicitly binds the exact files in scope, intended changes, the exact test "
+    "command, prohibited changes/actions, and acceptance conditions. Do not require actual diffs, test logs, applied "
+    "file changes, commit/push results, or other post-execution artifacts; Forge and Tester produce those later. "
+    "Missing necessary plan fields may justify changes_requested or reject."
+)
 
 
 def _tester_machine_command(
@@ -2769,7 +2779,7 @@ class TrueMultiAgentProductionRuntime:
 
             def validate_review(value: Mapping[str, Any]) -> None:
                 verdict = _require_string(value, "verdict").lower()
-                if verdict not in {"approved", "changes_requested", "reject"}:
+                if verdict not in PROPOSAL_REVIEW_VERDICTS:
                     raise DynamicCollaborationError("Review verdict is invalid")
                 score = value.get("score")
                 if not isinstance(score, int) or not 0 <= score <= 100:
@@ -2803,14 +2813,18 @@ class TrueMultiAgentProductionRuntime:
                     if readonly_mode else ""
                 ) + (
                     "Return verdict, integer score on a 0-100 scale, reason, and defects. verdict MUST be exactly "
-                    "one of: approved, changes_requested, reject. defects MUST be a JSON array containing only "
+                    "one of: " + ", ".join(PROPOSAL_REVIEW_VERDICTS) + ". defects MUST be a JSON array containing only "
                     "zero to eight short strings (use [] when there are no defects and combine related concerns rather "
                     "than returning more than eight). approved requires score at least 70. Bind "
                     "the exact proposal hash and frozen rubric."
+                    + ("\n\n" + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE if not readonly_mode else "")
                 ),
                 prompt=(
                     instruction
-                    + "\nThe verdict JSON string must be exactly approved, changes_requested, or reject; do not use synonyms. Score is an integer 0-100, never a string and never 0-10; approved requires 70 or higher. defects is an array of zero to eight strings only, never objects; combine related concerns to stay within eight."
+                    + ("\n\n" + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE if not readonly_mode else "")
+                    + "\nThe verdict JSON string must be exactly one of: "
+                    + ", ".join(PROPOSAL_REVIEW_VERDICTS)
+                    + "; do not use synonyms. Score is an integer 0-100, never a string and never 0-10; approved requires 70 or higher. defects is an array of zero to eight strings only, never objects; combine related concerns to stay within eight."
                     + f"\nGoal: {evidence.goal}\nProposal hash: {result.output_hash}\nProposal: "
                     + json.dumps(dict(result.value), ensure_ascii=False, sort_keys=True)
                     + f"\nFrozen rubric hash: {rubric}"
@@ -2923,12 +2937,13 @@ class TrueMultiAgentProductionRuntime:
                 rework_id = "rework-" + stable_hash("TRUE_MULTI_AGENT_REWORK", {"run": evidence.run_id, "proposal": proposal_ids[agent.agent_id]})[:28]
                 rework_obligation = "obligation-" + rework_id
                 rework_open_fact = self._protocol_open(evidence, "rework", rework_id, rework_obligation, reviewer_decision.decision_id)
+                revision_budget = min(1, int(self.policy["max_rework_rounds"]))
                 rework, rework_opened = Rework.open(
                     rework_id,
                     f"proposal-revision-{index}",
                     FailureType.REVIEW_REJECTED,
                     rubric,
-                    max_retries=int(self.policy["max_rework_rounds"]),
+                    max_retries=revision_budget,
                 )
                 rework, rework_started = rework.begin_round(f"revision-attempt-{index}-1")
 
@@ -2954,13 +2969,15 @@ class TrueMultiAgentProductionRuntime:
                         "defect_response per Review defect; each response may be a concise string or an object with "
                         "defect and response strings. summary, approach, and acceptance_checks are optional additions. "
                         "If acceptance_checks is present, it must be a JSON array of at most eight strings only; encode "
-                        "each condition and its named evidence together in one string, never as an object."
+                        "each condition and its named evidence together in one string, never as an object.\n\n"
+                        + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
                     ),
                     prompt=(
                         f"Revise your exact parent proposal. Parent output hash: {result.output_hash}. "
                         f"Review output hash: {review.output_hash}. Defects: {json.dumps(review.value.get('defects', []), ensure_ascii=False)}. "
                         "Return a new proposal object; never overwrite the parent. If you include acceptance_checks, "
-                        "return only strings such as 'Condition — Evidence: named item'; do not return objects."
+                        "return only strings such as 'Condition — Evidence: named item'; do not return objects.\n\n"
+                        + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
                     ),
                     context={
                         "parent_proposal_id": proposal_ids[agent.agent_id],
@@ -2990,10 +3007,13 @@ class TrueMultiAgentProductionRuntime:
                 )
 
                 def validate_second_review(value: Mapping[str, Any]) -> None:
-                    if _require_string(value, "verdict").lower() != "approved":
-                        raise DynamicCollaborationError("second Review did not approve repaired revision")
+                    verdict = _require_string(value, "verdict").lower()
+                    if verdict not in PROPOSAL_REVIEW_VERDICTS:
+                        raise DynamicCollaborationError("second Review verdict is invalid")
                     score_value = value.get("score")
-                    if not isinstance(score_value, int) or score_value < int(self.policy["proposal_minimum_score"]):
+                    if not isinstance(score_value, int) or not 0 <= score_value <= 100:
+                        raise DynamicCollaborationError("second Review score is invalid")
+                    if verdict == "approved" and score_value < int(self.policy["proposal_minimum_score"]):
                         raise DynamicCollaborationError("second Review score is below threshold")
                     _require_string(value, "reason")
                     _require_strings(value, "defects", minimum=0, maximum=8)
@@ -3005,10 +3025,19 @@ class TrueMultiAgentProductionRuntime:
                     task_id=f"review-revision-{index}",
                     kind="review",
                     root_phase="review/selection",
-                    contract="Re-review the exact new revision. In addition to the required agent_id and kind envelope, return verdict as the string approved, score as an integer 70-100, reason as a non-empty string, and defects as a JSON string array (empty when none). Do not return an approved boolean or comments field.",
+                    contract=(
+                        "Re-review the exact new revision. In addition to the required agent_id and kind envelope, "
+                        "return verdict as exactly one of: " + ", ".join(PROPOSAL_REVIEW_VERDICTS) + ", score as "
+                        f"an integer 0-100, reason as a non-empty string, and defects as a JSON string array "
+                        f"(empty when none). An approved verdict requires score at least {self.policy['proposal_minimum_score']}. "
+                        "Do not return an approved boolean or comments field.\n\n"
+                        + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
+                    ),
                     prompt=(
                         f"Re-review revision hash {revision.output_hash}, parent {result.output_hash}. "
                         f"Prior defects: {json.dumps(review.value.get('defects', []), ensure_ascii=False)}. "
+                        + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
+                        + "\n"
                         f"Required shape example: {{\"agent_id\":\"{reviewer.agent_id}\",\"kind\":\"review\","
                         "\"verdict\":\"approved\",\"score\":85,\"reason\":\"...\",\"defects\":[]}. Revision: "
                         + json.dumps(dict(revision.value), ensure_ascii=False, sort_keys=True)
@@ -3022,6 +3051,14 @@ class TrueMultiAgentProductionRuntime:
                     },
                     validate=validate_second_review,
                 )
+                provider_verdict = str(second_review.value["verdict"]).lower()
+                effective_verdict = "approved" if provider_verdict == "approved" else "reject"
+                second_review_accepted = provider_verdict == "approved"
+                response_verdict = {
+                    "approved": ReviewVerdict.ACCEPT,
+                    "changes_requested": ReviewVerdict.NEEDS_CHANGES,
+                    "reject": ReviewVerdict.REJECT,
+                }[provider_verdict]
                 score2 = int(second_review.value["score"])
                 review2, requested2 = ReviewRequest.open(
                     "review-request-" + stable_hash("TRUE_MULTI_AGENT_REVIEW_ID", {"run": evidence.run_id, "proposal": proposal_ids[agent.agent_id], "revision": 2})[:28],
@@ -3036,17 +3073,37 @@ class TrueMultiAgentProductionRuntime:
                     reviewer.agent_id,
                     tuple(reviewer.capabilities),
                     False,
-                    ReviewVerdict.ACCEPT,
+                    response_verdict,
                     second_review.output_ref.removeprefix("cas:"),
                 )
                 review2, disposition2 = review2.dispose()
                 rework, rework_completed = rework.complete_round(
-                    revision.output_ref.removeprefix("cas:"), accepted=True
+                    revision.output_ref.removeprefix("cas:"), accepted=second_review_accepted
                 )
+                successor_obligation_id = rework.successor_obligation_id
+                proposal_disposition = "ACCEPT" if second_review_accepted else "REJECT"
+                second_review_audit = {
+                    "provider_verdict": provider_verdict,
+                    "effective_verdict": effective_verdict,
+                    "revision": 2,
+                    "revision_budget": revision_budget,
+                    "frozen_defects": list(frozen_defects),
+                    "successor_obligation_id": successor_obligation_id,
+                }
                 proposal, evaluated2 = proposal.evaluate(
-                    proposal_ids[agent.agent_id], reviewer.agent_id, score=score2, disposition="ACCEPT"
+                    proposal_ids[agent.agent_id], reviewer.agent_id, score=score2, disposition=proposal_disposition
                 )
-                close_rework = self._protocol_close(evidence, rework_id, rework_obligation, "SATISFIED")
+                close_rework = self._protocol_close(
+                    evidence,
+                    rework_id,
+                    rework_obligation,
+                    "SATISFIED"
+                    if second_review_accepted
+                    else "RETRY_EXHAUSTED"
+                    if successor_obligation_id
+                    else "REWORK_REQUIRED",
+                    successor=successor_obligation_id,
+                )
                 proposal_stream.append(
                     "proposal-rework-completed",
                     (
@@ -3065,17 +3122,18 @@ class TrueMultiAgentProductionRuntime:
                             "reviewer_id": reviewer.agent_id,
                             "frozen_defects": list(frozen_defects),
                             "defect_response_count": len(defect_responses),
-                            "all_defects_addressed": True,
+                            "all_defects_addressed": second_review_accepted,
                             "defect_resolution_hash": defect_resolution_hash,
                             "old_review_reused": False,
+                            **second_review_audit,
                         },
-                        rework_completed,
+                        {**rework_completed, **second_review_audit},
                         {
                             **requested2,
                             "event_type": "review.requested",
                             "proposal_id": proposal_ids[agent.agent_id],
                             "proposal_output_hash": revision.output_hash,
-                            "revision": 2,
+                            **second_review_audit,
                         },
                         {
                             **response2,
@@ -3084,29 +3142,26 @@ class TrueMultiAgentProductionRuntime:
                             "proposal_output_hash": revision.output_hash,
                             "review_call_id": second_review.call_id,
                             "review_output_hash": second_review.output_hash,
-                            "provider_verdict": str(second_review.value["verdict"]).lower(),
-                            "effective_verdict": "approved",
-                            "revision": 2,
+                            **second_review_audit,
                         },
                         {
                             **disposition2,
                             "event_type": "review.disposition",
                             "proposal_id": proposal_ids[agent.agent_id],
                             "proposal_output_hash": revision.output_hash,
-                            "revision": 2,
                             "revision_allowed": True,
-                            "revision_budget": 1,
-                            "frozen_defects": list(frozen_defects),
+                            "effective_disposition": proposal_disposition,
+                            **second_review_audit,
                         },
-                        evaluated2,
-                        close_rework,
+                        {**evaluated2, **second_review_audit},
+                        {**close_rework, **second_review_audit},
                     ),
                     actor=reviewer.agent_id,
                 )
                 results[index - 1] = revision
                 review_results.append(second_review)
                 scores[proposal_ids[agent.agent_id]] = score2
-                dispositions[proposal_ids[agent.agent_id]] = "ACCEPT"
+                dispositions[proposal_ids[agent.agent_id]] = proposal_disposition
 
         negotiation_finalization: Mapping[str, Any] | None = None
         if "debate" in analysis.protocols and len(results) >= 2:
@@ -3662,7 +3717,7 @@ class TrueMultiAgentProductionRuntime:
 
             def validate_final(value: Mapping[str, Any]) -> None:
                 verdict = _require_string(value, "verdict").lower()
-                if verdict not in {"approved", "changes_requested", "reject"}:
+                if verdict not in PROPOSAL_REVIEW_VERDICTS:
                     raise DynamicCollaborationError("final debate Review verdict is invalid")
                 score = value.get("score")
                 if not isinstance(score, int) or not 0 <= score <= 100:
@@ -3680,7 +3735,9 @@ class TrueMultiAgentProductionRuntime:
                 kind="review",
                 contract=(
                     "Independently evaluate the exact round-2 revision as a playbook specification, not as an already "
-                    "executed migration. Return verdict as approved, changes_requested, or reject; integer score "
+                    "executed migration. Return verdict as one of: "
+                    + ", ".join(PROPOSAL_REVIEW_VERDICTS)
+                    + "; integer score "
                     "0-100; non-empty reason; and defects as a JSON array of zero to eight strings. Do not require "
                     "post-execution logs, completed implementation artifacts, or already-passed tests at this planning stage."
                 ),
@@ -3690,7 +3747,9 @@ class TrueMultiAgentProductionRuntime:
                     "testable conditions tied to named internal evidence that the playbook requires execution to produce, "
                     "and otherwise meets the rubric. Evaluate specification completeness; do not demand evidence that "
                     "the future cutover, implementation, or tests have already run. "
-                    "At the final bounded round, unresolved defects mean changes_requested or reject and therefore NO_CONSENSUS; "
+                    "At the final bounded round, unresolved defects mean "
+                    + " or ".join(PROPOSAL_REVIEW_VERDICTS[1:])
+                    + " and therefore NO_CONSENSUS; "
                     f"the runtime will not force success. Required shape: {{\"agent_id\":\"{reviewer.agent_id}\",\"kind\":\"review\","
                     "\"verdict\":\"approved\",\"score\":85,\"reason\":\"...\",\"defects\":[]}. Revision: "
                     + json.dumps(dict(revised.value), ensure_ascii=False, sort_keys=True)
@@ -7577,7 +7636,7 @@ class TrueMultiAgentProductionRuntime:
         identity_roots: Sequence[str] | None = None,
         runtime_excluded_roots: Sequence[str] | None = None,
     ) -> str:
-        root = Path(root or "/Users/moss/SitinaHub").expanduser().resolve(strict=False)
+        root = Path(root).expanduser().resolve(strict=False) if root is not None else canonical_journal_native_home()
         if not root.exists():
             return "absent"
         try:

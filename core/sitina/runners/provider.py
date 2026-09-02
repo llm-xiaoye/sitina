@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlsplit, urlparse, urlunsplit
 
 from sitina.constants import SITINA_HOME
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.legacy.fence import FrozenNetworkEgressCapability, authorized_frozen_network_egress
 from sitina.legacy.retirement import LegacyRuntimePolicy
 from sitina.orchestrator.timeout_support import ProviderTimeoutConfig
@@ -29,11 +30,6 @@ from sitina.utils import iso_now, load_json_yaml, redact_text, sha256_text, stab
 OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
 ANTHROPIC_MESSAGES = "anthropic_messages"
 SUPPORTED_WIRE_PROTOCOLS = frozenset({OPENAI_CHAT_COMPLETIONS, ANTHROPIC_MESSAGES})
-
-# The Production trust root is bound to this path, matching sitina.cli and
-# sitina.legacy.retirement.
-_PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
-
 
 def infer_wire_protocol(
     profile_name: str,
@@ -595,7 +591,9 @@ class ProviderHealthRegistry:
         if (self.home / "state/bplus-production-genesis/genesis.json").is_file():
             return True
         root = self.home.expanduser().resolve(strict=False)
-        return root != _PRODUCTION_HOME and (self.home / "state/clean-acceptance/genesis.json").is_file()
+        return root not in {canonical_journal_native_home(), LEGACY_PRODUCTION_HOME} and (
+            self.home / "state/clean-acceptance/genesis.json"
+        ).is_file()
 
     def _default_runtime_context(self) -> Any:
         """Resolve this home's Journal runtime context.
@@ -604,7 +602,9 @@ class ProviderHealthRegistry:
         the Production trust root when a clean-acceptance Journal is installed.
         """
         root = self.home.expanduser().resolve(strict=False)
-        if root != _PRODUCTION_HOME and (self.home / "state/clean-acceptance/genesis.json").is_file():
+        if root not in {canonical_journal_native_home(), LEGACY_PRODUCTION_HOME} and (
+            self.home / "state/clean-acceptance/genesis.json"
+        ).is_file():
             from sitina.orchestrator.clean_acceptance import CleanAcceptanceContext
 
             return CleanAcceptanceContext.load(self.home)

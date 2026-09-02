@@ -703,20 +703,35 @@ class AuthorityService:
                 if payload.get("run_id") not in (None, run_id):
                     continue
                 if payload.get("event_type") in {
-                    "proposal.submitted", "proposal.revised", "review.response",
-                    "review.disposition",
+                    "proposal.submitted", "proposal.revised", "review.requested",
+                    "review.response", "review.disposition",
                 }:
                     events.append(payload)
         submissions = [item for item in events if item.get("event_type") == "proposal.submitted"]
         revisions = [item for item in events if item.get("event_type") == "proposal.revised"]
+        requests = [item for item in events if item.get("event_type") == "review.requested"]
         dispositions = [item for item in events if item.get("event_type") == "review.disposition"]
         responses = [item for item in events if item.get("event_type") == "review.response"]
-        if len(revisions) > 1:
-            raise AuthorityError("proposal revision budget exceeded", reason_code="ROOT_REWORK_BUDGET_EXCEEDED")
-        needs = [item for item in dispositions if item.get("disposition") == "NEEDS_CHANGES"]
-        if not needs:
+        code_mode_needs = [
+            item for item in dispositions
+            if item.get("disposition") == "NEEDS_CHANGES"
+            and item.get("code_mode_mutation_rework") is True
+        ]
+        if not code_mode_needs:
             return None
-        if len(needs) != 1:
+        if len(revisions) > 1 or any(item.get("revision") != 2 for item in revisions):
+            raise AuthorityError("proposal revision budget exceeded", reason_code="ROOT_REWORK_BUDGET_EXCEEDED")
+        submission_refs: dict[str, list[Mapping[str, Any]]] = {}
+        for item in submissions:
+            body_ref = item.get("body_ref")
+            if isinstance(body_ref, str):
+                submission_refs.setdefault(body_ref, []).append(item)
+        needs = [
+            item for item in code_mode_needs
+            if item.get("revision") in (None, 1)
+            and item.get("artifact_hash") in submission_refs
+        ]
+        if len(code_mode_needs) != 1 or len(needs) != 1:
             raise AuthorityError(
                 "proposal rework has multiple NEEDS_CHANGES dispositions",
                 reason_code="ROOT_REWORK_MULTIPLE_NEEDS_CHANGES",
@@ -749,16 +764,42 @@ class AuthorityService:
             return None
         review_id = disposition.get("review_id")
         artifact_hash = disposition.get("artifact_hash")
-        response = next((item for item in responses if item.get("review_id") == review_id), None)
+        first_requests = [item for item in requests if item.get("review_id") == review_id]
+        first_responses = [item for item in responses if item.get("review_id") == review_id]
         if (
             not isinstance(review_id, str) or not review_id
             or not isinstance(artifact_hash, str) or not artifact_hash
-            or not isinstance(response, Mapping)
+            or len(first_requests) != 1
+            or len(first_responses) != 1
         ):
             raise AuthorityError("NEEDS_CHANGES review is not durably bound", reason_code="ROOT_REWORK_BINDING_MISSING")
-        proposal = next((item for item in submissions if item.get("body_ref") == artifact_hash), None)
-        if not isinstance(proposal, Mapping):
+        matching_proposals = submission_refs.get(artifact_hash, [])
+        if len(matching_proposals) != 1:
             raise AuthorityError("NEEDS_CHANGES review has no submitted proposal", reason_code="ROOT_REWORK_PROPOSAL_MISSING")
+        proposal = matching_proposals[0]
+        request = first_requests[0]
+        response = first_responses[0]
+        proposal_id = proposal.get("proposal_id")
+        proposal_output_hash = proposal.get("output_hash")
+        if (
+            request.get("artifact_hash") != artifact_hash
+            or request.get("proposal_id") != proposal_id
+            or not isinstance(proposal_output_hash, str)
+            or request.get("proposal_output_hash") != proposal_output_hash
+            or request.get("revision") not in (None, 1)
+        ):
+            raise AuthorityError(
+                "NEEDS_CHANGES review proposal binding is contradictory",
+                reason_code="ROOT_REWORK_BINDING_MISSING",
+            )
+        if (
+            disposition.get("proposal_id") not in (None, proposal_id)
+            or disposition.get("proposal_output_hash") not in (None, proposal_output_hash)
+        ):
+            raise AuthorityError(
+                "NEEDS_CHANGES disposition proposal binding is contradictory",
+                reason_code="ROOT_REWORK_BINDING_MISSING",
+            )
         reviewer_id = response.get("reviewer_id")
         review_output_hash = response.get("review_output_hash")
         author_id = proposal.get("participant_id")
@@ -777,7 +818,13 @@ class AuthorityService:
                 "NEEDS_CHANGES reviewer response is contradictory",
                 reason_code="ROOT_REWORK_RESPONSE_CONTRADICTORY",
             )
-        proposal_id = proposal.get("proposal_id")
+        if not isinstance(proposal_id, str) or not proposal_id:
+            raise AuthorityError("NEEDS_CHANGES proposal identity is missing", reason_code="ROOT_REWORK_BINDING_MISSING")
+        if any(item.get("proposal_id") != proposal_id for item in revisions):
+            raise AuthorityError(
+                "proposal revision is bound to a different proposal",
+                reason_code="ROOT_REWORK_DEFECT_BINDING_MISMATCH",
+            )
         matching_revisions = [item for item in revisions if item.get("proposal_id") == proposal_id]
         if not matching_revisions:
             return {
@@ -809,12 +856,23 @@ class AuthorityService:
                 reason_code="ROOT_REWORK_DEFECT_BINDING_MISMATCH",
             )
         revised_hash = revision.get("body_ref")
+        revised_output_hash = revision.get("new_output_hash")
+        if (
+            not isinstance(revised_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", revised_hash)
+            or revised_hash == artifact_hash
+            or not isinstance(revised_output_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", revised_output_hash)
+            or revision.get("parent_output_hash") != proposal_output_hash
+        ):
+            raise AuthorityError(
+                "proposal revision output lineage is invalid",
+                reason_code="ROOT_REWORK_DEFECT_BINDING_MISMATCH",
+            )
         second_dispositions = [
             item for item in dispositions
-            if item.get("artifact_hash") == revised_hash and item.get("review_id") != review_id
+            if item.get("artifact_hash") == revised_hash
         ]
-        second_ids = {item.get("review_id") for item in second_dispositions}
-        second_responses = [item for item in responses if item.get("review_id") in second_ids]
         if not second_dispositions:
             return {
                 "state": "EXPECT_REVISION_REVIEW",
@@ -825,16 +883,61 @@ class AuthorityService:
                 "revision_hash": revised_hash,
                 "revision_budget": 1,
             }
-        if len(second_dispositions) != 1 or len(second_responses) != 1:
+        if len(second_dispositions) != 1:
             raise AuthorityError("proposal second review is not unique", reason_code="ROOT_REWORK_SECOND_REVIEW_NOT_UNIQUE")
+        second_disposition = second_dispositions[0]
+        second_review_id = second_disposition.get("review_id")
+        if not isinstance(second_review_id, str) or not second_review_id or second_review_id == review_id:
+            raise AuthorityError(
+                "proposal second review binding is invalid",
+                reason_code="ROOT_REWORK_SECOND_REVIEW_NOT_UNIQUE",
+            )
+        second_requests = [item for item in requests if item.get("artifact_hash") == revised_hash]
+        second_responses = [item for item in responses if item.get("review_id") == second_review_id]
+        if len(second_requests) != 1 or len(second_responses) != 1:
+            raise AuthorityError("proposal second review is not unique", reason_code="ROOT_REWORK_SECOND_REVIEW_NOT_UNIQUE")
+        second_request = second_requests[0]
         second_response = second_responses[0]
+        second_verdict = second_response.get("verdict")
+        expected_disposition = {
+            "ACCEPT": "ACCEPT",
+            "NEEDS_CHANGES": "NEEDS_CHANGES",
+            "REJECT": "REJECT",
+        }.get(second_verdict)
         if (
-            second_response.get("reviewer_id") != reviewer_id
-            or second_response.get("verdict") != "ACCEPT"
-            or second_dispositions[0].get("disposition") != "ACCEPT"
+            second_request.get("review_id") != second_review_id
+            or second_request.get("artifact_hash") != revised_hash
+            or second_request.get("proposal_id") != proposal_id
+            or second_request.get("proposal_output_hash") != revised_output_hash
+            or second_request.get("revision") != 2
+            or second_disposition.get("proposal_id") != proposal_id
+            or second_disposition.get("artifact_hash") != revised_hash
+            or second_disposition.get("proposal_output_hash") != revised_output_hash
+            or second_disposition.get("revision") != 2
+            or second_disposition.get("revision_budget") != 1
+            or second_response.get("proposal_id") != proposal_id
+            or second_response.get("proposal_output_hash") != revised_output_hash
+            or second_response.get("revision") != 2
+            or second_response.get("reviewer_id") != reviewer_id
+            or not isinstance(second_response.get("review_output_hash"), str)
+            or not second_response.get("review_output_hash")
+            or expected_disposition is None
+            or second_disposition.get("disposition") != expected_disposition
+            or second_disposition.get("effective_disposition") != (
+                "ACCEPT" if expected_disposition == "ACCEPT" else "REJECT"
+            )
+            or second_response.get("effective_verdict") != (
+                "approved" if expected_disposition == "ACCEPT" else "reject"
+            )
         ):
-            return {"state": "CLOSED_REJECTED", "revision_budget": 1}
-        return {"state": "CLOSED", "revision_budget": 1}
+            raise AuthorityError(
+                "proposal second review binding is contradictory",
+                reason_code="ROOT_REWORK_DEFECT_BINDING_MISMATCH",
+            )
+        return {
+            "state": "CLOSED" if expected_disposition == "ACCEPT" else "CLOSED_REJECTED",
+            "revision_budget": 1,
+        }
 
     def _root_fsm_from_snapshot(self, snapshot: Sequence[Any], run_id: str) -> str:
         """Recompute the root FSM from authenticated producer facts.
@@ -1157,14 +1260,12 @@ class AuthorityService:
             messages = [
                 event for event in scoped_messages
                 if event.payload.get("session_instance_id") == session_instance_id
-                and event.payload.get("run_attempt") == run_attempt
                 and event.payload.get("generation") == generation
             ]
             links = [
                 event for event in scoped_links
                 if event.payload.get("run_id") == run_id
                 and event.payload.get("session_instance_id") == session_instance_id
-                and event.payload.get("run_attempt") == run_attempt
                 and event.payload.get("generation") == generation
             ]
             if len(scoped_messages) != 1 or len(scoped_links) != 1 or len(messages) != 1 or len(links) != 1:
@@ -1172,14 +1273,28 @@ class AuthorityService:
             message = messages[0].payload
             link = links[0].payload
             for field, expected in (
+                ("session_id", session_id),
+                ("turn_index", turn_index),
                 ("session_instance_id", session_instance_id),
-                ("run_attempt", run_attempt),
                 ("generation", generation),
             ):
-                if expected is not None and link.get(field) != expected:
+                if link.get(field) != expected:
                     raise AuthorityError("conversation " + field + " binding is missing")
-                if expected is not None and message.get(field) != expected:
+                if message.get(field) != expected:
                     raise AuthorityError("conversation " + field + " message binding changed")
+            message_attempt = message.get("run_attempt")
+            link_attempt = link.get("run_attempt")
+            if (
+                type(message_attempt) is not int or message_attempt < 1
+                or type(link_attempt) is not int or link_attempt < 1
+            ):
+                raise AuthorityError("conversation binding run attempt is invalid")
+            if message_attempt != link_attempt:
+                raise AuthorityError("conversation message and run link attempts differ")
+            if type(run_attempt) is not int or run_attempt < 1:
+                raise AuthorityError("conversation current run attempt is invalid")
+            if message_attempt > run_attempt:
+                raise AuthorityError("conversation binding attempt is ahead of the authenticated latest attempt")
             workspace = link.get("workspace")
             if not isinstance(workspace, str) or workspace not in {str(self._workspace), self._workspace_identity}:
                 raise AuthorityError("conversation run link workspace is not bound to the host workspace")

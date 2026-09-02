@@ -16,6 +16,12 @@ class OutputContractError(ValueError):
     pass
 
 
+# Proposal reviews use one provider-neutral vocabulary at the wire and
+# semantic boundaries.  Other decision contracts (for example execution
+# review) intentionally have their own vocabulary.
+PROPOSAL_REVIEW_VERDICTS = ("approved", "changes_requested", "reject")
+
+
 @dataclass(frozen=True)
 class OutputContractSpec:
     output_contract_id: str
@@ -89,7 +95,7 @@ _REVIEW = OutputContractSpec(
     ("agent_id", "kind", "verdict", "score", "reason", "defects"),
     {
         **_ENVELOPE,
-        "verdict": {"type": "string", "enum": ["approved", "changes_requested", "rejected", "accept", "reject"]},
+        "verdict": {"type": "string", "enum": list(PROPOSAL_REVIEW_VERDICTS)},
         "score": {"type": "integer", "minimum": 0, "maximum": 100},
         "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
         "defects": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
@@ -151,7 +157,7 @@ _READONLY_REVIEW = OutputContractSpec(
     ("agent_id", "kind", "verdict", "score", "reason", "defects", "verified_claim_ids"),
     {
         **_ENVELOPE,
-        "verdict": {"type": "string", "enum": ["approved", "changes_requested", "reject"]},
+        "verdict": {"type": "string", "enum": list(PROPOSAL_REVIEW_VERDICTS)},
         "score": {"type": "integer", "minimum": 0, "maximum": 100},
         "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
         "defects": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
@@ -328,4 +334,11 @@ def _json_type(value: Any, name: str | None) -> bool:
     }.get(str(name), True)
 
 
-__all__ = ["OutputContractError", "OutputContractSpec", "resolve_output_contract", "validate_output_contract", "is_critical_contract_task"]
+__all__ = [
+    "OutputContractError",
+    "OutputContractSpec",
+    "PROPOSAL_REVIEW_VERDICTS",
+    "resolve_output_contract",
+    "validate_output_contract",
+    "is_critical_contract_task",
+]

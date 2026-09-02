@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from sitina.legacy.fence import LegacyWriteDenied
+from sitina.install_identity import canonical_journal_native_home
 from sitina.orchestrator.execution_bridge import (
     ExecutionIdentityBinding,
     VerificationVerdict,
@@ -386,7 +387,7 @@ def verify_execution_diff(
         )
 
     execution_run_id = run_id or f"verification-{verifier_id}"
-    sandbox_home = Path(home or os.environ.get("SITINA_HOME", "/Users/moss/SitinaHub"))
+    sandbox_home = Path(home or os.environ.get("SITINA_HOME") or canonical_journal_native_home())
     try:
         runner = ExecutionSandboxRunner(
             home=sandbox_home,

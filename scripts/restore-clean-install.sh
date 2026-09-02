@@ -37,6 +37,32 @@ if ((INSTALL_DEPS)); then
     -r "$ROOT/requirements-bplus.lock"
 fi
 
+export SITINA_HOME="$ROOT"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$ROOT/core${PYTHONPATH:+:$PYTHONPATH}"
+
+"$PYTHON_BIN" - <<'PY'
+from sitina.constants import SITINA_HOME
+from sitina.install_identity import canonical_journal_native_home
+from sitina.legacy.retirement import LegacyRuntimePolicy
+
+active = canonical_journal_native_home()
+configured = SITINA_HOME.expanduser().resolve(strict=False)
+if configured != active:
+    raise RuntimeError(f"restore requires the active Sitina installation: {configured} != {active}")
+policy = LegacyRuntimePolicy.load(active)
+if not policy.protected_environment:
+    raise RuntimeError("restore requires protected=true for the active Sitina installation")
+if not policy.fully_disabled:
+    raise RuntimeError("restore requires Legacy fully disabled for the active Sitina installation")
+if not policy.missing_legacy_is_valid:
+    raise RuntimeError("restore requires missing Legacy to be valid for the active Sitina installation")
+errors = policy.validate_protected()
+if errors:
+    raise RuntimeError("invalid active Sitina installation Legacy policy: " + "; ".join(errors))
+print(f"validated active Sitina installation: {active}")
+PY
+
 chmod 755 "$ROOT/bin/sitina"
 install -d -m 700 \
   "$ROOT/profiles" \
@@ -47,9 +73,6 @@ install -d -m 700 \
   "$ROOT/projections" \
   "$ROOT/output"
 
-export SITINA_HOME="$ROOT"
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$ROOT/core${PYTHONPATH:+:$PYTHONPATH}"
 "$ROOT/bin/sitina" --help >/dev/null
 
 printf 'Sitina clean checkout is ready at %s\n' "$ROOT"

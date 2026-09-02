@@ -2,6 +2,7 @@ import unittest
 
 from sitina.orchestrator.output_contracts import (
     OutputContractError,
+    PROPOSAL_REVIEW_VERDICTS,
     is_critical_contract_task,
     resolve_output_contract,
     validate_output_contract,
@@ -87,6 +88,25 @@ class OutputContractTests(unittest.TestCase):
         ):
             with self.assertRaises(OutputContractError):
                 validate_output_contract(invalid, answer if "answer_fragment" in invalid else review)
+
+    def test_proposal_review_uses_one_canonical_verdict_set(self) -> None:
+        review = resolve_output_contract("review-1", "review")
+        self.assertEqual(
+            review.wire_schema()["properties"]["verdict"]["enum"],
+            list(PROPOSAL_REVIEW_VERDICTS),
+        )
+        base = {
+            "agent_id": "agent",
+            "kind": "review",
+            "score": 90,
+            "reason": "verified",
+            "defects": [],
+        }
+        for verdict in PROPOSAL_REVIEW_VERDICTS:
+            validate_output_contract({**base, "verdict": verdict}, review)
+        for verdict in ("rejected", "accept"):
+            with self.assertRaises(OutputContractError):
+                validate_output_contract({**base, "verdict": verdict}, review)
 
 
 if __name__ == "__main__":

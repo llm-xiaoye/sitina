@@ -17,10 +17,11 @@ import secrets
 import time
 import stat
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from sitina.install_identity import canonical_journal_native_home
 from sitina.orchestrator.production_identity import (
     DEFAULT_IDENTITY_ROOTS,
     DEFAULT_RUNTIME_EXCLUDED_ROOTS,
@@ -271,7 +272,7 @@ def classify_code_mode_intent(message: str) -> dict[str, Any]:
 class CodeModeRuntimePolicy:
     """Small pre-tool policy for Code Mode; no artifact or activation input."""
 
-    production_home: Path = Path("/Users/moss/SitinaHub")
+    production_home: Path = field(default_factory=canonical_journal_native_home)
 
     def __post_init__(self) -> None:
         # An authorization is a live, in-process capability.  The serialized
@@ -297,7 +298,7 @@ class CodeModeRuntimePolicy:
         root = self.production_home.expanduser().resolve(strict=False)
         reasons: list[str] = []
         if target == root and intent["explicit_mutation"]:
-            reasons.append("Code Mode cannot mutate the frozen Production home")
+            reasons.append("Code Mode cannot mutate the active Sitina installation")
         if raw_target.is_symlink() or not target.is_dir():
             reasons.append("selected workspace must be a non-symlink directory")
         if not str(session_id).strip():
@@ -797,8 +798,8 @@ def build_candidate_manifest(
     """Freeze a complete candidate identity; this does not write anything."""
 
     root = Path(workspace).expanduser().resolve(strict=True)
-    if root == Path("/Users/moss/SitinaHub"):
-        raise ValueError("Code Mode candidate cannot be the frozen Production home")
+    if root == canonical_journal_native_home():
+        raise ValueError("Code Mode candidate cannot be the active Sitina installation")
     if not root.is_dir():
         raise ValueError("Code Mode candidate must be a directory")
     # Keep all Git fields from one probe so a source cannot change identity
@@ -1354,7 +1355,7 @@ class CodeModeAcceptanceV1:
                 "workspace": str(target),
             },
         )
-        if target == Path("/Users/moss/SitinaHub") or not _is_within(target, self.workspace):
+        if target == canonical_journal_native_home() or not _is_within(target, self.workspace):
             raise PermissionError("canary workspace is outside the Code Mode candidate")
         provider = dict(self.profile.get("provider") or {})
         provider_profile = provider.get("profile")

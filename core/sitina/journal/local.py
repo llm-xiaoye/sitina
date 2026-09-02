@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.cas.gc import GCController, ReferenceLease
 from sitina.cas.model import CASError, ExistingDurableObjectRootProof, ObjectRef, PublishedObjectReceipt
 from sitina.commands.model import CommandEnvelope, CommandResult, CommandStatus
@@ -113,8 +114,8 @@ class LocalJournal:
         if production_namespace:
             self._authorize_production_open(namespace_kind)
         else:
-            if self.home == Path("/Users/moss/SitinaHub"):
-                raise LocalJournalError("Production Journal requires a Phase 6B or resolved runtime capability")
+            if self.home in {LEGACY_PRODUCTION_HOME, canonical_journal_native_home()}:
+                raise LocalJournalError("active Sitina installation Journal requires a Phase 6B or resolved runtime capability")
             if namespace_kind not in {"shadow", "controlled_fixture", "code_mode", "session"}:
                 raise LocalJournalError("Journal namespace must be shadow, controlled_fixture, code_mode, session, or manifest-bound Production")
             marker = {
@@ -220,9 +221,9 @@ class LocalJournal:
         if value.get("genesis_hash") != self.genesis_hash:
             raise LocalJournalError("Production Journal Genesis bytes do not match the requested identity")
         if namespace_kind == "production_simulation":
-            if self.home == Path("/Users/moss/SitinaHub") or not (self.home / ".sitina-bplus-disposable-v1").is_file():
+            if self.home == LEGACY_PRODUCTION_HOME or not (self.home / ".sitina-bplus-disposable-v1").is_file():
                 raise LocalJournalError("Production simulation requires a disposable non-Production root")
-        elif self.home != Path("/Users/moss/SitinaHub"):
+        elif self.home != LEGACY_PRODUCTION_HOME:
             raise LocalJournalError("Production namespace requires the manifest-bound Production installation")
         if self._operational_capability is not None:
             try:

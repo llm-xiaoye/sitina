@@ -6,6 +6,7 @@ import os
 import sqlite3
 import stat
 import subprocess
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -28,10 +29,25 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 
-SOURCE = Path("/Users/moss/Desktop/sitina/source-worktree").resolve(strict=True)
+SOURCE = Path(__file__).resolve().parents[1]
 PRODUCTION = Path("/Users/moss/SitinaHub").resolve(strict=True)
-ARTIFACTS = SOURCE / "artifacts/deepseek-token-canary"
-CANARY_ROOT = SOURCE / ".canary-homes"
+_configured_canary_root = os.environ.get("SITINA_CANARY_ROOT")
+CANARY_ROOT = (
+    Path(_configured_canary_root).expanduser()
+    if isinstance(_configured_canary_root, str) and _configured_canary_root.strip()
+    else Path(tempfile.gettempdir()) / "sitina-deepseek-token-canary"
+).resolve(strict=False)
+
+
+def _assert_external_canary_root(root: Path) -> None:
+    candidate = Path(root).expanduser().resolve(strict=False)
+    for protected in (SOURCE, PRODUCTION):
+        if candidate == protected or protected in candidate.parents:
+            raise RuntimeError("canary writable root must be outside SOURCE and PRODUCTION")
+
+
+_assert_external_canary_root(CANARY_ROOT)
+ARTIFACTS = CANARY_ROOT / "artifacts" / "deepseek-token-canary"
 
 
 def bootstrap_authority(sim: Path, ops: Path, now: int) -> tuple[object, object, object, object, dict[str, object]]:
@@ -806,6 +822,7 @@ def main() -> None:
 
     dry_run = "--dry-run" in sys.argv
     interactive = "--interactive" in sys.argv
+    _assert_external_canary_root(CANARY_ROOT)
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     CANARY_ROOT.mkdir(parents=True, exist_ok=True)
     disposable = DisposableHomeFactory(SOURCE, PRODUCTION, CANARY_ROOT).create(prefix="deepseek-token-test-")

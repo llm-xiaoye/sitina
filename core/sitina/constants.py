@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 
-SITINA_HOME = Path(os.environ.get("SITINA_HOME", "/Users/moss/SitinaHub")).expanduser()
+SITINA_HOME = Path(os.environ.get("SITINA_HOME") or (Path.home() / "SitinaHub")).expanduser()
 
 AGENTS = (
     "controller",

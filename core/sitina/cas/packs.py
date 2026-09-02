@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.journal.model import canonical_json_bytes
 
 
@@ -50,7 +51,8 @@ class MetadataPackWriter:
         if not self.write_enabled:
             raise PackWriteDisabled("metadata pack writer feature is disabled")
         protected = (
-            self.home == Path("/Users/moss/SitinaHub")
+            self.home == LEGACY_PRODUCTION_HOME
+            or self.home == canonical_journal_native_home()
             or (self.home / ".sitina-clean-acceptance-v1").is_file()
             or (self.home / "state/bplus-production-genesis/genesis.json").is_file()
         )

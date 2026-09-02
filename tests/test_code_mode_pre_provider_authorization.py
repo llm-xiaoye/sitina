@@ -24,7 +24,11 @@ from sitina.orchestrator.true_multi_agent_runtime import (
     provider_call_identity_v2,
     sha256_bytes,
 )
-from sitina.orchestrator.true_multi_agent import RunEvidence
+from sitina.orchestrator.true_multi_agent import (
+    DynamicCollaborationError,
+    PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE,
+    RunEvidence,
+)
 from sitina.orchestrator.true_multi_agent import GoalAnalysis
 from sitina.journal.model import CODE_MODE_FAST_PRE_PROVIDER_PHASE, canonical_json_bytes
 from sitina.runners.provider import ProviderHTTPError
@@ -410,6 +414,100 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
                 validate=lambda _value: None,
             )
         self.assertEqual(len(_LocalProviderHandler.requests), 3)
+
+    def test_pre_execution_proposal_review_scope_is_bound_before_execution(self) -> None:
+        runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
+        self.journal = self.context.open_runtime_writer()
+        executor = ProviderExecutor(
+            runtime_home,
+            self.context,
+            run_id,
+            multi.policy_hash,
+            multi.policy,
+            activation,
+            self.journal,
+            self.context.open_cas(),
+            client_override=None,
+            pre_provider_authorization=authorization,
+        )
+        observations: list[tuple[bool, bool]] = []
+
+        def scope_aware_response(request: dict[str, object]) -> dict[str, object]:
+            messages = request.get("messages")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            user = str(messages[-1].get("content") if isinstance(messages, list) and messages else "")
+            agent_match = re.search(r"agent_id exactly '([^']+)'", system)
+            kind_match = re.search(r"kind exactly '([^']+)'", system)
+            agent_id = agent_match.group(1) if agent_match else "agent-atlas"
+            kind = kind_match.group(1) if kind_match else "proposal"
+            if kind == "review":
+                lowered = user.lower()
+                has_scope = PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE in user
+                has_plan_fields = all(
+                    marker in lowered
+                    for marker in ("hello.py", "python -m unittest -v test_hello.py", "do not modify")
+                )
+                observations.append((has_scope, has_plan_fields))
+                return {
+                    "agent_id": agent_id,
+                    "kind": "review",
+                    "verdict": "approved" if has_scope and has_plan_fields else "reject",
+                    "score": 90 if has_scope and has_plan_fields else 40,
+                    "reason": "the executable plan is complete" if has_scope and has_plan_fields else "the plan scope is incomplete",
+                    "defects": [] if has_scope and has_plan_fields else ["bind the pre-execution plan scope"],
+                }
+            if "Analyze this goal" in user:
+                return self._valid_discovery(agent_id)
+            return {
+                "agent_id": agent_id,
+                "kind": "proposal",
+                "summary": "Change hello.py only",
+                "approach": "Update greet(name) in hello.py to append the ending exclamation mark.",
+                "risks": ["The bounded change is confined to the named source file."],
+                "assumptions": ["test_hello.py is the existing focused test."],
+                "acceptance_checks": [
+                    "File: hello.py only; update greet(name).",
+                    "Test: python -m unittest -v test_hello.py must pass.",
+                    "Prohibited: do not modify test_hello.py, dependencies, configuration, or any other path; do not commit or push.",
+                ],
+            }
+
+        rejected = scope_aware_response({
+            "messages": [
+                {"role": "system", "content": "agent_id exactly 'agent-delta' kind exactly 'review'"},
+                {"role": "user", "content": "hello.py and python -m unittest -v test_hello.py"},
+            ],
+        })
+        self.assertEqual(rejected["verdict"], "reject")
+        observations.clear()
+        _LocalProviderHandler.response_factory = scope_aware_response
+        evidence = RunEvidence(
+            run_id, "pre-execution scope fixture", sha256_bytes(b"pre-execution scope fixture"), multi.policy_hash,
+        )
+        run_stream = CanonicalStream(self.journal, run_id, f"run/{run_id}", multi.policy_hash)
+        discovery_agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
+        discovery = executor.call(
+            discovery_agent,
+            task_id="goal-discovery", kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1", task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1", root_phase="discovery/controller",
+            system_prompt=f"agent_id exactly '{discovery_agent.agent_id}'",
+            user_prompt="Analyze this goal", input_context={}, validate=lambda _value: None,
+        )
+        evidence.calls.append(discovery)
+        analysis = GoalAnalysis(
+            complexity="simple", risk_level="low", protocols=("proposal",),
+            task_graph=("define and review a bounded file plan",), proposal_count=1,
+            domain_capability="python", requires_rework=False, requires_conflict=False,
+            requires_handoff_reject=False, requires_reassignment=False,
+            requires_provider_unknown=False, rationale="pre-execution scope fixture",
+        )
+        winner, _agent, _results, _decision = multi._proposal_and_review(
+            self.journal, run_stream, executor, evidence, analysis, {},
+        )
+        self.assertTrue(winner.output_ref)
+        self.assertEqual(observations, [(True, True)])
+        self.assertEqual(executor.physical_send_total(), 3)
 
     def _runtime(self):
         with patch.object(cli, "SITINA_HOME", self.root):
@@ -1139,6 +1237,168 @@ class PreProviderAuthorizationProductionTests(unittest.TestCase):
         )
         second_review = [item for item in review_facts if item.get("revision") == 2]
         self.assertTrue(all(item.get("proposal_output_hash") for item in second_review))
+
+    def test_second_review_changes_requested_rejects_revision_without_output_contract_failure(self) -> None:
+        runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()
+        self.journal = self.context.open_runtime_writer()
+        executor = ProviderExecutor(
+            runtime_home,
+            self.context,
+            run_id,
+            multi.policy_hash,
+            multi.policy,
+            activation,
+            self.journal,
+            self.context.open_cas(),
+            client_override=None,
+            pre_provider_authorization=authorization,
+        )
+
+        def changes_requested_response(request: dict[str, object]) -> dict[str, object]:
+            messages = request.get("messages")
+            user = str(messages[-1].get("content") if isinstance(messages, list) and messages else "")
+            system = str(messages[0].get("content") if isinstance(messages, list) and messages else "")
+            match = re.search(r"agent_id exactly '([^']+)'", system)
+            agent_id = match.group(1) if match else "agent-atlas"
+            if "Analyze this goal" in user:
+                return {
+                    "agent_id": agent_id, "kind": "proposal", "complexity": "simple",
+                    "risk_level": "low", "protocols": ["proposal"],
+                    "task_graph": ["bounded write"], "proposal_count": 1,
+                    "domain_capability": "python", "requires_rework": False,
+                    "requires_conflict": False, "requires_handoff_reject": False,
+                    "requires_reassignment": False, "requires_provider_unknown": False,
+                    "rationale": "second Review non-approval fixture",
+                }
+            if "Re-review revision" in user:
+                return {
+                    "agent_id": agent_id, "kind": "review", "verdict": "changes_requested",
+                    "score": 60, "reason": "the focused defect remains", "defects": ["repair the focused defect"],
+                }
+            if "Revise your exact parent proposal" in user:
+                parent = re.search(r"Parent output hash: ([0-9a-f]{64})", user)
+                self.assertIsNotNone(parent)
+                return {
+                    "agent_id": agent_id, "kind": "proposal",
+                    "parent_output_hash": parent.group(1),
+                    "defect_responses": ["attempted the focused repair"],
+                    "summary": "bounded revision", "approach": "repair the focused defect",
+                    "acceptance_checks": ["focused test passes"],
+                }
+            if "Independently score" in user:
+                return {
+                    "agent_id": agent_id, "kind": "review", "verdict": "reject",
+                    "score": 60, "reason": "request one focused repair", "defects": ["repair the focused defect"],
+                }
+            return {
+                "agent_id": agent_id, "kind": "proposal", "summary": "bounded proposal",
+                "approach": "perform the bounded operation", "risks": ["local only"],
+                "assumptions": ["fixture is isolated"], "acceptance_checks": ["focused test passes"],
+            }
+
+        _LocalProviderHandler.response_factory = changes_requested_response
+        evidence = RunEvidence(
+            run_id, "explicit low-risk write", sha256_bytes(b"explicit low-risk write"), multi.policy_hash,
+        )
+        run_stream = CanonicalStream(
+            self.journal, run_id, f"run/{run_id}", multi.policy_hash,
+        )
+        discovery_agent = self._seed_root_schedule(multi, executor, run_id, self.journal)
+        discovery = executor.call(
+            discovery_agent,
+            task_id="goal-discovery", kind="proposal",
+            output_contract_id="sitina.goal-discovery.v1", task_type="goal_discovery",
+            schema_id="SITINA_GOAL_DISCOVERY_V1", root_phase="discovery/controller",
+            system_prompt=f"agent_id exactly '{discovery_agent.agent_id}'",
+            user_prompt="Analyze this goal", input_context={},
+            validate=lambda _value: None,
+        )
+        evidence.calls.append(discovery)
+        analysis = GoalAnalysis(
+            complexity="simple", risk_level="low", protocols=("proposal",),
+            task_graph=("bounded write",), proposal_count=1, domain_capability="python",
+            requires_rework=False, requires_conflict=False, requires_handoff_reject=False,
+            requires_reassignment=False, requires_provider_unknown=False,
+            rationale="second Review non-approval fixture",
+        )
+        controls = {
+            "interactive_chat": True,
+            "code_mode_authorization": {"intent_authorized": True},
+            "intent_authorized": True,
+            "code_mode_intent": {"explicit_mutation": True},
+        }
+        with self.assertRaises(DynamicCollaborationError) as failure:
+            multi._proposal_and_review(self.journal, run_stream, executor, evidence, analysis, controls)
+        self.assertEqual(str(failure.exception), "ProposalRound reached NoSelection")
+
+        payloads = [event.payload for event in self.journal.iter_events(0)]
+        self.assertFalse(any(item.get("reason_code") == "OUTPUT_CONTRACT_REJECTED" for item in payloads))
+        second_review_events = [
+            item for item in payloads
+            if item.get("revision") == 2
+            and item.get("event_type") in {"review.requested", "review.response", "review.disposition"}
+        ]
+        self.assertEqual(
+            {item.get("event_type") for item in second_review_events},
+            {"review.requested", "review.response", "review.disposition"},
+        )
+        self.assertTrue(all(item.get("provider_verdict") == "changes_requested" for item in second_review_events))
+        self.assertTrue(all(item.get("effective_verdict") == "reject" for item in second_review_events))
+        self.assertTrue(all(item.get("frozen_defects") == ["repair the focused defect"] for item in second_review_events))
+        self.assertTrue(all("successor_obligation_id" in item for item in second_review_events))
+        response = next(item for item in second_review_events if item.get("event_type") == "review.response")
+        disposition = next(item for item in second_review_events if item.get("event_type") == "review.disposition")
+        self.assertEqual(response.get("verdict"), "NEEDS_CHANGES")
+        self.assertEqual(disposition.get("disposition"), "NEEDS_CHANGES")
+        self.assertEqual(disposition.get("effective_disposition"), "REJECT")
+
+        rework = next(item for item in payloads if item.get("schema") == "REWORK_RETRY_EXHAUSTED_V1")
+        self.assertEqual(rework.get("provider_verdict"), "changes_requested")
+        self.assertEqual(rework.get("effective_verdict"), "reject")
+        self.assertEqual(rework.get("revision"), 2)
+        self.assertEqual(rework.get("revision_budget"), 1)
+        successor = rework.get("successor_obligation_id")
+        self.assertIsInstance(successor, str)
+        self.assertTrue(successor)
+        protocol_close = next(
+            item for item in payloads
+            if item.get("schema") == "PROTOCOL_INSTANCE_TERMINAL_V1"
+            and item.get("protocol_instance_id") == rework.get("rework_id")
+        )
+        self.assertEqual(protocol_close.get("successor_obligation_id"), successor)
+        self.assertEqual(protocol_close.get("revision_budget"), 1)
+        self.assertEqual(protocol_close.get("provider_verdict"), "changes_requested")
+        self.assertEqual(protocol_close.get("effective_verdict"), "reject")
+        self.assertEqual(protocol_close.get("revision"), 2)
+        self.assertEqual(protocol_close.get("frozen_defects"), ["repair the focused defect"])
+        evaluated = next(
+            item for item in payloads
+            if item.get("schema") == "PROPOSAL_EVALUATED_V1" and item.get("revision") == 2
+        )
+        self.assertEqual(evaluated.get("disposition"), "REJECT")
+        self.assertEqual(evaluated.get("revision_budget"), 1)
+        revised = next(item for item in payloads if item.get("event_type") == "proposal.revised")
+        self.assertFalse(revised.get("all_defects_addressed"))
+        self.assertEqual(revised.get("successor_obligation_id"), successor)
+        self.assertTrue(all(item.get("successor_obligation_id") == successor for item in second_review_events))
+        self.assertFalse(any(item.get("schema") == "PROPOSAL_SELECTED_V1" for item in payloads))
+        self.assertTrue(any(item.get("schema") == "PROPOSAL_ROUND_NO_SELECTION_V1" for item in payloads))
+
+        from scripts.code_mode_authority_host import AuthorityService
+        from sitina.journal.local import LocalJournal
+        from sitina.security.key_provider import JournalAuthProvider
+
+        self.journal.close()
+        self.journal = None
+        snapshot = LocalJournal.read_authenticated_frames(
+            runtime_home,
+            JournalAuthProvider(self.context.provider),
+            journal_id=self.context.identity.journal_id,
+            epoch=1,
+            namespace_kind="code_mode",
+        )
+        host = object.__new__(AuthorityService)
+        self.assertEqual(host._root_fsm_from_snapshot(snapshot, run_id), "CLOSED_REJECTED")
 
     def test_real_host_structured_tool_call_accepts_explicit_empty_content(self) -> None:
         runtime_home, multi, run_id, _conversation, _generation, authorization, activation = self._runtime()

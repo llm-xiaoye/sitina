@@ -1,6 +1,5 @@
 {
   "schema_version": "1.0",
-  "home": "/Users/moss/SitinaHub",
   "phase": "phase_1_mvp",
   "state_source_of_truth": "canonical_journal",
   "storage_authority": {
@@ -39,7 +38,7 @@
     "source_priority": ["source_code", "project_docs", "obsidian", "official_web", "general_web"],
     "untrusted_nonce_required": true,
     "obsidian": {
-      "vaults": [],
+      "vaults": ["/Users/moss/Documents/obsidian"],
       "incremental_index": true,
       "line_based_citations": true,
       "max_results": 10

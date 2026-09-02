@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
 from sitina.utils import load_json_yaml
 
 
@@ -37,7 +38,9 @@ class LegacyRuntimePolicy:
     @classmethod
     def load(cls, home: Path) -> "LegacyRuntimePolicy":
         root = Path(home).expanduser().resolve(strict=False)
-        protected = root == Path("/Users/moss/SitinaHub") or (root / ".sitina-clean-acceptance-v1").is_file()
+        protected = root in {canonical_journal_native_home(), LEGACY_PRODUCTION_HOME} or (
+            root / ".sitina-clean-acceptance-v1"
+        ).is_file()
         path = root / "config/sitina.yaml"
         values: dict[str, Any] = {}
         if path.is_file():
@@ -46,9 +49,9 @@ class LegacyRuntimePolicy:
                 candidate = loaded.get("storage_authority")
                 if isinstance(candidate, dict):
                     values = candidate
-        # Unmarked non-Production homes remain explicit Legacy fixtures so the
+        # Unmarked non-installation homes remain explicit Legacy fixtures so the
         # historical test suite can exercise migration compatibility without
-        # weakening Production or clean-acceptance policy.
+        # weakening the active installation or clean-acceptance policy.
         if not protected:
             return cls(
                 legacy_enabled=True,
