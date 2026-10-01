@@ -1,0 +1,78 @@
+{
+  "schema": "SITINA_R4_EVIDENCE_HASH_MANIFEST_V1",
+  "algorithm": "sha256",
+  "spec_version": "sitina-loop-v1-r4",
+  "files": {
+    "baseline-manifest.json": "af5e4a64a413cd4de022a0a0bfb588ea6d1bcb34a762def447e1d57e5b6a3ab0",
+    "batch-report.json": "23d0160dd9ec62f703776679aa856926aa36603dc42cd15771b2166ff1d5cf08",
+    "formal-entry-baselines.json": "7d9ae172fd1db3999dafc34b78b747d09c864c14bf3d9da915734370a089f789",
+    "formal-entry-raw-observations.json": "1ff01f90557ca421f2b8ca2a0dadaf26a7991340bc2bfc8a47f7f5f2832afed2",
+    "keychain-cli-evidence.json": "c69e59703a2d96059248f472bc1e3c734c20fbadc5757e481d65308db1930a7e",
+    "final-local-verification.json": "94c794946c81434e45d88da9eeeee308dacf42f858bebb00eeb292ce0fc34450",
+    "verification.md": "f1f1bde35e83244f3eb010c471be5d348736d7f80a65c4e35e01a5c74f5dd1c7",
+    "calibration-full/calibration-results.json": "c0b9020054dbce58d400af5c8c3b4d8e3c7afbe4cda13e6589382155ad6dbbd6",
+    "calibration-full/comparison.json": "ea189a1aef077c5cb91aa98bc2e189365427a16581a05908a73975fad0e4b257",
+    "calibration/calibration-results.json": "533044b504e46b96496eb49e1d0c1790ff0ffefa94eaee4e437395ff3cfb1921"
+  },
+  "final_calibration_raw_results": {
+    "case-001-reviewer-1-attempt-1.json": "6fa1e32c7282241c4259b001a2aa71ec2bda9cd71146903cfcc7cc8477506b2c",
+    "case-001-reviewer-2-attempt-1.json": "b0b8029d39cc7262005ba920e3fc6c4f97a81ecdb23c5405a520f92fc3ab5a89",
+    "case-001-reviewer-2-attempt-2.json": "532ef2c6465e937e68a5b1157d77d0dec5c76417b0271cc2fe9d838b882cf6a4",
+    "case-002-reviewer-1-attempt-1.json": "fb8b7af0fab6d07c36daaa6ee39bf9eb11921e20f2ae6cb9d34db8dedf081bbe",
+    "case-002-reviewer-2-attempt-1.json": "009e189fb9515ddc854d8519d49383e5bd621b6edef2374d0e083c44acb5793e",
+    "case-003-reviewer-1-attempt-1.json": "78f2a880a9887f73ec3c34d1e8d8850501d5d45715b6f76a31df4e07c1437ae8",
+    "case-003-reviewer-1-attempt-2.json": "1a953acb73ef05f904c027e4b06c9bfd2f49dc3e9d0978ea1e232ddb65ae9210",
+    "case-003-reviewer-2-attempt-1.json": "23f1b9a2beeb5bf2fd392507b235b3d986e3e9606bfcd4bd47bde6a7341da5d8",
+    "case-003-reviewer-2-attempt-2.json": "fbbd761a6ace84ca7751a69bbc81c6221c523952652491ad6a7ea817783a4e11",
+    "case-004-reviewer-1-attempt-1.json": "b1396099168173bc417317830920af25e34b010fe3c1c7148c230e8c4b634e76",
+    "case-004-reviewer-2-attempt-1.json": "9ffe121d850f0dba4e7d5130796843c4130beacc4b10606fc1922fa9539ef910"
+  },
+  "sorted_raw_hash_manifests": {
+    "calibration-full/raw-results": {
+      "entry_count": 11,
+      "sha256": "7db3795b02e0c7ced2d8a63db325256fc580058772a0ef8e3f2bcd02cc513b35"
+    },
+    "calibration/raw-results": {
+      "entry_count": 20,
+      "sha256": "83e2d5066466bd06a5ca1b4c91b6c7329a201f6052545148377390551a6eeaca",
+      "condition": "historical cropped-input diagnostics"
+    }
+  },
+  "keychain_public_runtime_files": {
+    "runtime/r4-b1a-keychain-evidence-20260906/.sitina-session-runtime-v1": "1d8ae536ec6812c4f3728c9b89d7126e2978d0400282cf798e2273f2c334bf6f",
+    "runtime/r4-b1a-keychain-evidence-20260906/key-bindings-v1.json": "c92474c568f6d27c9f1040abeda494c7d7b4cd008c20712925cde912c66bc910"
+  },
+  "implementation_files": {
+    "core/sitina/cli.py": "99271947b1d22458724d15046f6c45b2593b602e00bbc18aa51c059d0dbde82c",
+    "core/sitina/evals/__init__.py": "41f6366be618220dd560a20465cae6749bba96ec82d556a7cf43561193482716",
+    "core/sitina/evals/loop_contract.py": "db3c42be1acf027fabcea8b168f78e9d19cf59dfb990ac427d15558e7ea3c875",
+    "core/sitina/loop/__init__.py": "0b86c09977e2b238fe9b4833700141037b18902b10dd7bfce4e73784124e67d0",
+    "core/sitina/loop/agent_runner.py": "c0a9486479d47665a3aa8a990fcbc71b201d1a556602a79fea2453320dca85af",
+    "core/sitina/loop/context_memory.py": "545be10c65de0066db47912e176cfd8a3e144c57dadcd5217256189a89105075",
+    "core/sitina/loop/coordinator.py": "8c37ff457b2ba77ddff8ece439bbc84ba4432c32f07ae6bb18f087a060fd1b85",
+    "core/sitina/loop/model.py": "8b8ae4aaeaa423332178215d787d146bac949ab42e0efbefe9c3a17f9a1451cf",
+    "core/sitina/loop/operations.py": "5f588f16e47b04eb481f6596eaa21fde9351284f00ce3541b7d30fc852f4b3b3",
+    "core/sitina/loop/storage.py": "1f027f980e409ca5954b562eb156209d4f998d928d143ebec1777d8e1d06e7d1",
+    "core/sitina/loop/validation.py": "8873572ab744a77eea68d5b655e2cd2fb3436bc3155b05d1e628d99a062555ff",
+    "core/sitina/runners/provider.py": "016370d45f37ad3869a9ba77e6fc3e57246c02996197d2ce1e5a9a97f9aae5e3",
+    "core/sitina/security/macos_keychain.py": "36cb393ae13de17b5f34b11b794e6c787689737fc2cca433b82d7955ea1c5648",
+    "scripts/r4_review_calibration.py": "7072f3ad2e8c38db00f9463f35bbd12c432c5a2a95e7e3666ee04dd9454b66a6",
+    "tests/test_loop_batch_1a.py": "33467d2209e6c495800481eb82decedfc007facb228da0a7cc9f95cab47e632f",
+    "tests/test_loop_contract_r4.py": "9917ab360ef13c1383315b6e8f40d9162bfacebe0e62f961fd3688c51e729b2d",
+    "tests/test_provider_tool_protocols.py": "31d1fd51388085d95fa7a015fc2631d5fcc2eb207282922a3dc5639c2f59ee25"
+  },
+  "independent_supervisor_files": {
+    "final-independent-audit.json": "82f308d30fe9b7928aa014d52ae9d86e7c1433f53e36eef772bac768db575ea5",
+    "independent-real-keychain-read.json": "4889a78a625bab851c8b8c554455304f9acdecf656b0cd844855edf19a413893",
+    "creation-and-wire-fixes.jsonl": "6d57ca712a33a0e9c05c132413e641c5738fd4b1c0d9c132fcf219e1b5ab2dfc",
+    "baseline-existing-provider-test-errors.txt": "e0151f85cc14eaa0373eadcf30ab0de34290c3076955a7ad89fd4922717922a7"
+    ,
+    "observed-formal-command-transcripts.json": "abf60a745449edc6b86b7592a7d25fba8a3dd49f7328b9dd3e50409536f70bca",
+    "calibration-integrity-audit.json": "d68cebbfec69e3a0a90e4d33661a02c321d6c30d1fb38cf040ad045fe79d71e7"
+  },
+  "notes": [
+    "The manifest intentionally does not contain a self-hash.",
+    "Each sorted raw hash manifest is the SHA-256 of UTF-8 lines '<file_sha256>  <basename>\\n' ordered by basename.",
+    "The calibration summary stores hashes of captured stdout and stderr; this manifest stores hashes of the wrapper JSON files that preserve those streams."
+  ]
+}

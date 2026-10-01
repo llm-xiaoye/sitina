@@ -26,54 +26,34 @@ Start a conversation by entering only:
 sitina
 ```
 
-This is equivalent to `sitina chat` in an interactive terminal. The default
-mode is `AUTO`: a deterministic local router sends simple messages to `FAST`
-and complex messages to `MULTI`. Routing itself does not call a Provider.
-The prompt always shows the selected session mode:
+This is equivalent to `sitina loop` in an interactive terminal. Routing is
+always automatic and the local routing decision itself does not call a
+Provider. The prompt is:
 
 ```text
-你 [auto] >
-你 [fast] >
-你 [multi] >
+sitina>
 ```
 
-`FAST` uses one registered synthesis Agent and, on the normal success path,
-exactly one logical DeepSeek call and one physical send. It has no Proposal
-competition and no Reviewer. In `AUTO`, a FAST result may request escalation
-or report low confidence; Sitina then hides the unreviewed candidate and runs
-`MULTI`. Forced `/fast` never upgrades silently.
-
-`MULTI` performs goal analysis, at least two independent candidate Proposals,
-and independent review, then prints only the selected answer after a successful
-terminal decision. Forced `/multi` uses that path even for a greeting.
+Simple read-only tasks run through the current LoopTaskRunner's single main
+Agent. Complex or high-risk tasks use the same task/state authority and add
+the existing independent read-only reviewer. Both paths share the same
+LoopHost, Journal/CAS, authority lease, workspace boundary, and recovery
+chain.
 
 Interactive commands:
 
 ```text
-/fast   keep subsequent messages on one Agent; never auto-upgrade
-/multi  keep subsequent messages on reviewed multi-Agent execution
-/auto   restore deterministic automatic routing
-/mode   show the current mode, previous actual route, and reasons
-/new    clear successful in-process context and failed-message state; keep mode
-/retry  rerun only the last failed or cancelled user message
-/help   show every command and its effect
+/mode   show the latest automatic strategy and reasons (read-only)
+/help   show available commands
 /exit   leave Sitina normally (/quit is equivalent)
 ```
 
-Only successful final answers enter context. The current process applies the
-token budget, history budget, recent-turn limit, renderer version, and
-long-context threshold from `config/context_policy.json`. Failures,
-cancellation, auth errors, and network errors do not enter context. No conversation state is
-restored from `state/active_conversation.json`, `logs/conversations`, or
-Legacy SQLite.
-
-All three modes are provider-text-only and read-only: chat cannot write project
-files, run shell commands, mutate Git, call remote MCP, publish, or accept
-Memory. Execution requests receive analysis or a plan and should be performed
-through an explicit non-chat command. The path uses Sitina's Production
-Journal/CAS, Effect/Result admission, usage accounting, and Secret scan. It
-does not use Claude Code. Live turns require the configured DeepSeek profile,
-network access, and an unlocked Production macOS login Keychain.
+Manual route commands such as `/fast`, `/multi`, and `/auto` are rejected;
+they never change execution strategy. The retired `sitina chat` command is
+also blocked before policy, state, workspace, or Provider access. Public
+interactive tasks are read-only in this step; no route grants write authority.
+Live turns require the configured DeepSeek profile, network access, and its
+bound credential reference.
 
 ## Required Health Checks
 
@@ -106,20 +86,21 @@ workflow policy, capability registry, and team policy used by execution:
 sitina suggest "修改 API 代码并补充测试和文档"
 sitina suggest "请评审这个架构" --budget-tokens 24000 --sla-class standard
 sitina suggest "继续，这个呢？" --context "前文是复杂架构目标" \
-  --prior-mode MULTI --prior-complexity 82 --unfinished-goal
+  --prior-complexity 82 --unfinished-goal
 ```
 
 The JSON result is versioned and also contains `friendly_text`. It recommends
-`task_type`, FAST/MULTI route, proposal round, worktree, team/topology, key
+`task_type`, the automatic internal strategy, proposal round, worktree,
+team/topology, key
 reasons, confidence, assumptions, risks, and override parameters. Token and
 time ranges have `kind=estimate`: they are planning bounds, not real Provider
 usage and not precise duration promises. `suggest` never calls a Provider,
 network, tool, or state writer; invalid policy/configuration returns
 `configuration_error` instead of silently falling back.
 
-Available explicit overrides are `--mode`, `--task-type`, `--risk`,
-`--budget-tokens`, `--sla-class`, `--sla-remaining-ms`, and `--topology`.
-Context inheritance is opt-in through `--context`, `--prior-mode`,
+Available explicit inputs are `--task-type`, `--risk`, `--budget-tokens`,
+`--sla-class`, `--sla-remaining-ms`, and `--topology`. None can force the
+public route. Context inheritance is opt-in through `--context`,
 `--prior-complexity`, and `--unfinished-goal`.
 
 ## Phase-15 billable acceptance
@@ -398,9 +379,9 @@ Sitina v1 uses controlled TaskGraph execution with dynamic proposal negotiation,
 
 The historical `sitina ask` command is not the interactive chat path and is
 unavailable as a Production conversation authority. Do not use it to maintain
-conversation state. Use `sitina` or `sitina chat`; those commands keep bounded
-context only in memory and write durable execution evidence only through the
-Production Journal/CAS path.
+conversation state. Use `sitina` or its explicit equivalent, `sitina loop`.
+The retired `sitina chat` entry is blocked; current interactive tasks use the
+same LoopHost, LoopTaskRunner, Journal/CAS authority, and recovery path.
 
 ## High-Risk Commands
 

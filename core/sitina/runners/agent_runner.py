@@ -713,6 +713,11 @@ class AgentRunner:
         profile = None
         provider_calls: list[dict[str, Any]] = []
         try:
+            if isinstance(self.client, AnthropicCompatibleClient) and self.client.network_egress_capability is None:
+                raise AgentRunnerError(
+                    "live Provider execution requires an authorized client",
+                    error_type="provider_authority_required",
+                )
             profile = self.client.load_profile(profile_name)
         except ProviderError as exc:
             try:

@@ -1,0 +1,39 @@
+{
+  "batch": "1b",
+  "captured_at": "2026-09-06",
+  "implementation_task_state": "IN_PROGRESS",
+  "development_worktree": {
+    "root": "/Users/moss/SitinaHub-r4-b0-1a",
+    "branch": "codex/sitina-r4-b0-1a",
+    "head": "27edb59f2ff592fb793a717c6a71ffd8d3d9610a",
+    "python": "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python",
+    "python_version": "3.12.14"
+  },
+  "frozen_batch_0_1a_evidence_sha256": "ec44b858136742c267ffbb2c6915442e69ed9572afcc626f32311f56d59db024",
+  "tracked_file_sha256": {
+    "core/sitina/cli.py": "99271947b1d22458724d15046f6c45b2593b602e00bbc18aa51c059d0dbde82c",
+    "core/sitina/extensions/runtime.py": "7562bea225d6f1a25bc3ecbbf1ece76ea11fe5c884ec715cb2271e9774a4a15b",
+    "core/sitina/loop/coordinator.py": "8c37ff457b2ba77ddff8ece439bbc84ba4432c32f07ae6bb18f087a060fd1b85",
+    "core/sitina/loop/model.py": "8b8ae4aaeaa423332178215d787d146bac949ab42e0efbefe9c3a17f9a1451cf",
+    "core/sitina/loop/storage.py": "1f027f980e409ca5954b562eb156209d4f998d928d143ebec1777d8e1d06e7d1",
+    "core/sitina/evals/loop_contract.py": "db3c42be1acf027fabcea8b168f78e9d19cf59dfb990ac427d15558e7ea3c875",
+    "config/sitina.yaml": "c7736566527311c63f952ecfaaa0b5446ba4c011e951d4ca301122f84a3eea2a",
+    "config/permissions.yaml": "e78a6be7a15aa8b5bd69d469e27db44edc11e8220725f8bb4c5ab76255557ad1",
+    "requirements-bplus.lock": "dbc3f95b77ed7034b5a48954abf579f2af77d3d410061482a7062e08d7e8c4bc"
+  },
+  "credential_reference": {
+    "path": "/Users/moss/SitinaHub-r4-b0-1a/profiles/deepseek.env",
+    "resolved_path": "/Users/moss/SitinaHub/profiles/deepseek.env",
+    "access": "read_only_reference",
+    "write_root": false
+  },
+  "forbidden_write_roots": [
+    "/Users/moss/SitinaHub",
+    "/Users/moss/Desktop/sitina"
+  ],
+  "notes": [
+    "Batch 0/1a evidence is frozen and is not modified by batch 1b.",
+    "The source tree is retained only as a read-only credential reference target; no provider probe, database query, or write is authorized there.",
+    "The previously recorded C010 source-runtime side effect is inherited history, not a batch 1b operation."
+  ]
+}

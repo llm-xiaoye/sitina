@@ -1,0 +1,139 @@
+{
+  "schema": "SITINA_BATCH_1B_ISOLATION_AND_UNIT_VERIFICATION_V1",
+  "captured_at": "2026-09-06",
+  "development_root": "/Users/moss/SitinaHub-r4-b0-1a",
+  "formal_environment": {
+    "SITINA_HOME": "/Users/moss/SitinaHub-r4-b0-1a",
+    "SITINA_R4_DEV_ROOT": "/Users/moss/SitinaHub-r4-b0-1a",
+    "SITINA_PYTHON": "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python",
+    "PYTHONPATH": "/Users/moss/SitinaHub-r4-b0-1a/core"
+  },
+  "checks": [
+    {
+      "name": "relevant_loop_runtime_regression",
+      "command": [
+        "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_loop_contract_r4.py",
+        "tests/test_loop_batch_1a.py",
+        "tests/test_loop_batch_1b_boundary.py",
+        "tests/test_loop_batch_1b_launcher.py",
+        "tests/test_loop_batch_1b_runtime.py",
+        "tests/test_extensions.py",
+        "tests/test_provider_tool_protocols.py"
+      ],
+      "expected_final_result": "105 passed",
+      "scope": "Frozen evaluator/1a behavior plus the Batch 1b launcher, boundary, runtime, extension-loop integration, and Provider tool protocol."
+    },
+    {
+      "name": "structured_progress_runtime_path",
+      "tests": [
+        "test_structured_program_progress_resets_only_the_consecutive_no_progress_count",
+        "test_structured_check_progress_requires_stable_ids_and_real_reduction",
+        "test_three_review_disagreements_wait_for_input_despite_rewording_and_unrelated_edits"
+      ],
+      "result": "PASS",
+      "observed": "Six real runner cycles produced settlements [false,true,false,false,false,false]. Stable requirement-a/requirement-b improvement reset the consecutive count; four later unrelated file writes did not. The durable readback ended STALLED with settled_attempt_count=4. Review disagreement remained a distinct three-attempt threshold."
+    },
+    {
+      "name": "cancellation_bounded_negative_paths",
+      "tests": [
+        "test_cancel_terminal_captures_completed_business_effect_without_success_commit",
+        "test_repeated_cancel_in_terminal_commit_gap_rebinds_and_commits_once",
+        "test_cancel_with_unknown_effect_returns_bounded_recovery_blocked_without_terminal_retry"
+      ],
+      "result": "PASS",
+      "observed": "A completed known write is captured in the cancellation artifact; repeated CANCEL produces one terminal event after rebinding; a settled UNKNOWN produces one durable blocker record and returns recovery_blocked without calling propose_terminal."
+    },
+    {
+      "name": "program_check_execution_boundary",
+      "tests": [
+        "test_isolated_program_check_cannot_modify_business_artifact_or_escape",
+        "test_unsupported_program_executor_is_not_run_and_waits_for_input"
+      ],
+      "result": "PASS",
+      "observed": "Checks run against a read-only copied input with a dedicated writable output under macOS Seatbelt. Only the manifest-pinned Python interpreter is accepted in Batch 1b. Unsupported execution returns NOT_RUN/execution_started=false and immediately waits for input instead of consuming four rework attempts."
+    },
+    {
+      "name": "unique_state_authority",
+      "tests": [
+        "test_development_boundary_rejects_alternate_state_authority_before_creation",
+        "test_unique_state_authority_rejects_rebinding_during_live_owner_and_after_unknown",
+        "test_authority_lease_blocks_runner_before_persistent_or_business_initialization",
+        "test_old_loop_state_cli_obeys_lock_even_before_control_socket_exists"
+      ],
+      "result": "PASS",
+      "observed": "The manifest binds one physical state authority root. An alternate state root for the same workspace is rejected before directory creation, Backend initialization, or business dispatch while the authority is live and after it exits with UNKNOWN responsibility retained in the canonical state."
+    },
+    {
+      "name": "evidence_binding_and_non_mutation_contracts",
+      "tests": [
+        "test_correction_after_goal_read_is_not_attached_to_stale_prompt",
+        "test_correction_before_program_adapter_invalidates_main_evidence",
+        "test_correction_after_review_verdict_invalidates_reviewed_binding",
+        "test_correction_in_acceptance_commit_gap_invalidates_old_result",
+        "test_non_mutating_task_denies_write_before_effect_even_when_cli_approval_is_enabled",
+        "test_initially_correct_code_task_accepts_zero_diff_after_check_and_review"
+      ],
+      "result": "PASS",
+      "observed": "Goal, model, check, artifact, review, evaluator, acceptance, and terminal stages inherit explicit immutable task bindings. Asynchronous semantic input invalidates old evidence. readonly/no_change writes are denied before tool dispatch even when write approval is enabled. Initial correctness is accepted only after fixed check and strict bound independent review."
+    }
+  ],
+  "supervisor_independent_evidence": [
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/evidence-handoffs-fixed.jsonl",
+      "sha256": "193d4e9711a774fc805d1dccf9cc57fa19ca69bb8a7d6ca2a561c92bfae8bc5a"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/final-boundaries-fixed.jsonl",
+      "sha256": "75f4e02cbd40ca9ffd69c99725cf7b81125518055bcf05d1fa249cb8f2359c91"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/structured-progress-fixed-independent.txt",
+      "sha256": "dde794eb67f9dc8534e5ecb6079b9c46b71de8f0abb2843eeeb2d87725411187"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/repeat-cancel-fixed.jsonl",
+      "sha256": "4d88aa33f78322ca31a66aadedf8745cfc512b969d34542652822d7ea2094f05"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/frozen-evidence-and-source-audit.json",
+      "sha256": "d6ed1d844b1a654cd9e8f4477b2edf7671fe2c8458110a1e73ea37b561bd9c8e"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/final-targeted-regression-independent.txt",
+      "sha256": "e99d56ba6d09f997b56299fb8d31fe3ea9624bc7697dd3c8b84dc83e359c22a7"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/authenticated-current-artifact-audit.json",
+      "sha256": "afe4364296bafa206f3f5ab00b542e0663de94b8a3e255ddcbf82c5af35206e9",
+      "observed": "Read-only authenticated scan verified 302 events without changing the Journal segment hash; six final representative artifact snapshots matched files, 72 operation results had prior intents and verifiable CAS, terminal uniqueness held, and no WRITE intent followed PAUSE/CANCEL input."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/observed-final-cli-transcripts.json",
+      "sha256": "3c6e11f4a1977d9c4c40eb31766f56a95dd16643956395f0c5638da0999f245a",
+      "observed": "Original commandExecution records retained for the accepted formal commands, including the PAUSE and canonical-cancel-005 run/input pairs indexed in formal-cli-evidence.json."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-1b-2026-09-06/authenticated-final-case-audit.json",
+      "sha256": "eea6c0eeff0625247e1103e2137b7662883b8cccad988e82e1cea569bde8f6f4",
+      "observed": "Final read-only audit reconfirmed the report-selected canonical-cancel-005 and all six reported case artifacts, events, and terminal states."
+    }
+  ],
+  "closed_supervision_findings": [
+    "C002 evidence handoff races",
+    "C007 structured progress counting boundary",
+    "C008 old loop-state pre-initialization boundary",
+    "C009 readonly/no_change pre-effect mutation denial",
+    "C010 initially correct code with zero diff",
+    "C011 unique persistent state authority",
+    "C012 repeated cancel and UNKNOWN cancellation boundary"
+  ],
+  "scope_limits": [
+    "Structured check-owned requirement progress is verified; general semantic progress review and complex attempt ownership remain unimplemented.",
+    "The suite is a scoped relevant regression, not a claim that every unrelated dirty-worktree test passes.",
+    "The frozen Batch 0/1a evidence hash remains ec44b858136742c267ffbb2c6915442e69ed9572afcc626f32311f56d59db024."
+  ]
+}

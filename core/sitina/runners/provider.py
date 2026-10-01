@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
 import os
@@ -10,6 +11,7 @@ import datetime as dt
 import http.client
 import signal
 import socket
+import sys
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -19,7 +21,11 @@ from urllib.parse import urlsplit, urlparse, urlunsplit
 
 from sitina.constants import SITINA_HOME
 from sitina.install_identity import LEGACY_PRODUCTION_HOME, canonical_journal_native_home
-from sitina.legacy.fence import FrozenNetworkEgressCapability, authorized_frozen_network_egress
+from sitina.legacy.fence import (
+    FrozenNetworkEgressCapability, LegacyWriteDenied,
+    _authorize_network_credential, authorized_frozen_network_egress,
+    _renew_native_network_egress_capability,
+)
 from sitina.legacy.retirement import LegacyRuntimePolicy
 from sitina.orchestrator.timeout_support import ProviderTimeoutConfig
 from sitina.runners.profiles import ProfileLoader
@@ -49,11 +55,22 @@ def infer_wire_protocol(
         if value not in SUPPORTED_WIRE_PROTOCOLS:
             raise ProviderError(f"unsupported provider wire protocol: {value}")
         return value
-    host = (urlparse(str(base_url)).hostname or "").casefold()
+    parsed = urlparse(str(base_url))
+    host = (parsed.hostname or "").casefold()
+    path = parsed.path.casefold()
     name = str(profile_name or "").casefold()
-    if "anthropic" in host or "anthropic" in name:
+    if parsed.scheme == "mock" and name == "mock":
+        return OPENAI_CHAT_COMPLETIONS
+    if "anthropic" in host or "anthropic" in path or "anthropic" in name:
         return ANTHROPIC_MESSAGES
-    if "deepseek" in host or "deepseek" in name or "openai" in host or "openai" in name:
+    if (
+        "deepseek" in host
+        or "deepseek" in path
+        or "deepseek" in name
+        or "openai" in host
+        or "openai" in path
+        or "openai" in name
+    ):
         return OPENAI_CHAT_COMPLETIONS
     raise ProviderError("unknown provider endpoint requires an explicit wire protocol")
 
@@ -157,6 +174,115 @@ class ProviderMalformedResponse(ProviderError):
     error_type = "provider_parse_failed"
 
 
+class ProviderRequiredOutputEmpty(ProviderError):
+    """A completed, tool-free JSON request returned no business content."""
+
+    error_type = "provider_required_output_empty"
+
+    def __init__(self, observation: Mapping[str, Any]):
+        super().__init__("Provider required JSON output is empty")
+        self.sitina_output_observation = dict(observation)
+        self.sitina_physical_send_count = observation["physical_send_count"]
+        self.sitina_physical_send_status = "response_received"
+
+
+def _attempt_json_repair(raw_json: str) -> dict[str, Any] | None:
+    """Attempt to repair common JSON formatting issues from LLM providers.
+
+    DeepSeek and other providers sometimes return malformed JSON in tool arguments.
+    This function attempts common repairs:
+    1. Strip leading/trailing whitespace and control characters
+    2. Fix unclosed strings
+    3. Fix trailing commas
+    4. Fix unescaped quotes
+    5. Handle truncated JSON
+
+    Returns parsed dict if repair succeeds, None otherwise.
+    """
+    if not isinstance(raw_json, str):
+        return None
+
+    # Try multiple repair strategies
+    repair_attempts = []
+
+    # 1. Basic cleanup: strip whitespace and control chars
+    cleaned = raw_json.strip()
+    if cleaned:
+        repair_attempts.append(cleaned)
+
+    # 2. If it doesn't start with {, try to find the first {
+    if cleaned and not cleaned.startswith('{'):
+        brace_idx = cleaned.find('{')
+        if brace_idx >= 0:
+            repair_attempts.append(cleaned[brace_idx:])
+
+    # 3. If it doesn't end with }, try to close it
+    if cleaned and not cleaned.endswith('}'):
+        # Try adding closing brace
+        repair_attempts.append(cleaned + '}')
+        # Try removing trailing comma and adding brace
+        if cleaned.rstrip().endswith(','):
+            repair_attempts.append(cleaned.rstrip()[:-1] + '}')
+
+    # 4. Handle common quote escaping issues
+    # Replace unescaped quotes within values (heuristic)
+    if '\\"' in cleaned or "\\'" in cleaned:
+        # Already has escaped quotes, might need normalization
+        normalized = cleaned.replace("\\'", "'")  # Single quotes don't need escaping in JSON
+        repair_attempts.append(normalized)
+
+    # 5. Handle truncated arrays/objects
+    if cleaned:
+        # Count braces
+        open_braces = cleaned.count('{')
+        close_braces = cleaned.count('}')
+        if open_braces > close_braces:
+            # Add missing closing braces
+            missing = open_braces - close_braces
+            repair_attempts.append(cleaned + '}' * missing)
+
+    # Try parsing each repair attempt
+    for attempt in repair_attempts:
+        try:
+            parsed = json.loads(attempt)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    # Last resort: try to extract key-value pairs manually
+    # This is for severely malformed JSON
+    try:
+        if cleaned.startswith('{') and ':' in cleaned:
+            # Very basic parser for simple cases like: {"key": "value"
+            result = {}
+            # Remove outer braces
+            inner = cleaned.strip('{}').strip()
+            if inner:
+                # Split by commas (naive, doesn't handle nested objects)
+                pairs = inner.split(',')
+                for pair in pairs:
+                    if ':' in pair:
+                        key_val = pair.split(':', 1)
+                        if len(key_val) == 2:
+                            key = key_val[0].strip().strip('"\'')
+                            val = key_val[1].strip().strip('"\'')
+                            # Try to parse value as JSON if it looks like a structure
+                            if val.startswith(('{', '[')):
+                                try:
+                                    result[key] = json.loads(val)
+                                except:
+                                    result[key] = val
+                            else:
+                                result[key] = val
+            if result:
+                return result
+    except:
+        pass
+
+    return None
+
+
 def provider_tools_for_wire(tools: object, wire_protocol: str) -> list[dict[str, Any]]:
     """Validate and adapt Sitina-neutral tools for one provider wire.
 
@@ -254,10 +380,13 @@ def provider_messages_for_wire(messages: object, wire_protocol: str) -> list[dic
             normalized.append({"role": "user", "content": raw["content"]})
             continue
         if role == "assistant":
-            if set(raw) - {"role", "content", "tool_calls"} or "content" not in raw:
+            if set(raw) - {"role", "content", "tool_calls", "reasoning_content"} or "content" not in raw:
                 raise ProviderError("provider assistant message is malformed")
             if type(raw["content"]) is not str:
                 raise ProviderError("provider assistant content is malformed")
+            reasoning_content = raw.get("reasoning_content")
+            if reasoning_content is not None and type(reasoning_content) is not str:
+                raise ProviderError("provider assistant reasoning content is malformed")
             calls = raw.get("tool_calls", [])
             if type(calls) is not list:
                 raise ProviderError("provider assistant tool calls are malformed")
@@ -283,6 +412,11 @@ def provider_messages_for_wire(messages: object, wire_protocol: str) -> list[dic
                 "role": "assistant",
                 "content": raw["content"],
                 "tool_calls": normalized_calls,
+                **(
+                    {"reasoning_content": reasoning_content}
+                    if reasoning_content is not None
+                    else {}
+                ),
             })
             continue
         if role == "tool":
@@ -313,10 +447,14 @@ def provider_messages_for_wire(messages: object, wire_protocol: str) -> list[dic
         result: list[dict[str, Any]] = []
         for message in normalized:
             if message["role"] == "assistant":
-                result.append({
+                assistant_message = {
                     "role": "assistant",
                     "content": message["content"],
-                    "tool_calls": [
+                }
+                if "reasoning_content" in message:
+                    assistant_message["reasoning_content"] = message["reasoning_content"]
+                if message["tool_calls"]:
+                    assistant_message["tool_calls"] = [
                         {
                             "id": call["id"],
                             "type": "function",
@@ -326,8 +464,8 @@ def provider_messages_for_wire(messages: object, wire_protocol: str) -> list[dic
                             },
                         }
                         for call in message["tool_calls"]
-                    ],
-                })
+                    ]
+                result.append(assistant_message)
             elif message["role"] == "tool":
                 result.append({
                     "role": "tool",
@@ -386,6 +524,7 @@ class ProviderProfile:
     wire_protocol: str = ""
     adapter_capabilities: tuple[str, ...] = ()
     allowed_endpoint_hosts: tuple[str, ...] = ()
+    credential_reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -413,6 +552,7 @@ class ProviderToolTurn:
     tool_calls: tuple[ProviderToolCall, ...]
     stop_reason: str | None
     metadata: dict[str, Any]
+    reasoning_content: str = field(default="", repr=False)
 
 
 class ScriptedMockToolClient:
@@ -883,9 +1023,11 @@ class AnthropicCompatibleClient:
         timeout_seconds: int | None = None,
         *,
         network_egress_capability: FrozenNetworkEgressCapability | None = None,
+        renew_native_network_capability: bool = False,
     ):
         self.home = home
         self.network_egress_capability = network_egress_capability
+        self._renew_native_network_capability = renew_native_network_capability is True
         config = RoleProfileResolver(home).provider_config()
         self.timeout_config = ProviderTimeoutConfig.from_config(config)
         # Retained for callers that still inspect the former public attribute.
@@ -900,7 +1042,9 @@ class AnthropicCompatibleClient:
         return self.effect_shadow.identity(LegacyAdapterKind.PROVIDER, payload)
 
     def load_profile(self, profile_name: str) -> ProviderProfile:
-        env = self.loader.load_env(profile_name)
+        env = self.loader.load_env(
+            profile_name, network_egress_capability=self.network_egress_capability,
+        )
         base_url = (
             env.get("SITINA_PROVIDER_BASE_URL")
             or env.get("ANTHROPIC_BASE_URL")
@@ -947,6 +1091,7 @@ class AnthropicCompatibleClient:
             wire_protocol=protocol,
             adapter_capabilities=tuple(sorted(provider_adapter_capabilities(profile_name, str(base_url), capabilities))),
             allowed_endpoint_hosts=allowed_hosts,
+            credential_reference=self.network_egress_capability.credential_reference,
         )
 
     def complete(
@@ -1001,7 +1146,10 @@ class AnthropicCompatibleClient:
             self.timeout_config.total_request_timeout,
         )
         if timeout <= 0:
-            raise ProviderDeadlineExceeded("provider request skipped because no request time remains")
+            error = ProviderDeadlineExceeded("provider request skipped because no request time remains")
+            error.sitina_physical_send_count = 0
+            error.sitina_physical_send_status = "pre_send_deadline"
+            raise error
         if self._prefers_openai_json(profile):
             try:
                 return self._complete_openai(
@@ -1074,6 +1222,7 @@ class AnthropicCompatibleClient:
         max_tokens: int = 4096,
         request_timeout_seconds: float | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        prepared_request: Any | None = None,
     ) -> ProviderToolTurn:
         """Perform one native tool-use turn using Anthropic or OpenAI wire shapes.
 
@@ -1109,6 +1258,7 @@ class AnthropicCompatibleClient:
                 max_tokens=max_tokens,
                 request_timeout_seconds=timeout,
                 cancel_check=cancel_check,
+                prepared_request=prepared_request,
             )
         try:
             return self._tool_turn_anthropic(
@@ -1119,6 +1269,7 @@ class AnthropicCompatibleClient:
                 max_tokens=max_tokens,
                 request_timeout_seconds=timeout,
                 cancel_check=cancel_check,
+                prepared_request=prepared_request,
             )
         except ProviderHTTPError as exc:
             if not self._should_try_openai_fallback(exc):
@@ -1132,7 +1283,54 @@ class AnthropicCompatibleClient:
                 request_timeout_seconds=timeout,
                 protocol_fallback_used=True,
                 cancel_check=cancel_check,
+                prepared_request=prepared_request,
             )
+
+    @staticmethod
+    def _prepared_tool_body(
+        profile: ProviderProfile,
+        wire_protocol: str,
+        prepared_request: Any | None,
+    ) -> dict[str, Any] | None:
+        """Recover the admitted body at the last boundary before transport.
+
+        The import is intentionally local because the Loop renderer depends on
+        this provider module's neutral wire adapters.  Non-Loop callers leave
+        ``prepared_request`` unset and retain the existing path.
+        """
+
+        if prepared_request is None:
+            return None
+        from sitina.loop.context_window import ProviderContextIdentity
+
+        expected = ProviderContextIdentity(
+            profile.name,
+            profile.base_url,
+            profile.model,
+            wire_protocol,
+        )
+        body_for_send = getattr(prepared_request, "body_for_send", None)
+        if not callable(body_for_send):
+            raise ProviderError("prepared Provider request does not expose protected send bytes")
+        body = body_for_send(expected)
+        if not isinstance(body, dict):
+            raise ProviderError("prepared Provider request did not produce a JSON object")
+        return body
+
+    @staticmethod
+    def _malformed_observed_response(
+        message: str,
+        metadata: Mapping[str, Any],
+    ) -> ProviderMalformedResponse:
+        """Build a parse error without losing the already-observed send."""
+
+        error = ProviderMalformedResponse(message)
+        error.sitina_physical_send_count = int(metadata.get("physical_send_count", 1) or 0)
+        error.sitina_physical_send_status = "response_received"
+        observation = metadata.get("required_output_observation")
+        if isinstance(observation, Mapping):
+            error.sitina_output_observation = dict(observation)
+        return error
 
     def _tool_turn_anthropic(
         self,
@@ -1145,8 +1343,9 @@ class AnthropicCompatibleClient:
         request_timeout_seconds: float,
         protocol_fallback_used: bool = False,
         cancel_check: Callable[[], bool] | None = None,
+        prepared_request: Any | None = None,
     ) -> ProviderToolTurn:
-        body: dict[str, Any] = {
+        body = self._prepared_tool_body(profile, ANTHROPIC_MESSAGES, prepared_request) or {
             "model": profile.model,
             "max_tokens": max_tokens,
             "system": system_prompt,
@@ -1173,7 +1372,9 @@ class AnthropicCompatibleClient:
         calls: list[ProviderToolCall] = []
         content = payload.get("content")
         if not isinstance(content, list):
-            raise ProviderMalformedResponse("Anthropic tool response content must be an array")
+            raise self._malformed_observed_response(
+                "Anthropic tool response content must be an array", metadata
+            )
         for item in content:
             if not isinstance(item, dict):
                 continue
@@ -1182,11 +1383,15 @@ class AnthropicCompatibleClient:
             elif item.get("type") == "tool_use":
                 raw_arguments = item.get("input", {})
                 if not isinstance(raw_arguments, dict):
-                    raise ProviderMalformedResponse("Anthropic tool_use input must be an object")
+                    raise self._malformed_observed_response(
+                        "Anthropic tool_use input must be an object", metadata
+                    )
                 call_id = str(item.get("id") or "").strip()
                 name = str(item.get("name") or "").strip()
                 if not call_id or not name:
-                    raise ProviderMalformedResponse("Anthropic tool_use requires id and name")
+                    raise self._malformed_observed_response(
+                        "Anthropic tool_use requires id and name", metadata
+                    )
                 calls.append(ProviderToolCall(call_id, name, dict(raw_arguments)))
         text = "".join(text_parts).strip()
         return ProviderToolTurn(
@@ -1212,8 +1417,9 @@ class AnthropicCompatibleClient:
         request_timeout_seconds: float,
         protocol_fallback_used: bool = False,
         cancel_check: Callable[[], bool] | None = None,
+        prepared_request: Any | None = None,
     ) -> ProviderToolTurn:
-        body: dict[str, Any] = {
+        body = self._prepared_tool_body(profile, OPENAI_CHAT_COMPLETIONS, prepared_request) or {
             "model": profile.model,
             "max_tokens": max_tokens,
             "temperature": 0.0,
@@ -1239,45 +1445,145 @@ class AnthropicCompatibleClient:
         )
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-            raise ProviderMalformedResponse("OpenAI tool response choices must contain a message")
+            raise self._malformed_observed_response(
+                "OpenAI tool response choices must contain a message", metadata
+            )
         first = choices[0]
         message = first.get("message")
         if not isinstance(message, dict):
-            raise ProviderMalformedResponse("OpenAI tool response did not contain a message")
+            raise self._malformed_observed_response(
+                "OpenAI tool response did not contain a message", metadata
+            )
+        required_json_without_tools = (
+            body.get("response_format") == {"type": "json_object"}
+            and body.get("tools") == []
+        )
+        if required_json_without_tools:
+            content = message.get("content")
+            content_bytes = content.encode("utf-8") if isinstance(content, str) else None
+            refusal = message.get("refusal")
+            observed_calls = message.get("tool_calls")
+            observation = {
+                "required_output": "json_object_without_tools",
+                "content_present": "content" in message,
+                "content_type": type(content).__name__ if "content" in message else "missing",
+                "content_utf8_bytes": len(content_bytes) if content_bytes is not None else None,
+                "content_sha256": hashlib.sha256(content_bytes).hexdigest() if content_bytes is not None else None,
+                "finish_reason_present": "finish_reason" in first,
+                "finish_reason": first.get("finish_reason"),
+                "refusal_present": "refusal" in message,
+                "refusal_type": type(refusal).__name__ if "refusal" in message else "missing",
+                "explicit_refusal": refusal is not None,
+                "response_error_present": payload.get("error") is not None or message.get("error") is not None,
+                "tool_call_count": len(observed_calls) if isinstance(observed_calls, list) else None,
+                "tool_calls_type": type(observed_calls).__name__,
+                "response_id": payload.get("id"),
+                "provider_request_id": metadata.get("provider_request_id"),
+                "http_request_id": metadata.get("http_request_id"),
+                "http_status_code": metadata.get("http_status_code"),
+                "request_body_hash": metadata.get("request_body_hash"),
+                "physical_send_count": metadata.get("physical_send_count"),
+                "token_usage": token_usage_summary(payload),
+                "response_format": body["response_format"],
+                "thinking": body.get("thinking"),
+                "max_tokens": body.get("max_tokens"),
+            }
+            metadata = {**metadata, "required_output_observation": observation}
         text = str(message.get("content") or "").strip()
+        reasoning_content = message.get("reasoning_content")
+        reasoning_text = reasoning_content if isinstance(reasoning_content, str) else ""
         calls: list[ProviderToolCall] = []
         raw_calls = message.get("tool_calls") or []
         if not isinstance(raw_calls, list):
-            raise ProviderMalformedResponse("OpenAI tool_calls must be an array")
-        for item in raw_calls:
+            raise self._malformed_observed_response(
+                "OpenAI tool_calls must be an array", metadata
+            )
+        finish_reason = str(first.get("finish_reason")) if first.get("finish_reason") is not None else None
+        truncated_tool_call_count = len(raw_calls) if str(finish_reason or "").casefold() == "length" else 0
+        calls_to_parse = [] if truncated_tool_call_count else raw_calls
+        for item in calls_to_parse:
             function = item.get("function") if isinstance(item, dict) else None
             if not isinstance(function, dict):
-                raise ProviderMalformedResponse("OpenAI tool call function must be an object")
+                raise self._malformed_observed_response(
+                    "OpenAI tool call function must be an object", metadata
+                )
             raw_arguments = function.get("arguments", "{}")
             if isinstance(raw_arguments, str):
                 try:
                     arguments = json.loads(raw_arguments or "{}")
                 except json.JSONDecodeError as exc:
-                    raise ProviderMalformedResponse(f"OpenAI tool arguments are not valid JSON: {exc}") from exc
+                    # Log that we're attempting repair
+                    import sys
+                    print(f"[JSON_REPAIR] Attempting to repair malformed JSON for tool {function.get('name')}", file=sys.stderr)
+                    print(f"[JSON_REPAIR] Raw arguments (first 200 chars): {raw_arguments[:200]}", file=sys.stderr)
+
+                    # Attempt to repair malformed JSON from DeepSeek and other providers
+                    repaired = _attempt_json_repair(raw_arguments)
+                    if repaired is not None:
+                        arguments = repaired
+                        print(f"[JSON_REPAIR] Repair succeeded!", file=sys.stderr)
+                        # Log the repair for observability
+                        metadata = metadata or {}
+                        if "json_repairs" not in metadata:
+                            metadata["json_repairs"] = []
+                        metadata["json_repairs"].append({
+                            "tool_call_id": str(item.get("id") or ""),
+                            "tool_name": str(function.get("name") or ""),
+                            "original_error": str(exc),
+                            "repair_succeeded": True,
+                        })
+                    else:
+                        print(f"[JSON_REPAIR] Repair failed, raising exception", file=sys.stderr)
+                        raise self._malformed_observed_response(
+                            f"OpenAI tool arguments are not valid JSON and repair failed: {exc}",
+                            metadata,
+                        ) from exc
             else:
                 arguments = raw_arguments
             if not isinstance(arguments, dict):
-                raise ProviderMalformedResponse("OpenAI tool arguments must be an object")
+                raise self._malformed_observed_response(
+                    "OpenAI tool arguments must be an object", metadata
+                )
             call_id = str(item.get("id") or "").strip()
             name = str(function.get("name") or "").strip()
             if not call_id or not name:
-                raise ProviderMalformedResponse("OpenAI tool call requires id and function name")
+                raise self._malformed_observed_response(
+                    "OpenAI tool call requires id and function name", metadata
+                )
             calls.append(ProviderToolCall(call_id, name, dict(arguments)))
+        if required_json_without_tools and (
+            (content is None or isinstance(content, str) and not content.strip())
+            and len(choices) == 1
+            and (observed_calls is None or observed_calls == [])
+            and not raw_calls
+            and first.get("finish_reason") == "stop"
+            and refusal is None
+            and not observation["response_error_present"]
+            and message.get("audio") is None
+            and message.get("function_call") is None
+        ):
+            raise ProviderRequiredOutputEmpty(observation)
         return ProviderToolTurn(
             text,
             tuple(calls),
-            str(first.get("finish_reason")) if first.get("finish_reason") is not None else None,
+            finish_reason,
             metadata
             | {
                 "output_hash": sha256_text(text),
+                "reasoning_content_present": bool(reasoning_text),
+                "reasoning_content_bytes": len(reasoning_text.encode("utf-8")),
+                "reasoning_content_hash": sha256_text(reasoning_text),
+                "json_repair_count": len(metadata.get("json_repairs", [])),
+                "response_refusal_present": message.get("refusal") is not None,
+                "response_error_present": payload.get("error") is not None or message.get("error") is not None,
+                "truncated_tool_call_count": truncated_tool_call_count,
+                "truncated_tool_calls_hash": (
+                    sha256_text(stable_json(raw_calls)) if truncated_tool_call_count else None
+                ),
                 "token_usage": token_usage_summary(payload),
                 "tool_call_count": len(calls),
             },
+            reasoning_text,
         )
 
     def is_retryable_profile_error(self, exc: ProviderError) -> bool:
@@ -1342,7 +1648,12 @@ class AnthropicCompatibleClient:
             protocol_fallback_used=protocol_fallback_used,
             cancel_check=cancel_check,
         )
-        text = self._extract_text(payload)
+        try:
+            text = self._extract_text(payload)
+        except ProviderMalformedResponse as error:
+            error.sitina_physical_send_count = int(metadata.get("physical_send_count", 1) or 0)
+            error.sitina_physical_send_status = "response_received"
+            raise
         return ProviderCompletion(
             text=text,
             metadata=metadata | {
@@ -1390,7 +1701,8 @@ class AnthropicCompatibleClient:
             ],
         }
         if thinking_disabled and (openai_json_object or openai_strict_tool):
-            body["thinking"] = {"type": "disabled"}
+            # DeepSeek uses reasoning_effort parameter, not thinking
+            body["reasoning_effort"] = "none"
         if json_schema:
             body["tools"] = [
                 {
@@ -1420,7 +1732,12 @@ class AnthropicCompatibleClient:
             protocol_fallback_used=protocol_fallback_used,
             cancel_check=cancel_check,
         )
-        text = self._extract_text(payload)
+        try:
+            text = self._extract_text(payload)
+        except ProviderMalformedResponse as error:
+            error.sitina_physical_send_count = int(metadata.get("physical_send_count", 1) or 0)
+            error.sitina_physical_send_status = "response_received"
+            raise
         return ProviderCompletion(
             text=text,
             metadata=metadata | {
@@ -1447,6 +1764,48 @@ class AnthropicCompatibleClient:
 
         return infer_wire_protocol(profile.name, profile.base_url, profile.wire_protocol) == OPENAI_CHAT_COMPLETIONS
 
+    def _authorize_request(
+        self, url: str, headers: dict[str, str], profile: ProviderProfile,
+    ) -> None:
+        parsed = urlsplit(url)
+        try:
+            if (
+                parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+            ):
+                raise LegacyWriteDenied("network request requires an exact HTTP host")
+            if not isinstance(profile.auth_token, str) or not profile.auth_token:
+                raise LegacyWriteDenied("Provider request has no credential token")
+            capability = self.network_egress_capability
+            if (
+                getattr(self, "_renew_native_network_capability", False) is True
+                and type(capability) is FrozenNetworkEgressCapability
+                and int(time.time()) >= capability.expires_at
+            ):
+                self.network_egress_capability = _renew_native_network_egress_capability(
+                    capability, host=parsed.hostname, provider_name=profile.name,
+                    credential_reference=profile.credential_reference, token=profile.auth_token,
+                )
+            _authorize_network_credential(
+                self.network_egress_capability,
+                host=parsed.hostname, provider_name=profile.name,
+                credential_reference=profile.credential_reference,
+                token=profile.auth_token,
+            )
+            normalized = {str(key).lower(): str(value) for key, value in headers.items()}
+            if len(normalized) != len(headers):
+                raise LegacyWriteDenied("Provider request contains ambiguous header names")
+            credentials = {key: normalized[key] for key in ("authorization", "x-api-key") if key in normalized}
+            if not credentials or any(
+                value != (f"Bearer {profile.auth_token}" if key == "authorization" else profile.auth_token)
+                for key, value in credentials.items()
+            ):
+                raise LegacyWriteDenied("request token differs from the authorized Provider credential")
+        except LegacyWriteDenied as error:
+            error.sitina_physical_send_count = 0
+            error.sitina_physical_send_status = "pre_send_authorization_rejected"
+            raise
+
     def _request_json(
         self,
         url: str,
@@ -1459,8 +1818,12 @@ class AnthropicCompatibleClient:
         protocol_fallback_used: bool = False,
         cancel_check: Callable[[], bool] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        self._authorize_request(url, headers, profile)
         if cancel_check and cancel_check():
-            raise ProviderCancelledError("provider request cancelled before start")
+            error = ProviderCancelledError("provider request cancelled before start")
+            error.sitina_physical_send_count = 0
+            error.sitina_physical_send_status = "pre_send_cancelled"
+            raise error
         # Frozen network capabilities are intentionally process-local. Keep
         # their one concrete connection in the issuing process, where the
         # direct path still enforces connect/read/total timeouts.
@@ -1469,8 +1832,13 @@ class AnthropicCompatibleClient:
                 url, body, headers, profile=profile, protocol=protocol,
                 request_timeout_seconds=request_timeout_seconds,
                 protocol_fallback_used=protocol_fallback_used,
+                cancel_check=cancel_check,
             )
-        context = multiprocessing.get_context("fork")
+        # Forking a multithreaded macOS authority (the Loop control socket is
+        # intentionally live during Provider waits) can crash the child before
+        # it reports a result. Spawn preserves the cancellable worker boundary
+        # without inheriting locks or thread runtime state.
+        context = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
         receiver, sender = context.Pipe(duplex=False)
         process = context.Process(
             target=_provider_request_worker,
@@ -1490,21 +1858,30 @@ class AnthropicCompatibleClient:
                 if remaining <= 0:
                     process.terminate()
                     process.join(timeout=1)
-                    raise ProviderReadTimeout("provider total request timeout")
+                    error = ProviderReadTimeout("provider total request timeout")
+                    error.sitina_physical_send_count = None
+                    error.sitina_physical_send_status = "unknown_after_worker_start"
+                    raise error
                 if receiver.poll(min(0.05, remaining)):
                     try:
                         result = receiver.recv()
                     except EOFError as exc:
                         process.join(timeout=1)
-                        raise ProviderError(
+                        error = ProviderError(
                             "provider worker exited without a result "
                             f"(exit_code={process.exitcode})"
-                        ) from exc
+                        )
+                        error.sitina_physical_send_count = None
+                        error.sitina_physical_send_status = "unknown_after_worker_start"
+                        raise error from exc
                     break
                 if cancel_check and cancel_check():
                     process.terminate()
                     process.join(timeout=1)
-                    raise ProviderCancelledError("provider request cancelled while in flight")
+                    error = ProviderCancelledError("provider request cancelled while in flight")
+                    error.sitina_physical_send_count = None
+                    error.sitina_physical_send_status = "unknown_after_worker_start"
+                    raise error
         finally:
             receiver.close()
             if process.is_alive():
@@ -1527,10 +1904,109 @@ class AnthropicCompatibleClient:
         protocol: str,
         request_timeout_seconds: float,
         protocol_fallback_used: bool = False,
+        cancel_check: Callable[[], bool] | None = None,
+        _cancel_state: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        self._authorize_request(url, headers, profile)
+        if cancel_check is not None:
+            if cancel_check():
+                error = ProviderCancelledError("provider request cancelled before start")
+                error.sitina_physical_send_count = 0
+                error.sitina_physical_send_status = "pre_send_cancelled"
+                raise error
+            # Keep the callback on its caller thread. I/O uses the identical
+            # registered capability in this process and enters its own scope.
+            state: dict[str, Any] = {
+                "lock": threading.Lock(), "done": threading.Event(),
+                "cancelled": False, "connection": None,
+                "request_started": False, "request_sent": False, "response_received": False,
+            }
+
+            def run_bound_direct() -> None:
+                try:
+                    state["result"] = self._request_json_direct(
+                        url, body, headers, profile=profile, protocol=protocol,
+                        request_timeout_seconds=request_timeout_seconds,
+                        protocol_fallback_used=protocol_fallback_used,
+                        _cancel_state=state,
+                    )
+                except BaseException as error:
+                    state["error"] = error
+                finally:
+                    state["done"].set()
+
+            def stop_direct(error: Exception) -> None:
+                with state["lock"]:
+                    state["cancelled"] = True
+                    connection = state["connection"]
+                    if state["response_received"]:
+                        error.sitina_physical_send_count = 1
+                        error.sitina_physical_send_status = "response_received"
+                    elif state["request_sent"]:
+                        error.sitina_physical_send_count = 1
+                        error.sitina_physical_send_status = "request_sent_no_response"
+                    elif state["request_started"]:
+                        error.sitina_physical_send_count = None
+                        error.sitina_physical_send_status = "unknown_after_request_start"
+                    else:
+                        error.sitina_physical_send_count = 0
+                        error.sitina_physical_send_status = (
+                            "pre_send_cancelled" if isinstance(error, ProviderCancelledError)
+                            else "pre_send_failure"
+                        )
+                if connection is not None:
+                    sock = connection.sock
+                    if sock is not None:
+                        try:
+                            sock.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+                    try:
+                        connection.close()
+                    except OSError:
+                        pass
+                raise error
+
+            deadline = time.monotonic() + request_timeout_seconds
+            io_thread = threading.Thread(target=run_bound_direct, name="sitina-provider-direct", daemon=True)
+            io_thread.start()
+            try:
+                while not state["done"].wait(min(0.05, max(0.0, deadline - time.monotonic()))):
+                    try:
+                        cancelled = cancel_check()
+                    except Exception as error:
+                        stop_direct(error)
+                    if cancelled:
+                        stop_direct(ProviderCancelledError("provider request cancelled while in flight"))
+                    if time.monotonic() >= deadline:
+                        stop_direct(ProviderReadTimeout("provider total request timeout"))
+                io_thread.join()
+                if "error" in state:
+                    raise state["error"]
+                return state["result"]
+            finally:
+                # If DNS/connect is still unwinding, the shared stop flag
+                # and locked pre-POST gate reject work not yet admitted to send.
+                with state["lock"]:
+                    state["cancelled"] = True
+                    pending_connection = state["connection"]
+                if not state["done"].is_set() and pending_connection is not None:
+                    pending_socket = pending_connection.sock
+                    if pending_socket is not None:
+                        try:
+                            pending_socket.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+                    try:
+                        pending_connection.close()
+                    except OSError:
+                        pass
         parsed = urlsplit(url)
         if parsed.scheme not in {"https", "http"} or not parsed.hostname:
-            raise ProviderError("provider base URL must be an absolute http(s) URL")
+            error = ProviderError("provider base URL must be an absolute http(s) URL")
+            error.sitina_physical_send_count = 0
+            error.sitina_physical_send_status = "pre_send_validation_rejected"
+            raise error
         request_id = "provider_" + uuid.uuid4().hex
         started_at = iso_now()
         started_monotonic = time.monotonic()
@@ -1542,10 +2018,28 @@ class AnthropicCompatibleClient:
             path = f"{path}?{parsed.query}"
         connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         connection = connection_class(parsed.hostname, parsed.port, timeout=connect_timeout)
+        connection.auto_open = 0
         request_expired = threading.Event()
         signal_timeout_enabled = False
         previous_alarm_handler: Any = None
         previous_alarm_timer: tuple[float, float] | None = None
+        request_started = False
+        request_sent = False
+        response_received = False
+
+        def request_phase(name: str) -> None:
+            if _cancel_state is None:
+                return
+            with _cancel_state["lock"]:
+                if name in {"request_started", "request_sent", "response_received"}:
+                    if name != "request_started":
+                        _cancel_state[name] = True
+                if _cancel_state["cancelled"]:
+                    raise ProviderCancelledError("provider direct I/O was cancelled")
+                if name == "connection":
+                    _cancel_state["connection"] = connection
+                elif name == "request_started":
+                    _cancel_state[name] = True
 
         def abort_for_total_timeout() -> None:
             request_expired.set()
@@ -1581,13 +2075,18 @@ class AnthropicCompatibleClient:
                 # are unavailable in the embedding process.
                 signal_timeout_enabled = False
         try:
+            request_phase("connection")
             try:
                 with authorized_frozen_network_egress(
                     self.network_egress_capability,
                     host=parsed.hostname,
                     operation="model_text_generation",
+                    provider_name=profile.name,
+                    credential_reference=profile.credential_reference,
                 ):
+                    request_phase("check")
                     connection.connect()
+                    request_phase("check")
             except _ProviderTotalRequestTimeout as exc:
                 raise ProviderConnectTimeout("provider total request timeout during connect") from exc
             except socket.timeout as exc:
@@ -1603,9 +2102,17 @@ class AnthropicCompatibleClient:
             if connection.sock:
                 connection.sock.settimeout(read_timeout)
             try:
+                self._authorize_request(url, headers, profile)
+                request_phase("request_started")
+                request_started = True
                 connection.request("POST", path, body=body_bytes, headers=headers)
+                request_sent = True
+                request_phase("request_sent")
                 response = connection.getresponse()
+                response_received = True
+                request_phase("response_received")
                 response_bytes = response.read()
+                request_phase("check")
             except _ProviderTotalRequestTimeout as exc:
                 raise ProviderReadTimeout("provider total request timeout") from exc
             except socket.timeout as exc:
@@ -1636,10 +2143,13 @@ class AnthropicCompatibleClient:
                 raise ProviderMalformedResponse(f"provider response JSON parse failed: {exc}") from exc
             if not isinstance(payload, dict):
                 raise ProviderMalformedResponse("provider response must be a JSON object")
+
             completed_at = iso_now()
             duration_ms = int((time.monotonic() - started_monotonic) * 1000)
             metadata = {
                 "provider_request_id": response_headers.get("x-request-id") or response_headers.get("request-id") or request_id,
+                "http_request_id": response_headers.get("x-request-id") or response_headers.get("request-id"),
+                "http_status_code": status,
                 "provider_call_started_at": started_at,
                 "provider_call_completed_at": completed_at,
                 "duration_ms": duration_ms,
@@ -1650,12 +2160,40 @@ class AnthropicCompatibleClient:
                 "read_timeout_seconds": read_timeout,
                 "request_timeout_seconds": request_timeout_seconds,
                 "input_hash": sha256_text(stable_json({"system": system_redacted_hash_input(body.get("system")), "messages": system_redacted_hash_input(body.get("messages"))})),
+                "request_body_hash": hashlib.sha256(body_bytes).hexdigest(),
+                "request_body_bytes": len(body_bytes),
                 "redaction_status": "redacted",
                 "provider_mode": "live",
+                "physical_send_count": 1,
                 "profile_name": profile.name,
                 "model": redact_text(profile.model)[:200],
             }
             return payload, metadata
+        except ProviderError as error:
+            if response_received:
+                error.sitina_physical_send_count = 1
+                error.sitina_physical_send_status = "response_received"
+            elif request_sent:
+                error.sitina_physical_send_count = 1
+                error.sitina_physical_send_status = "request_sent_no_response"
+            elif request_started:
+                error.sitina_physical_send_count = None
+                error.sitina_physical_send_status = "unknown_after_request_start"
+            else:
+                error.sitina_physical_send_count = 0
+                error.sitina_physical_send_status = (
+                    "pre_send_cancelled" if isinstance(error, ProviderCancelledError)
+                    else getattr(error, "sitina_physical_send_status", "pre_send_failure")
+                )
+            raise
+        except Exception as error:
+            # Preserve the original exception contract while making the send
+            # observation explicit for the bounded caller.
+            error.sitina_physical_send_count = None if request_started else 0
+            error.sitina_physical_send_status = (
+                "unknown_after_request_start" if request_started else "pre_send_failure"
+            )
+            raise
         finally:
             if signal_timeout_enabled:
                 signal.setitimer(signal.ITIMER_REAL, *(previous_alarm_timer or (0.0, 0.0)))
@@ -1736,6 +2274,18 @@ def _provider_request_worker(
     protocol_fallback_used: bool,
     network_egress_capability: FrozenNetworkEgressCapability | None,
 ) -> None:
+    # IMMEDIATE DEBUG: Write as soon as function is called
+    try:
+        with open("/tmp/sitina_worker_entry.log", "a") as f:
+            import time
+            f.write(f"\n{'='*80}\n")
+            f.write(f"Worker function called at {time.time()}\n")
+            f.write(f"URL: {url}\n")
+            f.write(f"Profile: {profile.name if profile else 'None'}\n")
+            f.flush()
+    except Exception as e:
+        pass  # Ignore all errors
+
     try:
         client = AnthropicCompatibleClient(
             Path(home), network_egress_capability=network_egress_capability
@@ -1750,35 +2300,121 @@ def _provider_request_worker(
             request_timeout_seconds=request_timeout_seconds,
             protocol_fallback_used=protocol_fallback_used,
         )
+
+        # Debug: Log payload structure in worker process
+        try:
+            debug_log_path = "/tmp/sitina_worker_debug.log"
+            with open(debug_log_path, "a") as debug_file:
+                from sitina.utils import iso_now
+                debug_file.write(f"\n{'='*80}\n")
+                debug_file.write(f"Worker received payload at {iso_now()}\n")
+                debug_file.write(f"Profile: {profile.name if profile else 'None'}\n")
+                debug_file.write(f"Model: {profile.model if profile else 'None'}\n")
+                debug_file.write(f"Payload type: {type(payload)}\n")
+                debug_file.write(f"Payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'N/A'}\n")
+
+                if isinstance(payload, dict) and payload.get("choices"):
+                    debug_file.write(f"Has choices: {len(payload['choices'])}\n")
+                    if payload["choices"] and isinstance(payload["choices"][0], dict):
+                        msg = payload["choices"][0].get("message", {})
+                        debug_file.write(f"Message type: {type(msg)}\n")
+                        debug_file.write(f"Message keys: {list(msg.keys()) if isinstance(msg, dict) else 'N/A'}\n")
+
+                        if isinstance(msg, dict):
+                            # Log content
+                            content = msg.get("content")
+                            if content:
+                                debug_file.write(f"Has content: {len(str(content))} chars\n")
+                                debug_file.write(f"Content (first 300): {str(content)[:300]}\n")
+
+                            # Log tool_calls structure
+                            if "tool_calls" in msg:
+                                tc = msg["tool_calls"]
+                                debug_file.write(f"\n*** TOOL_CALLS FOUND ***\n")
+                                debug_file.write(f"tool_calls type: {type(tc)}\n")
+                                debug_file.write(f"tool_calls len: {len(tc) if isinstance(tc, list) else 'N/A'}\n")
+
+                                if isinstance(tc, list) and tc:
+                                    for idx, call in enumerate(tc[:2]):  # First 2 only
+                                        debug_file.write(f"\n--- tool_call[{idx}] ---\n")
+                                        debug_file.write(f"Type: {type(call)}\n")
+                                        debug_file.write(f"Full: {call}\n")
+
+                                        if isinstance(call, dict):
+                                            func = call.get("function", {})
+                                            if isinstance(func, dict):
+                                                args = func.get("arguments")
+                                                debug_file.write(f"\nArguments analysis:\n")
+                                                debug_file.write(f"  Type: {type(args)}\n")
+                                                debug_file.write(f"  Len: {len(args) if hasattr(args, '__len__') else 'N/A'}\n")
+                                                debug_file.write(f"  Content: {repr(args)[:500]}\n")
+
+                                                # Try to parse if it's a string
+                                                if isinstance(args, str):
+                                                    import json
+                                                    try:
+                                                        parsed = json.loads(args)
+                                                        debug_file.write(f"  ✓ Valid JSON, parsed to: {type(parsed)}\n")
+                                                    except json.JSONDecodeError as e:
+                                                        debug_file.write(f"  ✗ INVALID JSON: {e}\n")
+                                                        debug_file.write(f"  ✗ Error at position {e.pos}\n")
+                            else:
+                                debug_file.write(f"NO tool_calls in message\n")
+                debug_file.flush()
+        except Exception as debug_exc:
+            # Try to log the exception itself
+            try:
+                with open("/tmp/sitina_worker_debug.log", "a") as f:
+                    f.write(f"\n!!! DEBUG EXCEPTION: {debug_exc}\n")
+            except:
+                pass
+
         sender.send(("ok", payload, metadata))
     except ProviderHTTPError as exc:
-        sender.send(("error", exc.error_type, redact_text(str(exc))[:500], {"status_code": exc.status_code, "retry_after_seconds": exc.retry_after_seconds}))
+        sender.send(("error", exc.error_type, redact_text(str(exc))[:500], {
+            "status_code": exc.status_code,
+            "retry_after_seconds": exc.retry_after_seconds,
+            "physical_send_count": getattr(exc, "sitina_physical_send_count", 1),
+            "physical_send_status": getattr(exc, "sitina_physical_send_status", "response_received"),
+        }))
     except ProviderError as exc:
-        sender.send(("error", exc.error_type, redact_text(str(exc))[:500], {}))
+        sender.send(("error", exc.error_type, redact_text(str(exc))[:500], {
+            "physical_send_count": getattr(exc, "sitina_physical_send_count", None),
+            "physical_send_status": getattr(exc, "sitina_physical_send_status", "unknown_after_worker_start"),
+        }))
     except Exception as exc:  # noqa: BLE001
-        sender.send(("error", "provider_error", redact_text(str(exc))[:500], {}))
+        sender.send(("error", "provider_error", redact_text(str(exc))[:500], {
+            "physical_send_count": getattr(exc, "sitina_physical_send_count", None),
+            "physical_send_status": getattr(exc, "sitina_physical_send_status", "unknown_after_worker_start"),
+        }))
     finally:
         sender.close()
 
 
 def _raise_worker_error(error_type: str, message: str, details: dict[str, Any]) -> None:
     if error_type == "provider_connect_timeout":
-        raise ProviderConnectTimeout(message)
-    if error_type == "provider_read_timeout":
-        raise ProviderReadTimeout(message)
-    if error_type == "run_deadline_exceeded":
-        raise ProviderDeadlineExceeded(message)
-    if error_type == "provider_auth_failed":
-        raise ProviderAuthError(int(details.get("status_code") or 401), message, retry_after_seconds=details.get("retry_after_seconds"))
-    if error_type == "provider_permission_denied":
-        raise ProviderPermissionError(int(details.get("status_code") or 403), message, retry_after_seconds=details.get("retry_after_seconds"))
-    if error_type == "provider_rate_limited":
-        raise ProviderRateLimitError(int(details.get("status_code") or 429), message, retry_after_seconds=details.get("retry_after_seconds"))
-    if error_type == "provider_parse_failed":
-        raise ProviderMalformedResponse(message)
-    if "status_code" in details:
-        raise ProviderHTTPError(int(details["status_code"]), message, retry_after_seconds=details.get("retry_after_seconds"))
-    raise ProviderError(message)
+        error: ProviderError = ProviderConnectTimeout(message)
+    elif error_type == "provider_read_timeout":
+        error = ProviderReadTimeout(message)
+    elif error_type == "run_deadline_exceeded":
+        error = ProviderDeadlineExceeded(message)
+    elif error_type == "provider_auth_failed":
+        error = ProviderAuthError(int(details.get("status_code") or 401), message, retry_after_seconds=details.get("retry_after_seconds"))
+    elif error_type == "provider_permission_denied":
+        error = ProviderPermissionError(int(details.get("status_code") or 403), message, retry_after_seconds=details.get("retry_after_seconds"))
+    elif error_type == "provider_rate_limited":
+        error = ProviderRateLimitError(int(details.get("status_code") or 429), message, retry_after_seconds=details.get("retry_after_seconds"))
+    elif error_type == "provider_parse_failed":
+        error = ProviderMalformedResponse(message)
+    elif "status_code" in details:
+        error = ProviderHTTPError(int(details["status_code"]), message, retry_after_seconds=details.get("retry_after_seconds"))
+    else:
+        error = ProviderError(message)
+    if "physical_send_count" in details:
+        error.sitina_physical_send_count = details["physical_send_count"]
+    if "physical_send_status" in details:
+        error.sitina_physical_send_status = str(details["physical_send_status"])
+    raise error
 
 
 def system_redacted_hash_input(value: Any) -> Any:

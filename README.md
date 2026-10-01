@@ -18,28 +18,22 @@ Journal-native interactive conversation UI:
 sitina
 ```
 
-Interactive conversation starts in `AUTO`: simple messages use the one-Agent
-`FAST` path, while comparison, architecture, audit, high-risk, and other
-complex requests route to reviewed `MULTI`. Use `/fast`, `/multi`, or `/auto`
-to override or restore routing; `/mode` explains the last decision, `/new`
-clears in-process context without changing mode, and `/retry` retries only the
-last failed or cancelled message. `/exit` and `/quit` leave normally.
+Interactive conversation is AUTO-only. A deterministic local router sends a
+simple read-only task through the current Loop's single main Agent, while a
+complex or high-risk task uses the same Loop task and adds an independent
+read-only reviewer. Both paths share one LoopHost, one LoopTaskRunner,
+Journal/CAS state, authority lease, and recovery chain.
 
-`FAST` has the lowest normal latency and cost when no global extension is
-active: one registered synthesis Agent,
-one logical Provider call, and one physical send. `MULTI` performs goal
-analysis, at least two independent candidate Proposals, and independent
-review before displaying the winner. Once a global Sitina Skill or Plugin is
-active, chat uses Sitina's autonomous multi-turn tool loop; read-only tools run
-automatically and risky tools request approval. Context is bounded by the
-token and recent-turn limits in `config/context_policy.json`; it exists only in
-the current terminal process.
+Routing cannot be forced from the public interface. `/mode` only explains the
+latest automatic decision; `/help` lists the available commands, and `/exit`
+or `/quit` leaves normally. The retired `chat` command remains an early,
+side-effect-free refusal and is never used as a fallback.
 
 Detailed docs:
 
 - `RECOVERY.md`: rebuild a clean installation from this private repository.
 - `docs/usage.md`: commands, mock/live runs, provider smoke checks, and high-risk command behavior.
-- `docs/conversation-routing.md`: AUTO/FAST/MULTI routing, evidence, and safety boundaries.
+- `docs/conversation-routing.md`: automatic routing, review, and safety boundaries.
 - `docs/architecture.md`: package layout, state/logging model, and safety boundaries.
 - `docs/provider-runner.md`: provider profiles, live API path, schema parser, repair-once behavior, and smoke evidence.
 - `docs/extensions.md`: Sitina-native Skills, Plugins, MCP, permissions, installation, autonomous tools, and rollback.
@@ -102,9 +96,11 @@ sitina run --provider-mode mock approved-write-fixture
 sitina approve-run <run_id>
 ```
 
-Production chat does not retry automatically or fall back to another Provider.
-Authentication, Keychain, network, quota, schema, and terminal failures remain
-failed turns and can be retried explicitly with `/retry`.
+The current Loop does not retry automatically or fall back to another
+Provider. Authentication, Keychain, network, quota, schema, and terminal
+failures remain durable task outcomes for the existing Loop status and
+recovery surfaces; the AUTO-only interactive controller does not expose a
+separate retry mode.
 
 `sitina suggest <task>` is a read-only, Provider-free preview of the real
 router plus workflow/team policy. It reports the recommended task type, route,
@@ -120,3 +116,9 @@ gate must first pass the no-paid cumulative gate and publish its physical-call,
 token, and cost ceilings; only an explicit approval for that exact run (or a
 complete one-time `SITINA_LIVE_ACCEPTANCE_APPROVED=1` budget envelope) may
 enable live calls. See `docs/usage.md` and `docs/storage-v2-operations.md`.
+
+## 原生任务的评审请求超时
+
+可在 `config/sitina.yaml` 的 `providers` 下设置可选的 `reviewer_request_timeout_seconds`，值为有限正数（秒）。通过原生 session 或 `loop task submit` 提交时，该值随提交身份与任务执行描述一起保存，恢复任务继续使用原值；相同提交 ID 携带不同的值会被拒绝。
+
+此设置仅限制独立 reviewer 的单次模型请求，仍受 Provider 现有请求上限约束。未配置时保持原有行为；main 与 goal completion 的请求超时、模型、端点和重试策略不因此改变。它不是整个任务的执行时间上限，评审超时也不会产生通过结论。

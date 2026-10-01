@@ -1,0 +1,33 @@
+{
+  "schema": "SITINA_R4_FORMAL_ENTRY_RAW_OBSERVATIONS_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "observations": [
+    {
+      "name": "final_development_root_provider_probe",
+      "exact_command": "SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python bin/sitina provider status deepseek --check --max-tokens 32",
+      "exit_code": 0,
+      "stdout_sha256": "sha256:ce28eef6d2064078036b8f943a168f0fc1f60f9c4381d22b0c062e8b3c848e51",
+      "stdout": "{\n  \"checked\": true,\n  \"profiles\": [\n    {\n      \"check\": \"ok\",\n      \"checked_at\": \"2026-09-06T10:00:56.550193Z\",\n      \"failure_count\": 0,\n      \"health_persistence_error_hash\": \"sha256:0026bc5d6348f8b2d0569aa2b87e20b5cb41e8d3342c46ca25dd461d7b176f22\",\n      \"health_persistence_error_type\": \"OperationalError\",\n      \"last_error\": null,\n      \"latency_ms\": 992,\n      \"model\": \"deepseek-v4-pro\",\n      \"next_check_at\": \"2026-09-06T11:00:56.550752Z\",\n      \"profile\": \"deepseek\",\n      \"status\": \"healthy\"\n    }\n  ],\n  \"status\": \"ok\"\n}\n",
+      "interpretation": {
+        "provider_connectivity": "PASS",
+        "legacy_health_state_persistence": "FAIL",
+        "r4_pass_claimed": false
+      }
+    },
+    {
+      "name": "earlier_development_root_provider_probe",
+      "exact_command": "bin/sitina provider status deepseek --check --max-tokens 32 (development-root environment was set for the recorded run)",
+      "exit_code": 0,
+      "captured_app_terminal_output_preserved": true,
+      "captured_output_evidence": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/observed-formal-command-transcripts.json",
+      "preserved_fields": {
+        "check": "ok",
+        "model": "deepseek-v4-pro",
+        "latency_ms": 1269,
+        "health_persistence_error_type": "OperationalError",
+        "health_persistence_error_hash": "sha256:0026bc5d6348f8b2d0569aa2b87e20b5cb41e8d3342c46ca25dd461d7b176f22"
+      },
+      "note": "This local summary preserves the emitted fields. The independent transcript preserves the full untruncated app terminal stream; it is not described as separately reconstructed stdout/stderr."
+    }
+  ]
+}

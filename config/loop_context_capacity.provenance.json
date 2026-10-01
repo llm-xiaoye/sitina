@@ -1,0 +1,37 @@
+{
+  "schema": "SITINA_LOOP_CONTEXT_CAPACITY_PROVENANCE_V1",
+  "observed_on": "2026-09-06",
+  "profile": "deepseek",
+  "endpoint": "https://api.deepseek.com",
+  "model": "deepseek-v4-pro",
+  "profile_configuration": {
+    "source": "https://api-docs.deepseek.com/",
+    "openai_base_url": "https://api.deepseek.com",
+    "model_parameter": "deepseek-v4-pro"
+  },
+  "wire_protocol_basis": "sitina.runners.provider.infer_wire_protocol resolves the configured DeepSeek endpoint to openai_chat_completions",
+  "execution_mode": {
+    "thinking_mode": "enabled",
+    "reasoning_effort": "low",
+    "max_output_tokens_per_request": 32768,
+    "source": "https://api-docs.deepseek.com/guides/thinking_mode/",
+    "max_output_tokens_source": "https://api-docs.deepseek.com/quick_start/agent_integrations/crush/",
+    "finish_reason_source": "https://api-docs.deepseek.com/api/create-chat-completion/",
+    "reason": "DeepSeek V4 thinking is explicitly enabled at low effort, which the provider recommends for simple tasks. The protected Loop protocol persists and replays the exact private reasoning_content required for tool-call continuation while excluding that text from user-visible results and reports. The per-request output reserve covers reasoning plus final content and is not a cumulative task budget.",
+    "thinking_tool_loop_supported": true
+  },
+  "hard_capacity": {
+    "tokens": 1000000,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+  },
+  "counter_scope": {
+    "source": "https://api-docs.deepseek.com/quick_start/token_usage/",
+    "statement": "The provider's character conversion is approximate and is not used as an exact tokenizer. Sitina instead admits conservatively at one token per complete serialized UTF-8 request byte plus an explicit 8192-token protocol margin."
+  },
+  "daily_residency_targets": {
+    "task_projection_bytes": 131072,
+    "recent_protocol_groups_bytes": 65536,
+    "per_receipt_bytes": 4096,
+    "classification": "soft request-residency targets, not model capacity or a cumulative task budget"
+  }
+}

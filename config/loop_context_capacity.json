@@ -1,0 +1,25 @@
+{
+  "schema": "SITINA_LOOP_CONTEXT_CAPACITY_POLICY_V1",
+  "entries": [
+    {
+      "profile": "deepseek",
+      "endpoint": "https://api.deepseek.com",
+      "model": "deepseek-v4-pro",
+      "wire_protocol": "openai_chat_completions",
+      "context_capacity_tokens": 1000000,
+      "next_tool_turn_receipt_reserve_tokens": 16384,
+      "history_query_max_bytes": 16384,
+      "execution": {
+        "thinking_mode": "enabled",
+        "max_output_tokens": 32768,
+        "reasoning_effort": "low"
+      },
+      "counter": {
+        "mode": "conservative_utf8",
+        "name": "utf8-wire-bytes-upper-bound-v1",
+        "applicability": "deepseek-v4-pro OpenAI-compatible JSON requests; one token per serialized UTF-8 byte plus the declared provider-template margin is a conservative admission bound, not actual usage",
+        "protocol_margin_tokens": 8192
+      }
+    }
+  ]
+}

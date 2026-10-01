@@ -1,0 +1,95 @@
+{
+  "schema": "SITINA_R4_BATCH_FORMAL_ENTRY_BASELINES_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "provider_checks": [
+    {
+      "command": "SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a bin/sitina provider status deepseek --check --max-tokens 32",
+      "observed_before_implementation_verification": {
+        "exit_code": 0,
+        "model": "deepseek-v4-pro",
+        "connectivity": "ok",
+        "latency_ms": 1269,
+        "health_state_persistence": "failed",
+        "health_persistence_error_type": "OperationalError",
+        "health_persistence_error_hash": "sha256:0026bc5d6348f8b2d0569aa2b87e20b5cb41e8d3342c46ca25dd461d7b176f22",
+        "captured_output_preserved": true,
+        "captured_output_evidence": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/observed-formal-command-transcripts.json"
+      },
+      "observed_at_final_verification": {
+        "exact_command": "SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python bin/sitina provider status deepseek --check --max-tokens 32",
+        "exit_code": 0,
+        "connectivity": "ok",
+        "model": "deepseek-v4-pro",
+        "latency_ms": 992,
+        "health_state_persistence": "failed",
+        "health_persistence_error_type": "OperationalError",
+        "health_persistence_error_hash": "sha256:0026bc5d6348f8b2d0569aa2b87e20b5cb41e8d3342c46ca25dd461d7b176f22",
+        "stdout_sha256": "sha256:ce28eef6d2064078036b8f943a168f0fc1f60f9c4381d22b0c062e8b3c848e51",
+        "raw_evidence": "formal-entry-raw-observations.json"
+      },
+      "classification": "OLD_ENTRY_BASELINE_UNSTABLE",
+      "r4_pass_claimed": false
+    }
+  ],
+  "read_only_agent_baseline": {
+    "command": "SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a bin/sitina agent --profile deepseek --workspace /Users/moss/SitinaHub-r4-b0-1a --max-turns 4 --max-tokens 1024 '只读检查当前工作区 README.md；不要修改任何文件或运行写操作。回答项目标题和一句用途，并在信息充分时给出最终答案。'",
+    "exit_code": 0,
+    "terminal_state": "SUCCEEDED",
+    "run_id": "agent-run-33bae2cefbb64bdfb104dba438fdb06f",
+    "provider_calls": 3,
+    "read_tool_calls": 3,
+    "mutation_count": 0,
+    "answer_quality": "correctly identified SitinaHub and its purpose",
+    "missing_r4_fields": [
+      "spec_version",
+      "target_spec_version",
+      "implemented_rules",
+      "verified_rules",
+      "unimplemented_items"
+    ],
+    "classification": "OLD_ENTRY_BASELINE_ONLY",
+    "note": "Explicit max-turns=4 describes this baseline run only and is not a new r4 completion rule.",
+    "captured_output_evidence": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/observed-formal-command-transcripts.json"
+  },
+  "calibration_summary": {
+    "program_results": ["PASS", "FAIL", "PASS", "NEEDS_EVIDENCE"],
+    "program_reference_match": true,
+    "model_review_results": {
+      "case-001": ["PASS", "PASS"],
+      "case-002": ["BLOCK", "BLOCK"],
+      "case-003": ["PASS", "PASS"],
+      "case-004": ["NEEDS_EVIDENCE", "NEEDS_EVIDENCE"]
+    },
+    "all_final_model_results_match_reference": true,
+    "reviewer_verdict_slots_complete": true,
+    "benchmark_complete": false,
+    "visual_contract_coverage": {
+      "actual_chart_pixel_review": "NOT_RUN",
+      "chart_to_plot_data_binding": "NOT_RUN",
+      "title_axis_and_readability_review": "NOT_RUN"
+    },
+    "initial_not_run_attempts": 3,
+    "initial_not_run_reason": "Reviewers selected unnecessary approval-gated shell or desktop tools and reached the explicit old-path containment bound; these attempts remain in prior_attempts and raw-results.",
+    "retry_change": "The containment bound remained max_turns=8; only the neutral prompt tool boundary was clarified, and only NOT_RUN slots were retried.",
+    "evidence": "calibration-full/calibration-results.json",
+    "parent_side_comparison": "calibration-full/comparison.json",
+    "historical_cropped_input_diagnostics": "calibration/calibration-results.json"
+  },
+  "captured_command_transcript": {
+    "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/observed-formal-command-transcripts.json",
+    "sha256": "sha256:abf60a745449edc6b86b7592a7d25fba8a3dd49f7328b9dd3e50409536f70bca",
+    "record_count": 8,
+    "all_outputs_untruncated": true,
+    "stream_semantics": "captured app terminal output; not reconstructed as separate stdout and stderr"
+  },
+  "launcher_default_home_probe": {
+    "transcript_record": "exec-b5a85661-ffc7-4737-9758-a1ddf135842e",
+    "command": "bin/sitina provider status deepseek --check --max-tokens 32",
+    "resolved_home": "/Users/moss/SitinaHub",
+    "exit_code": 2,
+    "runtime_state_side_effect": "/Users/moss/SitinaHub/data/sitina.db provider_health row for deepseek was updated to unavailable",
+    "tracked_source_hashes_unchanged": true,
+    "rollback_performed": false,
+    "classification": "EXECUTION_BOUNDARY_ERROR_RECORDED"
+  }
+}

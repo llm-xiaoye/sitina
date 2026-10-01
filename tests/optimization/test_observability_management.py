@@ -182,6 +182,18 @@ class ObservabilityManagementTests(unittest.TestCase):
         self.assertEqual(flap.notifications, ())
         after_cooldown = engine.evaluate(firing_signals, state=flap.state, now_epoch=303)
         self.assertTrue(all(item.kind == "firing" for item in after_cooldown.notifications))
+        native = AlertSignalSnapshot(
+            fast_burn_rate_ppm=0, slow_burn_rate_ppm=0, repeated_failures=0, queue_depth=0,
+            token_ratio_ppm=None, cost_ratio_ppm=None, timeouts=1, retries=1,
+            cancel_failures=1, unknown_effects=1, resource_rejections=1, usage_unknown=1,
+        )
+        native_first = engine.evaluate(native, state=AlertState(), now_epoch=1000)
+        self.assertEqual({n.code for n in native_first.notifications},
+                         {"TIMEOUT", "RETRY", "CANCEL_FAILURE", "UNKNOWN_EFFECT", "RESOURCE_LIMIT", "USAGE_UNKNOWN"})
+        self.assertEqual(engine.evaluate(native, state=native_first.state, now_epoch=1001).notifications, ())
+        native_recovery = engine.evaluate(clear, state=native_first.state, now_epoch=1002)
+        self.assertEqual(len(native_recovery.notifications), 6)
+        self.assertTrue(all(n.kind == "recovered" for n in native_recovery.notifications))
 
     def test_t08_structured_logs_are_schema_level_code_correlation_redacted_and_human_readable(self) -> None:
         record = StructuredLogBuilder().build(

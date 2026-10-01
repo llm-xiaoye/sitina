@@ -1,0 +1,67 @@
+{
+  "schema": "SITINA_R4_KEYCHAIN_CLI_EVIDENCE_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "state_root": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-b1a-keychain-evidence-20260906",
+  "namespace": "loop-d5fbe1f1b2b3fec8fbb1535b",
+  "provider_id": "macos-keychain",
+  "secret_material_included": false,
+  "first_interpreter": {
+    "command": "SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python bin/sitina loop-state create --state-root /Users/moss/SitinaHub-r4-b0-1a/runtime/r4-b1a-keychain-evidence-20260906 --task-id keychain-task-20260906 --session-id keychain-session-20260906 --task-kind read_only --goal 'prove isolated macOS Keychain persistence and honest restart docking' --required-outcome key-readback --artifact-ref cas:pending-keychain-evidence --environment-ref local-dev-worktree-27edb59f --capability-snapshot-id loop-batch-1a-cli-v1",
+    "exit_code": 0,
+    "existing_only_reopen": false,
+    "persisted_before_business_state": true,
+    "verification_fingerprint": "sha256:c74289e8e3df337bb9246b738d654a786aa087be8a9c087e3c30dddab9898f6f",
+    "run_instance_id": "loop-run-instance-0138963a9682579a9b7ceee9a23b3d6d",
+    "task_revision": 1,
+    "task_status": "RUNNABLE"
+  },
+  "second_interpreter": {
+    "command": "SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python bin/sitina loop-state status --state-root /Users/moss/SitinaHub-r4-b0-1a/runtime/r4-b1a-keychain-evidence-20260906 --task-id keychain-task-20260906 --dock-restart",
+    "exit_code": 0,
+    "existing_only_reopen": true,
+    "same_key_ids_and_verification_fingerprint": true,
+    "run_instance_id": "loop-run-instance-20082582e3a0eaf8fa4903ed89d53ff4",
+    "task_revision": 2,
+    "execution_epoch": 2,
+    "task_status": "RECOVERY_BLOCKED",
+    "recovery_state": "RECOVERY_NOT_CONNECTED"
+  },
+  "third_interpreter": {
+    "command": "SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_PYTHON=/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python bin/sitina loop-state status --state-root /Users/moss/SitinaHub-r4-b0-1a/runtime/r4-b1a-keychain-evidence-20260906 --task-id keychain-task-20260906 --dock-restart",
+    "exit_code": 0,
+    "existing_only_reopen": true,
+    "same_key_ids_and_verification_fingerprint": true,
+    "command_run_instance_id": "loop-run-instance-3623ff65091506d633163e2f4294a863",
+    "persisted_task_run_instance_id": "loop-run-instance-20082582e3a0eaf8fa4903ed89d53ff4",
+    "task_revision": 2,
+    "duplicate_dock_event_written": false,
+    "task_status": "RECOVERY_BLOCKED",
+    "recovery_state": "RECOVERY_NOT_CONNECTED"
+  },
+  "independent_supervisor_read": {
+    "evidence_path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/independent-real-keychain-read.json",
+    "evidence_sha256": "sha256:4889a78a625bab851c8b8c554455304f9acdecf656b0cd844855edf19a413893",
+    "goal_cas_decrypted": true,
+    "events_before": 2,
+    "events_after": 2,
+    "business_effect_dispatched": false
+  },
+  "captured_command_transcript": {
+    "evidence_path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/observed-formal-command-transcripts.json",
+    "evidence_sha256": "sha256:abf60a745449edc6b86b7592a7d25fba8a3dd49f7328b9dd3e50409536f70bca",
+    "contains_first_create_and_two_docked_status_outputs": true,
+    "outputs_truncated": false
+  },
+  "scope": {
+    "proves": [
+      "real macOS Keychain material can be retrieved by a fresh interpreter under an isolated namespace",
+      "the exact public key bindings and cryptographic readback fingerprint remain stable",
+      "task state is readable and restart is durably docked before blind business continuation"
+    ],
+    "does_not_prove": [
+      "batch 3 same-task execution recovery",
+      "unknown-effect probe resolution",
+      "production cutover"
+    ]
+  }
+}

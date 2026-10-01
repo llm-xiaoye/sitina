@@ -12,7 +12,15 @@
     "global": 8,
     "per_run": 4,
     "per_provider": 2,
-    "per_tool": 2
+    "per_tool": 2,
+    "queue_capacity": 64,
+    "tool_calls_per_turn": 32,
+    "operation_output_bytes": 8388608,
+    "monitor_window_seconds": 300,
+    "monitor_max_samples": 128,
+    "monitor_notification_limit": 32,
+    "token_baseline_per_request": null,
+    "cost_baseline_microusd": null
   },
   "topologies": [
     "pipeline",

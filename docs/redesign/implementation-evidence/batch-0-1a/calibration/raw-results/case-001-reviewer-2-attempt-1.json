@@ -1,0 +1,16 @@
+{
+  "baseline_condition": "review used the pre-r4 formal agent CLI; its existing default max_turns=50 remains an old-path condition and is not an r4 loop completion rule",
+  "exit_code": 3,
+  "parsed_response": {},
+  "reviewer_id": "reviewer-2",
+  "run_id": null,
+  "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "stderr": "",
+  "stdout": "{\n  \"error_type\": \"ProviderHTTPError\",\n  \"reason\": \"provider HTTP 400: {\\\"error\\\":{\\\"message\\\":\\\"Invalid 'messages[18].tool_calls': empty array. Expected an array with minimum length 1, but got an empty array instead.\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":null,\\\"code\\\":\\\"invalid_request_error\\\"}}\",\n  \"status\": \"blocked\"\n}\n",
+  "terminal_state": null,
+  "tool_call_count": null,
+  "tool_paths_within_workspace": true,
+  "verdict": "NOT_RUN",
+  "workspace_unchanged": true
+}

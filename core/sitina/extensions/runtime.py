@@ -23,12 +23,15 @@ from sitina.runners.provider import (
     AnthropicCompatibleClient,
     ProviderConnectTimeout,
     ProviderDeadlineExceeded,
+    ProviderError,
     ProviderHTTPError,
     ProviderReadTimeout,
+    ProviderRequiredOutputEmpty,
     ProviderProfile,
     ProviderToolCall,
     ProviderToolTurn,
     RoleProfileResolver,
+    infer_wire_protocol,
 )
 from sitina.security.redaction import redact_boundary_value
 from sitina.security.tool_security import summarize_tool_arguments, summarize_tool_result
@@ -107,6 +110,7 @@ class ToolTurnClient(Protocol):
         max_tokens: int = 4096,
         request_timeout_seconds: float | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        prepared_request: Any | None = None,
     ) -> ProviderToolTurn: ...
 
 
@@ -134,6 +138,7 @@ class BoundedToolTurnClient:
         fallback_profiles: Sequence[ProviderProfile] = (),
         fallback_allowed: bool = False,
         max_fallbacks: int = 0,
+        request_timeout_seconds: float | None = None,
         backoff_seconds: float = 0.25,
     ):
         self.client = client
@@ -150,6 +155,13 @@ class BoundedToolTurnClient:
         self.fallback_profiles = tuple(fallback_profiles)
         self.max_fallbacks = min(1, max(0, int(max_fallbacks)), len(self.fallback_profiles)) if self.fallback_allowed else 0
         self.backoff_seconds = max(0.0, float(backoff_seconds))
+        if request_timeout_seconds is not None and (
+            isinstance(request_timeout_seconds, bool)
+            or not isinstance(request_timeout_seconds, (int, float))
+            or not 0 < request_timeout_seconds < float("inf")
+        ):
+            raise ValueError("request timeout must be a finite positive number")
+        self.request_timeout_seconds = request_timeout_seconds
         self._logical_turn_index = 0
 
     def load_profile(self, profile_name: str) -> ProviderProfile:
@@ -157,17 +169,81 @@ class BoundedToolTurnClient:
 
     @staticmethod
     def _retryable(error: BaseException) -> bool:
+        if isinstance(error, ProviderRequiredOutputEmpty):
+            return True
         if isinstance(error, (ProviderConnectTimeout, ProviderReadTimeout, ProviderDeadlineExceeded)):
+            return True
+        if isinstance(error, ProviderError) and "provider worker exited without a result" in str(error):
             return True
         return isinstance(error, ProviderHTTPError) and error.status_code in {408, 429, 500, 502, 503, 504}
 
-    def complete_tool_turn(self, profile: ProviderProfile, **kwargs: Any) -> ProviderToolTurn:
+    def complete_tool_turn(
+        self,
+        profile: ProviderProfile,
+        *,
+        retry_recovery: Callable[[BaseException, Mapping[str, Any]], bool] | None = None,
+        audit_all_attempts: bool = False,
+        **kwargs: Any,
+    ) -> ProviderToolTurn:
         del profile  # the bound primary/fallback profiles are the capability scope
+        if self.request_timeout_seconds is not None:
+            requested_timeout = kwargs.get("request_timeout_seconds")
+            kwargs["request_timeout_seconds"] = (
+                min(self.request_timeout_seconds, float(requested_timeout))
+                if requested_timeout is not None else self.request_timeout_seconds
+            )
         active_profiles = [self.primary_profile, *self.fallback_profiles[: self.max_fallbacks]]
         profile_index = 0
         retries = 0
         fallbacks = 0
         physical_attempts = 0
+        observed_physical_sends = 0
+        uncertain_physical_send_attempts = 0
+        output_attempts: list[dict[str, Any]] = []
+        empty_output_seen = False
+
+        def record_output_attempt(observation: Mapping[str, Any], outcome: str) -> None:
+            if output_attempts and output_attempts[-1]["attempt"] == physical_attempts:
+                output_attempts[-1]["post_response_error"] = outcome
+                return
+            output_attempts.append({
+                **dict(observation),
+                "attempt": physical_attempts,
+                "outcome": outcome,
+                "retry_count": retries,
+                "profile": active_profile.name,
+                "model": active_profile.model,
+            })
+
+        def output_accounting() -> dict[str, Any]:
+            if not audit_all_attempts and not any(item.get("required_output") for item in output_attempts):
+                return {}
+            usages = [item.get("token_usage") for item in output_attempts]
+            names = {key for usage in usages if isinstance(usage, Mapping) for key in usage}
+            totals: dict[str, int] = {}
+            for name in names:
+                values = [usage.get(name) if isinstance(usage, Mapping) else None for usage in usages]
+                if all(type(value) is int and value >= 0 for value in values):
+                    totals[name] = sum(values)
+            complete = all(
+                isinstance(usage, Mapping)
+                and all(type(usage.get(key)) is int and usage[key] >= 0
+                        for key in ("input_tokens", "output_tokens", "total_tokens"))
+                for usage in usages
+            )
+            return {
+                "provider_output_attempts": [dict(item) for item in output_attempts],
+                "token_usage": totals or None,
+                "usage_status": "known" if complete else (
+                    "partial_unknown" if any(
+                        isinstance(usage, Mapping)
+                        and any(type(usage.get(key)) is int and usage[key] >= 0
+                                for key in ("input_tokens", "output_tokens", "total_tokens"))
+                        for usage in usages
+                    ) else "unknown"
+                ),
+            }
+
         self._logical_turn_index += 1
         logical_call_id = f"{self.run_id}:embedded-call:{self._logical_turn_index}"
         while True:
@@ -213,19 +289,42 @@ class BoundedToolTurnClient:
                         tuple(calls),
                         str(host_body.get("stop_reason") or "stop"),
                         metadata,
+                        str(host_body.get("reasoning_content") or ""),
                     )
                 else:
                     turn = self.client.complete_tool_turn(active_profile, **kwargs)
                 metadata = dict(turn.metadata)
+                if not self.authoritative_physical:
+                    observed_physical_sends += int(metadata.get("physical_send_count", 0) or 0)
                 if metadata.get("protocol_fallback_used") or metadata.get("structured_feature_fallback"):
                     raise RuntimeError("provider protocol fallback is outside the signed Forge contract")
+                observation = metadata.get("required_output_observation")
+                record_output_attempt(
+                    observation if isinstance(observation, Mapping) else {
+                        "physical_send_count": metadata.get("physical_send_count"),
+                        "token_usage": metadata.get("token_usage"),
+                        "provider_request_id": metadata.get("provider_request_id"),
+                        "http_status_code": metadata.get("http_status_code"),
+                        "request_body_hash": metadata.get("request_body_hash"),
+                    },
+                    "returned",
+                )
+                metadata.update(output_accounting())
                 metadata.update(
                     {
                         # Scripted/injected clients never cross the
                         # controller-owned network boundary.  Their logical
                         # retry activity is useful for local budgeting, but
                         # it cannot mint a canary-grade physical send.
-                        "physical_send_count": physical_attempts if self.authoritative_physical else 0,
+                        "physical_send_count": (
+                            physical_attempts if self.authoritative_physical else observed_physical_sends
+                        ),
+                        "physical_send_count_status": (
+                            "exact"
+                            if self.authoritative_physical or not uncertain_physical_send_attempts
+                            else "lower_bound_with_uncertain_attempts"
+                        ),
+                        "uncertain_physical_send_attempt_count": uncertain_physical_send_attempts,
                         "retry_count": retries,
                         "fallback_count": fallbacks,
                         "sitina_provider_profile": active_profile.name,
@@ -242,32 +341,140 @@ class BoundedToolTurnClient:
                     self.transport_receipts.append(dict(receipt))
                     if self.receipt_sink is not None:
                         self.receipt_sink(dict(receipt))
-                return ProviderToolTurn(turn.text, turn.tool_calls, turn.stop_reason, metadata)
+                return ProviderToolTurn(
+                    turn.text,
+                    turn.tool_calls,
+                    turn.stop_reason,
+                    metadata,
+                    turn.reasoning_content,
+                )
             except BaseException as error:
+                empty_output_seen = empty_output_seen or isinstance(error, ProviderRequiredOutputEmpty)
+                observation = getattr(error, "sitina_output_observation", None)
+                record_output_attempt(
+                    observation if isinstance(observation, Mapping) else {
+                        "physical_send_count": getattr(error, "sitina_physical_send_count", None),
+                        "token_usage": None,
+                        "provider_request_id": None,
+                        "http_status_code": getattr(error, "status_code", None),
+                        "request_body_hash": None,
+                    },
+                    getattr(error, "error_type", type(error).__name__),
+                )
+                # A retryable category is not permission to duplicate an
+                # unresolved request. Count certainty alone also says
+                # nothing about the remote result.
+                raw_send_count = getattr(error, "sitina_physical_send_count", None)
+                raw_send_status = str(getattr(error, "sitina_physical_send_status", "")).casefold()
+                explicitly_unsent = (
+                    type(raw_send_count) is int and raw_send_count == 0
+                    and getattr(error, "sitina_uncertain_physical_send_attempt_count", 0) == 0
+                    and (
+                        getattr(error, "sitina_pre_send", False) is True
+                        or raw_send_status in {
+                            "pre_send_failure", "pre_send_validation_rejected",
+                            "pre_send_deadline", "pre_send_cancelled", "not_started",
+                            "not_dispatched", "before_send", "pre_send_authorization_rejected",
+                        }
+                    )
+                )
+                # HTTP rejection and a complete but empty structured response
+                # are existing recoverable protocol facts. Timeouts and
+                # missing worker results are not such response facts.
+                observed_rejection = (
+                    isinstance(error, ProviderHTTPError)
+                    and type(error.status_code) is int
+                    and 400 <= error.status_code <= 599
+                )
+                observed_empty_output = (
+                    isinstance(error, ProviderRequiredOutputEmpty)
+                    and isinstance(observation, Mapping)
+                    and observation.get("required_output") == "json_object_without_tools"
+                )
+                retry_safe = explicitly_unsent or observed_rejection or observed_empty_output
+                retry_basis = (
+                    "EXPLICIT_NOT_SENT" if explicitly_unsent
+                    else "OBSERVED_HTTP_REJECTION" if observed_rejection
+                    else "COMPLETE_REQUIRED_OUTPUT_EMPTY" if observed_empty_output
+                    else "NO_RETRY_UNKNOWN_EFFECT"
+                )
+                output_attempts[-1]["retry_safety_basis"] = retry_basis
+                # Preserve every failed attempt in the existing receipt;
+                # successful calls without a failure keep their old shape.
+                audit_all_attempts = True
+                for key, value in output_accounting().items():
+                    setattr(error, "sitina_" + key, value)
                 # Preserve bounded physical-send accounting on the original
                 # provider exception.  The runtime's fail event can then
                 # audit failed/recovered sends without persisting exception
                 # text or changing the provider exception contract.
+                if not self.authoritative_physical:
+                    _missing = object()
+                    reported_physical_sends = getattr(error, "sitina_physical_send_count", _missing)
+                    if reported_physical_sends is _missing or reported_physical_sends is None:
+                        uncertain_physical_send_attempts += 1
+                    else:
+                        normalized_sends = (
+                            reported_physical_sends
+                            if type(reported_physical_sends) is int and reported_physical_sends >= 0
+                            else -1
+                        )
+                        if normalized_sends < 0:
+                            uncertain_physical_send_attempts += 1
+                        else:
+                            observed_physical_sends += normalized_sends
                 try:
                     setattr(
                         error,
                         "sitina_physical_send_count",
-                        physical_attempts if self.authoritative_physical else 0,
+                        physical_attempts if self.authoritative_physical else observed_physical_sends,
                     )
                     setattr(error, "sitina_retry_count", retries)
                     setattr(error, "sitina_fallback_count", fallbacks)
+                    setattr(
+                        error,
+                        "sitina_physical_send_count_status",
+                        (
+                            "exact"
+                            if self.authoritative_physical or not uncertain_physical_send_attempts
+                            else "lower_bound_with_uncertain_attempts"
+                        ),
+                    )
+                    setattr(
+                        error,
+                        "sitina_uncertain_physical_send_attempt_count",
+                        uncertain_physical_send_attempts,
+                    )
                     setattr(error, "sitina_provider_profile", active_profile.name)
                     setattr(error, "sitina_provider_model", active_profile.model)
                 except Exception:
                     pass
+                if not retry_safe:
+                    raise
                 if not self._retryable(error):
+                    raise
+                if retry_recovery is not None:
+                    # Recovery-controlled consumers do not inherit a fixed
+                    # retry count or fall through to another model. Unknown
+                    # sends cannot be turned into new requests.
+                    if uncertain_physical_send_attempts:
+                        raise
+                    accounting = {
+                        "physical_attempts": physical_attempts,
+                        "observed_physical_sends": observed_physical_sends,
+                        "retry_count": retries,
+                        "uncertain_physical_send_attempt_count": uncertain_physical_send_attempts,
+                    }
+                    if retry_recovery(error, accounting):
+                        retries += 1
+                        continue
                     raise
                 if retries < self.retry_limit:
                     retries += 1
                     if self.backoff_seconds:
                         time.sleep(min(8.0, self.backoff_seconds * (2 ** (retries - 1))))
                     continue
-                if not self.fallback_allowed or fallbacks >= self.max_fallbacks:
+                if empty_output_seen or not self.fallback_allowed or fallbacks >= self.max_fallbacks:
                     raise
                 profile_index += 1
                 fallbacks += 1
@@ -277,6 +484,20 @@ class BoundedToolTurnClient:
 
 
 class AutonomousRuntimeError(RuntimeError):
+    pass
+
+
+class GoalInputProtocolError(AutonomousRuntimeError):
+    """A Provider goal_input violates the existing strict decision protocol."""
+
+    provider_source_ref: str | None = None
+    partial_result: Mapping[str, Any] | None = None
+    rejected_tool_calls: bool = False
+
+
+class ProviderOutputTruncated(AutonomousRuntimeError):
+    """A completed Provider response exhausted its output reserve."""
+
     pass
 
 
@@ -298,22 +519,38 @@ def _stringify_floats(value: Any) -> Any:
 
 
 def _redact_audit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Redact structured audit values without rewriting serialized JSON.
+    """Keep action evidence without persisting private model input or reasoning.
 
-    Applying ``redact_text`` to a JSON string can consume escape characters
-    inside a matching value and make the result impossible to parse.  Keep the
-    payload structured while redacting so audit serialization is always valid.
+    Project a copy so audit policy never changes the actual provider request.
+    Structured redaction also avoids corrupting serialized JSON escapes.
     """
-
-    redacted = redact_boundary_value(dict(payload), boundary="log").value
+    projected = dict(payload)
+    for field in ("task", "system_prompt"):
+        if field in projected:
+            projected[field] = "<redacted-private-model-input>"
+    messages = projected.get("messages")
+    if isinstance(messages, (list, tuple)):
+        safe_messages = []
+        for message in messages:
+            if not isinstance(message, Mapping):
+                safe_messages.append(message)
+                continue
+            safe_message = dict(message)
+            if message.get("role") in {"user", "system", "developer"} and "content" in message:
+                safe_message["content"] = "<redacted-private-model-input>"
+            if "reasoning_content" in message:
+                safe_message["reasoning_content"] = "<redacted-private-model-reasoning>"
+            safe_messages.append(safe_message)
+        projected["messages"] = safe_messages
+    redacted = redact_boundary_value(projected, boundary="log").value
     if not isinstance(redacted, dict):
-        raise AutonomousRuntimeError("structured audit redaction must return an object")
+        raise AutonomousRuntimeError("audit redaction did not preserve the record object")
     return _stringify_floats(redacted)
 
 
 def _provider_usage_totals(
     provider_metadata: Sequence[Mapping[str, Any]],
-) -> dict[str, int]:
+) -> dict[str, int | None]:
     totals = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -329,9 +566,13 @@ def _provider_usage_totals(
         "cache_write_tokens": ("cache_write_tokens", "prompt_cache_miss_tokens"),
         "total_tokens": ("total_tokens",),
     }
+    unknown: set[str] = set()
     for metadata in provider_metadata:
         summary = metadata.get("token_usage")
-        details = metadata.get("provider_usage_details")
+        details = (
+            None if metadata.get("provider_output_attempts") is not None
+            else metadata.get("provider_usage_details")
+        )
         sources = tuple(
             value for value in (summary, details) if isinstance(value, Mapping)
         )
@@ -351,6 +592,11 @@ def _provider_usage_totals(
                 if value is not None:
                     turn[target] = int(value)
                     break
+        if metadata.get("provider_output_attempts") is not None:
+            unknown.update(
+                name for name in aliases if name not in turn
+                and not (name == "total_tokens" and {"input_tokens", "output_tokens"} <= turn.keys())
+            )
         turn.setdefault("input_tokens", 0)
         turn.setdefault("output_tokens", 0)
         turn.setdefault("cache_read_tokens", 0)
@@ -361,7 +607,7 @@ def _provider_usage_totals(
         cost = metadata.get("cost_micro_usd", 0)
         if isinstance(cost, int) and not isinstance(cost, bool) and cost >= 0:
             totals["cost_micro_usd"] += cost
-    return totals
+    return {name: None if name in unknown else value for name, value in totals.items()}
 
 
 def _mutation_evidence(
@@ -583,7 +829,7 @@ class AutonomousRuntime:
         approval_callback: ApprovalCallback | None = None,
         workspace: Path | None = None,
         max_tokens: int = 4096,
-        max_turns: int = 50,
+        max_turns: int | None = 50,
         enforce_write_boundary: bool = False,
         before_hashes: Mapping[str, str | None] | None = None,
         strict_workspace: bool = False,
@@ -594,6 +840,10 @@ class AutonomousRuntime:
         provider_settlement: Callable[[Mapping[str, Any]], None] | None = None,
         provider_failure_settlement: Callable[[Mapping[str, Any]], None] | None = None,
         write_executor: Any | None = None,
+        provider_call_executor: Callable[[str, int, Callable[[], ProviderToolTurn]], ProviderToolTurn] | None = None,
+        tool_call_executor: Callable[[str, ProviderToolCall, Callable[[], ToolResult]], ToolResult] | None = None,
+        request_assembler: Any | None = None,
+        _native_network_authority: tuple[Any, str] | None = None,
     ):
         self.home = Path(home).expanduser().resolve(strict=True)
         self.manager = manager or ExtensionManager(self.home)
@@ -603,33 +853,33 @@ class AutonomousRuntime:
             self.profile = profile or self.client.load_profile(selected_profile)
         else:
             base_client = AnthropicCompatibleClient(self.home)
-            self.profile = profile or base_client.load_profile(selected_profile)
-            if (self.home / "state/.legacy-control/frozen.json").is_file():
-                from sitina.orchestrator.bplus_production import ProductionRuntimeContext
+            if not (self.home / "state/.legacy-control/frozen.json").is_file():
+                raise AutonomousRuntimeError("Provider credential use requires a bound native or Production authority")
+            from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 
-                context = ProductionRuntimeContext.load(
-                    self.home,
-                    allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
-                )
-                host = urlparse(self.profile.base_url).hostname
-                if not host:
-                    raise AutonomousRuntimeError("Provider profile has no valid network host")
-                registry_hash = hashlib.sha256(
-                    stable_json(self.manager.load_registry()).encode("utf-8")
-                ).hexdigest()
-                capability = issue_frozen_network_egress_capability(
-                    context.authority.resolution,
-                    manifest_hash=registry_hash,
-                    operation="model_text_generation",
-                    allowed_hosts=(host,),
-                    expires_at=int(time.time()) + 1200,
-                )
-                self.client = AnthropicCompatibleClient(
-                    self.home,
-                    network_egress_capability=capability,
-                )
-            else:
-                self.client = base_client
+            context = ProductionRuntimeContext.load(
+                self.home,
+                allow_simulation=(self.home / ".sitina-bplus-disposable-v1").is_file(),
+            )
+            metadata = base_client.loader._authorization_metadata(selected_profile)
+            registry_hash = hashlib.sha256(
+                stable_json(self.manager.load_registry()).encode("utf-8")
+            ).hexdigest()
+            capability = issue_frozen_network_egress_capability(
+                context.authority.resolution,
+                manifest_hash=registry_hash,
+                operation="model_text_generation",
+                allowed_hosts=(metadata["host"],),
+                expires_at=int(time.time()) + 1200,
+                provider_name=metadata["provider_name"],
+                credential_reference=metadata["credential_reference"],
+            )
+            base_client.network_egress_capability = capability
+            authorized_profile = base_client.load_profile(selected_profile)
+            if profile is not None and profile != authorized_profile:
+                raise AutonomousRuntimeError("Provider profile differs from its authorized credential binding")
+            self.profile = authorized_profile
+            self.client = base_client
         self.catalog = ToolCatalog(
             self.manager,
             approval_callback=approval_callback,
@@ -643,13 +893,21 @@ class AutonomousRuntime:
             before_hashes=before_hashes,
             strict_workspace=strict_workspace,
             managed_process_manager=managed_process_manager,
+            _native_network_authority=_native_network_authority,
         )
         self.hooks = HookRunner(self.catalog)
         self.max_tokens = max_tokens
-        self.max_turns = max(1, int(max_turns))
+        self.max_turns = None if max_turns is None else max(1, int(max_turns))
         self.provider_preflight = provider_preflight
         self.provider_settlement = provider_settlement
         self.provider_failure_settlement = provider_failure_settlement
+        self.provider_call_executor = provider_call_executor
+        self.tool_call_executor = tool_call_executor
+        self.request_assembler = request_assembler
+        self.goal_input_enabled = False
+        self.goal_input_only = False
+        self.goal_completion_only = False
+        self.goal_input_original_request: str | None = None
         self._journal_audit: JournalAutonomousAudit | None = None
 
     def globally_enabled(self) -> bool:
@@ -668,14 +926,31 @@ class AutonomousRuntime:
         route_decision: Mapping[str, Any] | None = None,
         cancel_check: Callable[[], bool] | None = None,
         status_callback: Callable[[str, Mapping[str, Any]], None] | None = None,
+        _yield_after_tool_group: bool = False,
     ) -> dict[str, Any]:
         task = task.strip()
         if not task:
             raise ValueError("autonomous task requires non-empty text")
         run_id = "agent-run-" + uuid.uuid4().hex
         self.catalog.bind_run(run_id)
-        selected_skills = self.manager.select_skills(task)
-        selected_agents = self.manager.select_agents(task)
+        marker_only_root = self.manager.authority_bound and getattr(self.manager, "_shared_authority", None) is None
+        bound_skills = (
+            self.catalog.selected_execution_skills(task)
+            if hasattr(self.catalog, "selected_execution_skills")
+            else None
+        )
+        if marker_only_root:
+            selected_skills = []
+            selected_agents = []
+        elif bound_skills is not None:
+            # An authenticated snapshot owns the complete selection.  An
+            # empty tuple means the selected Plugin has no Skills; it must not
+            # fall back to global registry discovery.
+            selected_skills = list(bound_skills)
+            selected_agents = []
+        else:
+            selected_skills = self.manager.select_skills(task)
+            selected_agents = self.manager.select_agents(task)
         system_prompt = self._system_prompt(selected_skills, selected_agents)
         messages = [dict(item) for item in prior_messages]
         messages.append({"role": "user", "content": task})
@@ -753,9 +1028,18 @@ class AutonomousRuntime:
                 lifecycle=lifecycle,
                 cancel_check=cancel_check,
                 status_callback=status_callback,
+                yield_after_tool_group=_yield_after_tool_group,
             )
             if self._journal_audit is not None:
                 result.update(self._journal_audit.summary())
+            if self.request_assembler is not None:
+                result["context_compaction_count"] = int(self.request_assembler.compaction_count)
+                result["request_admission_receipts"] = [
+                    dict(item) for item in self.request_assembler.admission_receipts
+                ]
+                result["context_compaction_receipts"] = [
+                    dict(item) for item in self.request_assembler.compaction_receipts
+                ]
             return result
         except BaseException as error:
             # Never fall back to the legacy external JSONL sink after a
@@ -793,6 +1077,26 @@ class AutonomousRuntime:
             finally:
                 finish()
 
+    def run_attempt_step(
+        self,
+        task: str,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+        status_callback: Callable[[str, Mapping[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Return control after one Provider response and its tool group.
+
+        The returned checkpoint is neither a business-attempt settlement nor
+        a task terminal result. The Loop scheduler owns both decisions.
+        """
+
+        return self.run(
+            task,
+            cancel_check=cancel_check,
+            status_callback=status_callback,
+            _yield_after_tool_group=True,
+        )
+
     def run_embedded(
         self,
         task: str,
@@ -813,13 +1117,26 @@ class AutonomousRuntime:
             raise ValueError("embedded run requires non-empty task text")
         self.catalog.bind_run(run_id)
         self._journal_audit = journal_audit
-        selected_skills = self.manager.select_skills(task)
-        selected_agents = self.manager.select_agents(task)
+        marker_only_root = self.manager.authority_bound and getattr(self.manager, "_shared_authority", None) is None
+        bound_skills = (
+            self.catalog.selected_execution_skills(task)
+            if hasattr(self.catalog, "selected_execution_skills")
+            else None
+        )
+        if marker_only_root:
+            selected_skills = []
+            selected_agents = []
+        elif bound_skills is not None:
+            selected_skills = list(bound_skills)
+            selected_agents = []
+        else:
+            selected_skills = self.manager.select_skills(task)
+            selected_agents = self.manager.select_agents(task)
         system_prompt = self._system_prompt(selected_skills, selected_agents)
         messages = [{"role": "user", "content": task}]
         tool_schemas = self.catalog.provider_schemas()
         try:
-            return self._run_active(
+            result = self._run_active(
                 task=task,
                 run_id=run_id,
                 system_prompt=system_prompt,
@@ -833,6 +1150,15 @@ class AutonomousRuntime:
                 cancel_check=cancel_check,
                 status_callback=status_callback,
             )
+            if self.request_assembler is not None:
+                result["context_compaction_count"] = int(self.request_assembler.compaction_count)
+                result["request_admission_receipts"] = [
+                    dict(item) for item in self.request_assembler.admission_receipts
+                ]
+                result["context_compaction_receipts"] = [
+                    dict(item) for item in self.request_assembler.compaction_receipts
+                ]
+            return result
         finally:
             try:
                 self._cleanup_managed_processes()
@@ -880,10 +1206,81 @@ class AutonomousRuntime:
         lifecycle: Any,
         cancel_check: Callable[[], bool] | None,
         status_callback: Callable[[str, Mapping[str, Any]], None] | None,
+        yield_after_tool_group: bool = False,
     ) -> dict[str, Any]:
         provider_turns = 0
         tool_results: list[dict[str, Any]] = []
         provider_metadata: list[dict[str, Any]] = []
+        if self.goal_completion_only:
+            # Completion is a main-role evidence decision, not another business
+            # execution or an independent reviewer. Only bound history is exposed.
+            tool_schemas = tuple(
+                item for item in tool_schemas
+                if (item.get("name") or item.get("function", {}).get("name"))
+                == "sitina_history_query"
+            )
+            system_prompt += (
+                "\nHistory tool-call turns remain allowed during completion assessment. "
+                "Every execution_context.preflight_source_refs entry is mandatory: read it "
+                "through its final page even when its text or metadata is already visible. "
+                "The exemption for visible business_evidence never exempts these mandatory sources. "
+                "If runtime_feedback.kind is goal_completion_evidence_repair, the previous "
+                "decision was rejected. Perform its requested history reads at the supplied "
+                "offsets and follow next_offset while has_more=true before another terminal "
+                "decision. A prior answer, quoted excerpt or claim of reading is not a tool read. "
+                "When returning a terminal decision without tool calls, follow the current "
+                "execution_context.response_contract and phase_instruction: use the existing "
+                "completion review decision, or the existing goal_input clarification when "
+                "user input is required. Return exactly one raw JSON object, with no preface, "
+                "Markdown fence, or suffix. Put explanations only inside fields allowed by "
+                "that decision's contract."
+            )
+        if self.goal_input_only:
+            # This first main response interprets the request; business tools
+            # and extension hooks must wait for the durable input decision.
+            tool_schemas = ()
+            system_prompt += (
+                "\nBefore doing any business work, interpret the original request and handled inputs. "
+                "Return exactly one JSON object with one key, goal_input. Its value has exactly "
+                "goal (nonempty string), constraints (array of strings), acceptance_conditions "
+                "(nonempty array of strings), missing_inputs (array of key names), and question "
+                "(string or null). Preserve the user's intent and constraints; do not invent "
+                "requirements. For a structured request with objective, constraints and "
+                "acceptance_criteria, copy their original strings into goal, constraints and "
+                "acceptance_conditions without rewriting them. "
+                "Ask only when an unavailable user input blocks the next currently authorized "
+                "work. A fact that the designated sources may contain is not yet a missing "
+                "user input: preserve the authorized source-inspection step. Preserve the "
+                "timing of later confirmation checkpoints and completion-only requirements; "
+                "do not move them ahead of independent work already authorized. Never infer "
+                "the missing fact or the user's confirmation. If the next authorized work can "
+                "proceed, return missing_inputs=[] and question=null. Otherwise list only the "
+                "next blocking input key and ask one minimal question. This interpretation "
+                "response itself must not execute business work. Use no Markdown, tools or "
+                "completion claim."
+                '\nExample JSON format only: {"goal_input":{"goal":"Summarize the supplied note",'
+                '"constraints":[],"acceptance_conditions":["Summary covers the supplied note"],'
+                '"missing_inputs":[],"question":null}}. Use the actual request values, not the example.'
+            )
+        elif self.goal_input_enabled:
+            system_prompt += (
+                "\nAn explicit user-required confirmation, approval, or authorization checkpoint "
+                "is a required user input, even when the dependent tools are read-only. "
+                "This is distinct from automatic backend program-check, review, or acceptance phases. "
+                "When that checkpoint is reached, stop before the dependent action. "
+                "Before that point, continue independent work already authorized; do not "
+                "advance a later checkpoint or treat unread source facts as missing user input. "
+                "When an unavailable user input blocks further currently authorized work, "
+                "return exactly one JSON object and no "
+                "tool calls, Markdown, or additional prose: {\"goal_input\":{\"goal\":\"...\","
+                "\"constraints\":[],\"acceptance_conditions\":[\"...\"],"
+                "\"missing_inputs\":[\"one key\"],\"question\":\"one minimal question\"}}. "
+                "Use the actual current goal, constraints, and acceptance conditions; preserve "
+                "the user's intent and ask only for the next missing decision. "
+                "Saying that you need to pause while also issuing a tool call does not request "
+                "clarification. Do not substitute a read-only call for the required user input. "
+                "This is a clarification request, never a completion claim."
+            )
         self._audit(
             run_id,
             "run_started",
@@ -894,12 +1291,13 @@ class AutonomousRuntime:
                 "tool_count": len(tool_schemas),
             },
         )
-        self.hooks.run("before_agent", {"run_id": run_id, "task": task})
+        if not self.goal_input_only and not self.goal_completion_only:
+            self.hooks.run("before_agent", {"run_id": run_id, "task": task})
         recent_signatures: list[str] = []
         empty_final_repair_used = False
         while True:
             # M1.5 loop robustness: hard turn cap — graceful stop, not a crash.
-            if provider_turns >= self.max_turns:
+            if self.max_turns is not None and provider_turns >= self.max_turns:
                 self._audit(run_id, "run_turn_cap_reached", {"max_turns": self.max_turns})
                 if lifecycle is not None:
                     assert session_id is not None and turn_index is not None
@@ -930,6 +1328,17 @@ class AutonomousRuntime:
                         error_type="Cancelled",
                         occurred_at=iso_now(),
                     )
+                if yield_after_tool_group:
+                    return self._checkpoint_result(
+                        run_id,
+                        "CONTROL_OR_BINDING_CHANGED",
+                        "",
+                        provider_turns,
+                        tool_results,
+                        selected_skills,
+                        selected_agents,
+                        provider_metadata,
+                    )
                 return self._result(
                     run_id,
                     "cancelled",
@@ -948,6 +1357,45 @@ class AutonomousRuntime:
             effect_attempt_id = f"{effect_id}:attempt:1"
             provider_profile = str(getattr(self.profile, "name", "unknown"))
             provider_model = str(getattr(self.profile, "model", "unknown"))
+            request_system_prompt = system_prompt
+            request_messages: Sequence[Mapping[str, Any]] = messages
+            request_tools: Sequence[Mapping[str, Any]] = tool_schemas
+            prepared_call = None
+            if self.request_assembler is not None:
+                from sitina.loop.context_window import ProviderContextIdentity
+
+                identity = ProviderContextIdentity(
+                    self.profile.name,
+                    self.profile.base_url,
+                    self.profile.model,
+                    infer_wire_protocol(
+                        self.profile.name,
+                        self.profile.base_url,
+                        self.profile.wire_protocol,
+                    ),
+                )
+                try:
+                    prepared_call = self.request_assembler.prepare(
+                        identity,
+                        system_prompt=system_prompt,
+                        tools=tool_schemas,
+                        max_tokens=self.max_tokens,
+                        expect_json=self.goal_input_only or self.goal_completion_only,
+                    )
+                except BaseException as error:
+                    try:
+                        setattr(error, "sitina_prior_provider_turns", provider_turns)
+                        setattr(
+                            error,
+                            "sitina_prior_physical_send_count",
+                            sum(int(item.get("physical_send_count", 0) or 0) for item in provider_metadata),
+                        )
+                    except Exception:
+                        pass
+                    raise
+                request_system_prompt = prepared_call.system_prompt
+                request_messages = prepared_call.messages
+                request_tools = prepared_call.tools
             self._audit(
                 run_id,
                 "provider_call_intended",
@@ -960,25 +1408,64 @@ class AutonomousRuntime:
                     "provider_model": provider_model,
                     "retry_limit": int(getattr(self.client, "retry_limit", 0) or 0),
                     "fallback_limit": int(getattr(self.client, "max_fallbacks", 0) or 0),
-                    "system_prompt": system_prompt,
-                    "messages": messages,
-                    "tools": tool_schemas,
+                    "system_prompt": request_system_prompt,
+                    "messages": request_messages,
+                    "tools": request_tools,
                     "max_tokens": self.max_tokens,
+                    **(
+                        {"request_admission": prepared_call.admission.as_dict()}
+                        if prepared_call is not None
+                        else {}
+                    ),
                 },
             )
             if self.provider_preflight is not None:
                 self.provider_preflight(self.max_tokens)
             try:
-                turn = self.client.complete_tool_turn(
-                    self.profile,
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tool_schemas,
-                    max_tokens=self.max_tokens,
-                    cancel_check=cancel_check,
+                def dispatch_provider_call() -> ProviderToolTurn:
+                    request_kwargs = {
+                        "system_prompt": request_system_prompt,
+                        "messages": request_messages,
+                        "tools": request_tools,
+                        "max_tokens": self.max_tokens,
+                        "cancel_check": cancel_check,
+                    }
+                    if prepared_call is not None:
+                        request_kwargs["prepared_request"] = prepared_call.rendered_request
+                    provider_turn = self.client.complete_tool_turn(self.profile, **request_kwargs)
+                    if prepared_call is not None:
+                        self.request_assembler.clear_runtime_feedback()
+                    if prepared_call is None:
+                        return provider_turn
+                    metadata = {
+                        **dict(provider_turn.metadata),
+                        "sitina_request_admission": prepared_call.admission.as_dict(),
+                        "sitina_admitted_body_hash": prepared_call.rendered_request.body_hash,
+                    }
+                    observed_hash = metadata.get("request_body_hash")
+                    if observed_hash is not None and observed_hash != prepared_call.rendered_request.body_hash:
+                        raise ProviderError("physical Provider request bytes differ from the admitted request")
+                    return ProviderToolTurn(
+                        provider_turn.text,
+                        provider_turn.tool_calls,
+                        provider_turn.stop_reason,
+                        metadata,
+                        provider_turn.reasoning_content,
+                    )
+
+                turn = (
+                    self.provider_call_executor(run_id, provider_turns + 1, dispatch_provider_call)
+                    if self.provider_call_executor is not None
+                    else dispatch_provider_call()
                 )
             except BaseException as error:
                 physical_send_count = int(getattr(error, "sitina_physical_send_count", 0) or 0)
+                physical_send_count_status = str(
+                    getattr(error, "sitina_physical_send_count_status", "exact")
+                )
+                uncertain_physical_send_attempt_count = int(
+                    getattr(error, "sitina_uncertain_physical_send_attempt_count", 0) or 0
+                )
                 retry_count = int(getattr(error, "sitina_retry_count", 0) or 0)
                 fallback_count = int(getattr(error, "sitina_fallback_count", 0) or 0)
                 failure_metadata = {
@@ -988,11 +1475,24 @@ class AutonomousRuntime:
                     "provider_profile": str(getattr(error, "sitina_provider_profile", provider_profile)),
                     "provider_model": str(getattr(error, "sitina_provider_model", provider_model)),
                     "physical_send_count": physical_send_count,
+                    "physical_send_count_status": physical_send_count_status,
+                    "uncertain_physical_send_attempt_count": uncertain_physical_send_attempt_count,
                     "retry_count": retry_count,
                     "fallback_count": fallback_count,
                     "usage_status": "unknown",
-                    "usage_unsettled": bool(physical_send_count),
+                    "usage_unsettled": bool(
+                        physical_send_count or uncertain_physical_send_attempt_count
+                    ),
                 }
+                output_attempts = getattr(error, "sitina_provider_output_attempts", None)
+                if isinstance(output_attempts, list):
+                    failure_metadata.update({
+                        "provider_output_attempts": output_attempts,
+                        "token_usage": getattr(error, "sitina_token_usage", None),
+                        "usage_status": getattr(error, "sitina_usage_status", "unknown"),
+                        "required_output_observation": getattr(error, "sitina_output_observation", None),
+                    })
+                    failure_metadata["usage_unsettled"] = failure_metadata["usage_status"] != "known"
                 if self.provider_failure_settlement is not None:
                     self.provider_failure_settlement(failure_metadata)
                 self._audit(
@@ -1037,11 +1537,46 @@ class AutonomousRuntime:
             provider_metadata.append(turn_metadata)
             if self.provider_settlement is not None:
                 self.provider_settlement(turn.metadata)
+            if str(turn.stop_reason or "").casefold() in {"length", "max_tokens"}:
+                # A length stop is never a complete model turn.  This check
+                # intentionally precedes both tool dispatch and the final
+                # response success path, including when the provider supplied
+                # a non-empty content prefix or apparently complete tool-call
+                # objects alongside the truncation signal.
+                self._audit(
+                    run_id,
+                    "provider_output_exhausted",
+                    {
+                        "turn": provider_turns,
+                        "stop_reason": turn.stop_reason,
+                        "content_prefix_present": bool(turn.text.strip()),
+                        "reported_tool_call_count": len(turn.tool_calls),
+                        "automatic_same_limit_repair_performed": False,
+                    },
+                )
+                error = ProviderOutputTruncated(
+                    "provider exhausted the configured output reserve before completing the turn"
+                )
+                error.sitina_prior_provider_turns = provider_turns
+                error.sitina_prior_physical_send_count = sum(
+                    int(item.get("physical_send_count", 0) or 0)
+                    for item in provider_metadata
+                )
+                raise error
             assistant_calls = [
                 {"id": call.call_id, "name": call.name, "arguments": dict(call.arguments)}
                 for call in turn.tool_calls
             ]
-            messages.append({"role": "assistant", "content": turn.text, "tool_calls": assistant_calls})
+            messages.append({
+                "role": "assistant",
+                "content": turn.text,
+                "tool_calls": assistant_calls,
+                **(
+                    {"reasoning_content": turn.reasoning_content}
+                    if turn.reasoning_content
+                    else {}
+                ),
+            })
             self._audit(
                 run_id,
                 "model_turn_completed",
@@ -1065,9 +1600,49 @@ class AutonomousRuntime:
                     "metadata": turn_metadata,
                 },
             )
+            try:
+                goal_input = (
+                    self._goal_input_decision(
+                        turn.text,
+                        required=self.goal_input_only,
+                        original_request=self.goal_input_original_request,
+                    )
+                    if self.goal_input_enabled else None
+                )
+                if goal_input is not None and turn.tool_calls:
+                    raise GoalInputProtocolError("goal-input decision cannot dispatch tools")
+            except GoalInputProtocolError as error:
+                # Bind only the current persisted response, never a reconstructed decision.
+                error.provider_source_ref = turn_metadata.get("sitina_history_source_ref")
+                error.partial_result = self._checkpoint_result(
+                    run_id, "GOAL_INPUT_PROTOCOL_REJECTED", str(error), provider_turns,
+                    tool_results, selected_skills, selected_agents, provider_metadata,
+                )
+                error.rejected_tool_calls = bool(turn.tool_calls)
+                raise
+            if goal_input is not None:
+                return self._checkpoint_result(
+                    run_id,
+                    "CLARIFICATION_REQUIRED" if goal_input["missing_inputs"] else "GOAL_INTERPRETED",
+                    goal_input["question"] or "",
+                    provider_turns,
+                    tool_results,
+                    selected_skills,
+                    selected_agents,
+                    provider_metadata,
+                    goal_input=goal_input,
+                )
             if not turn.tool_calls:
                 response = turn.text.strip()
                 if not response:
+                    if (
+                        self.request_assembler is not None
+                        and self.request_assembler.policy is not None
+                        and self.request_assembler.policy.thinking_mode == "enabled"
+                    ):
+                        raise AutonomousRuntimeError(
+                            "thinking-mode provider ended normally without final content"
+                        )
                     if not empty_final_repair_used:
                         empty_final_repair_used = True
                         self._audit(
@@ -1084,8 +1659,39 @@ class AutonomousRuntime:
                                 ),
                             }
                         )
+                        if self.request_assembler is not None:
+                            self.request_assembler.set_runtime_feedback(
+                                kind="empty_final_response_repair",
+                                instruction=(
+                                    "Previous turn ended without content. Return one concise final result now; "
+                                    "do not call tools."
+                                ),
+                            )
+                        if yield_after_tool_group:
+                            return self._checkpoint_result(
+                                run_id,
+                                "EMPTY_FINAL_RESPONSE",
+                                "",
+                                provider_turns,
+                                tool_results,
+                                selected_skills,
+                                selected_agents,
+                                provider_metadata,
+                            )
                         continue
                     raise AutonomousRuntimeError("provider ended the tool loop without a final response")
+                if yield_after_tool_group:
+                    self._audit(run_id, "attempt_checkpoint", {"reason": "COMPLETION_CANDIDATE"})
+                    return self._checkpoint_result(
+                        run_id,
+                        "COMPLETION_CANDIDATE",
+                        response,
+                        provider_turns,
+                        tool_results,
+                        selected_skills,
+                        selected_agents,
+                        provider_metadata,
+                    )
                 self.hooks.run("after_agent", {"run_id": run_id, "task": task, "response": response})
                 if lifecycle is not None:
                     assert session_id is not None and turn_index is not None
@@ -1119,6 +1725,11 @@ class AutonomousRuntime:
             results_by_id = self._execute_calls(run_id, turn.tool_calls)
             for call in turn.tool_calls:
                 result = results_by_id[call.call_id]
+                bounded_result = (
+                    result.model_value
+                    if self.request_assembler is not None and result.model_value_present
+                    else result.value
+                )
                 record = {
                     "call_id": call.call_id,
                     "name": call.name,
@@ -1126,7 +1737,15 @@ class AutonomousRuntime:
                     "permission": result.permission,
                     "permission_decision": result.permission_decision,
                     "status": result.status,
-                    "result": result.value,
+                    "result": bounded_result,
+                    **(
+                        {
+                            "result_source_ref": result.model_source_ref,
+                            "original_result_persisted": True,
+                        }
+                        if self.request_assembler is not None and result.model_source_ref
+                        else {}
+                    ),
                     "started_at": result.started_at,
                     "completed_at": result.completed_at,
                     "authorization_ref": result.authorization_ref,
@@ -1169,6 +1788,142 @@ class AutonomousRuntime:
                         "mutation_fact": self._mutation_fact(call, result),
                     },
                 )
+            if self.request_assembler is not None:
+                provider_source_ref = turn.metadata.get("sitina_history_source_ref")
+                if not isinstance(provider_source_ref, str) or not provider_source_ref:
+                    raise AutonomousRuntimeError(
+                        "bounded Loop request is missing the committed Provider-turn source ref"
+                    )
+                provider_receipt = self.request_assembler.history_query.read(
+                    source_ref=provider_source_ref,
+                    max_bytes=self.request_assembler.receipt_max_bytes,
+                )
+                thinking_enabled = bool(
+                    self.request_assembler.policy is not None
+                    and self.request_assembler.policy.thinking_mode == "enabled"
+                )
+                group_assistant = {
+                    "role": "assistant",
+                    "content": (
+                        turn.text
+                        if thinking_enabled
+                        else _canonical(provider_receipt).decode("utf-8")
+                    ),
+                    "tool_calls": assistant_calls,
+                    **(
+                        {"reasoning_content": turn.reasoning_content}
+                        if thinking_enabled
+                        else {}
+                    ),
+                }
+                group_tools: list[Mapping[str, Any]] = []
+                group_refs = [provider_source_ref]
+                for call in turn.tool_calls:
+                    result = results_by_id[call.call_id]
+                    model_value = result.model_value if result.model_value_present else None
+                    if not isinstance(model_value, Mapping):
+                        raise AutonomousRuntimeError(
+                            "bounded Loop request is missing a committed tool-result receipt"
+                        )
+                    source_ref = result.model_source_ref
+                    if not isinstance(source_ref, str) or not source_ref:
+                        raise AutonomousRuntimeError("tool-result receipt has no task-local source ref")
+                    group_refs.append(source_ref)
+                    group_tools.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.call_id,
+                            "name": call.name,
+                            "content": result.content(),
+                            "is_error": result.status != "ok",
+                        }
+                    )
+                try:
+                    self.request_assembler.record_protocol_group(
+                        group_assistant,
+                        group_tools,
+                        group_refs,
+                    )
+                except BaseException as error:
+                    try:
+                        setattr(error, "context_binding", self.request_assembler.index.current_binding())
+                        setattr(error, "sitina_prior_provider_turns", provider_turns)
+                        setattr(
+                            error,
+                            "sitina_prior_physical_send_count",
+                            sum(int(item.get("physical_send_count", 0) or 0) for item in provider_metadata),
+                        )
+                    except Exception:
+                        pass
+                    raise
+                # The assembler retains only bounded committed receipts and
+                # evicts old groups when an admitted request compacts them.
+                # Do not keep the legacy list's raw Provider text indefinitely.
+                messages[:] = [{"role": "user", "content": task}]
+            blocked_results = [
+                results_by_id[call.call_id]
+                for call in turn.tool_calls
+                if getattr(results_by_id[call.call_id], "runtime_blocked", False)
+            ]
+            if blocked_results:
+                self._audit(
+                    run_id,
+                    "tool_effect_unknown_blocked",
+                    {
+                        "turn": provider_turns,
+                        "call_ids": [call.call_id for call in turn.tool_calls if getattr(results_by_id[call.call_id], "runtime_blocked", False)],
+                        "business_progress": "stopped",
+                        "responsibility": "reconciliation_required",
+                        "resend": False,
+                    },
+                )
+                return self._result(
+                    run_id,
+                    "incomplete",
+                    "UNKNOWN_EFFECT",
+                    "stopped: Plugin effect is UNKNOWN; durable evidence is retained for reconciliation",
+                    provider_turns,
+                    tool_results,
+                    selected_skills,
+                    selected_agents,
+                    provider_metadata,
+                )
+            if status_callback:
+                # The loop already announces which tools were requested; without
+                # their outcomes a caller cannot tell a working turn from one
+                # whose every call failed, which is exactly the difference
+                # between the turn-cap stop and the stuck-loop stop below.
+                status_callback(
+                    "tool_results",
+                    {
+                        "run_id": run_id,
+                        "turn": provider_turns,
+                        "results": [
+                            {
+                                "name": call.name,
+                                "status": results_by_id[call.call_id].status,
+                                "permission": results_by_id[call.call_id].permission,
+                                # Tool output can carry file contents, so pass a
+                                # bounded excerpt and let the presenter redact it
+                                # rather than widening this event's trust.
+                                "detail": str(results_by_id[call.call_id].value)[:400],
+                            }
+                            for call in turn.tool_calls
+                        ],
+                    },
+                )
+            if yield_after_tool_group:
+                self._audit(run_id, "attempt_checkpoint", {"reason": "SEGMENT_COMPLETED"})
+                return self._checkpoint_result(
+                    run_id,
+                    "SEGMENT_COMPLETED",
+                    turn.text.strip(),
+                    provider_turns,
+                    tool_results,
+                    selected_skills,
+                    selected_agents,
+                    provider_metadata,
+                )
             # M1.5 loop detection: if the model repeats the exact same tool
             # calls (same names+args) AND every call errored, three turns in a
             # row, it is stuck — stop gracefully instead of spinning.
@@ -1203,6 +1958,15 @@ class AutonomousRuntime:
             recent_signatures.append(signature)
 
     def _execute_calls(self, run_id: str, calls: Sequence[ProviderToolCall]) -> dict[str, ToolResult]:
+        if self.goal_completion_only:
+            forbidden = [call.name for call in calls if call.name != "sitina_history_query"]
+            if forbidden:
+                # Validate the entire group before catalog classification,
+                # intended-call audit, tool hooks or concurrent dispatch.
+                raise ToolApprovalDenied(
+                    "goal completion permits only sitina_history_query; rejected tools: "
+                    + ", ".join(forbidden)
+                )
         read_calls: list[ProviderToolCall] = []
         gated_calls: list[ProviderToolCall] = []
         for call in calls:
@@ -1324,7 +2088,12 @@ class AutonomousRuntime:
             {"run_id": run_id, "tool": call.name, "permission": definition.permission, "arguments": call.arguments},
         )
         try:
-            result = self.catalog.execute(call.name, call.arguments)
+            dispatch_tool_call = lambda: self.catalog.execute(call.name, call.arguments)
+            result = (
+                self.tool_call_executor(run_id, call, dispatch_tool_call)
+                if self.tool_call_executor is not None
+                else dispatch_tool_call()
+            )
         except (ToolApprovalDenied, ToolRuntimeError) as exc:
             now = iso_now()
             result = ToolResult(
@@ -1363,6 +2132,10 @@ class AutonomousRuntime:
             "requires. Read-only calls execute automatically. Write, shell, network, and external-service calls are "
             "subject to Sitina approval; if a call is denied, use the returned error and choose a safe alternative or "
             "explain what remains blocked. Never claim a tool action happened unless a tool result confirms it. Multiple "
+            "Complete only the current phase declared in execution_context and follow its exact response contract. "
+            "Do not wait for later backend program-check, review, or acceptance phases merely because task context shows "
+            "them as pending; the backend advances those phases after your final content. Do not claim a later phase "
+            "passed unless its verified result is already present in the current context. "
             "active Skills apply together. Use sitina_read_skill_resource when a selected Skill directs you to its "
             "references, assets, or scripts.\n\n"
             f"Selected Skills:\n{skill_text or '(none)'}\n\n"
@@ -1446,3 +2219,161 @@ class AutonomousRuntime:
             "external_mutation_count": mutations["external_mutation_count"],
             "runtime": "sitina-autonomous-extensions-v1",
         }
+
+
+    @staticmethod
+    def _goal_input_decision(
+        text: str, *, required: bool, original_request: str | None = None
+    ) -> dict[str, Any] | None:
+        try:
+            document = json.loads(text)
+        except (ValueError, TypeError):
+            if required:
+                raise GoalInputProtocolError("goal interpretation did not return JSON") from None
+            if not isinstance(text, str):
+                return None
+            decoder = json.JSONDecoder()
+            protocol_seen = False
+            for position, character in enumerate(text):
+                if character != '"':
+                    continue
+                try:
+                    key, end = decoder.raw_decode(text, position)
+                except ValueError:
+                    continue
+                if key == "goal_input" and (
+                    text[end:].lstrip().startswith(":")
+                    or text[:position].rstrip().endswith("{")
+                ):
+                    protocol_seen = True
+                    break
+            objects = []
+            position = 0
+            while True:
+                start = text.find("{", position)
+                if start < 0:
+                    break
+                try:
+                    candidate, end = decoder.raw_decode(text, start)
+                except ValueError:
+                    position = start + 1
+                    continue
+                objects.append((start, end, candidate))
+                position = end
+            if not protocol_seen:
+                return None
+            if len(objects) != 1:
+                raise GoalInputProtocolError("goal interpretation has an ambiguous or incomplete goal_input")
+            start, end, document = objects[0]
+            prefix, suffix = text[:start], text[end:]
+            if "```" in prefix or "```" in suffix:
+                opening = next(
+                    (fence for fence in ("```json\n", "```json\r\n") if prefix.endswith(fence)),
+                    None,
+                )
+                closing = next(
+                    (fence for fence in ("\n```", "\r\n```") if suffix.startswith(fence)),
+                    None,
+                )
+                if opening is None or closing is None:
+                    raise GoalInputProtocolError("goal interpretation has an ambiguous or incomplete goal_input")
+                prefix = prefix[:-len(opening)]
+                suffix = suffix[len(closing):]
+                if (prefix and not prefix.endswith("\n")) or "```" in prefix:
+                    raise GoalInputProtocolError("goal interpretation has an ambiguous or incomplete goal_input")
+            if (
+                any(character in prefix for character in "{}")
+                or suffix.strip()
+                or "goal_input" not in document
+            ):
+                raise GoalInputProtocolError("goal interpretation has an ambiguous or incomplete goal_input")
+            # The optional fallback permits prose and one paired terminal JSON fence.
+            # Reject duplicate keys before the shared strict Provider-decision validation.
+            pairs = json.loads(text[start:end], object_pairs_hook=tuple)
+            if len(pairs) != len(document):
+                raise GoalInputProtocolError("goal interpretation fields are invalid")
+            if isinstance(document["goal_input"], dict):
+                value_pairs = next(value for key, value in pairs if key == "goal_input")
+                if len(value_pairs) != len(document["goal_input"]):
+                    raise GoalInputProtocolError("goal interpretation fields are invalid")
+        if not isinstance(document, dict) or "goal_input" not in document:
+            if required:
+                raise GoalInputProtocolError("goal interpretation is missing goal_input")
+            return None
+        value = document["goal_input"]
+        if set(document) != {"goal_input"} or not isinstance(value, dict) or set(value) != {
+            "goal", "constraints", "acceptance_conditions", "missing_inputs", "question"
+        }:
+            raise GoalInputProtocolError("goal interpretation fields are invalid")
+        if not isinstance(value["goal"], str) or not value["goal"].strip():
+            raise GoalInputProtocolError("goal interpretation needs a goal")
+        for name in ("constraints", "acceptance_conditions", "missing_inputs"):
+            if not isinstance(value[name], list) or not all(
+                isinstance(item, str) and item.strip() for item in value[name]
+            ):
+                raise GoalInputProtocolError("goal interpretation lists are invalid")
+        if not value["acceptance_conditions"] or len(value["missing_inputs"]) > 1:
+            raise GoalInputProtocolError("goal interpretation requires acceptance and at most one missing input")
+        if value["missing_inputs"]:
+            if not isinstance(value["question"], str) or not value["question"].strip():
+                raise GoalInputProtocolError("missing input requires one question")
+        elif value["question"] is not None or not required:
+            raise GoalInputProtocolError("clarification without a missing input is invalid")
+        # Validate the complete Provider decision before binding any request
+        # fields. This derives an interpretation without rewriting its raw source.
+        try:
+            request = json.loads(original_request) if original_request is not None else None
+        except (ValueError, TypeError):
+            request = None
+        if isinstance(request, dict) and all(
+            name in request for name in ("objective", "constraints", "acceptance_criteria")
+        ):
+            if not isinstance(request["objective"], str) or not request["objective"].strip():
+                raise AutonomousRuntimeError("structured request objective is invalid")
+            for name in ("constraints", "acceptance_criteria"):
+                if not isinstance(request[name], list) or not all(
+                    isinstance(item, str) and item.strip() for item in request[name]
+                ):
+                    raise AutonomousRuntimeError("structured request lists are invalid")
+            if not request["acceptance_criteria"]:
+                raise AutonomousRuntimeError("structured request needs acceptance criteria")
+            value = {
+                **value,
+                "goal": request["objective"],
+                "constraints": list(request["constraints"]),
+                "acceptance_conditions": list(request["acceptance_criteria"]),
+            }
+        return value
+
+    @staticmethod
+    def _checkpoint_result(
+        run_id: str,
+        reason: str,
+        response: str,
+        provider_turns: int,
+        tool_results: Sequence[Mapping[str, Any]],
+        skills: Sequence[Any],
+        agents: Sequence[Any],
+        provider_metadata: Sequence[Mapping[str, Any]],
+        *,
+        goal_input: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = AutonomousRuntime._result(
+            run_id,
+            "checkpoint",
+            "ATTEMPT_CHECKPOINT",
+            response,
+            provider_turns,
+            tool_results,
+            skills,
+            agents,
+            provider_metadata,
+        )
+        result.pop("terminal_state", None)
+        result["attempt_signal"] = {
+            "schema": "SITINA_LOOP_ATTEMPT_CHECKPOINT_SIGNAL_V1",
+            "reason": reason,
+        }
+        if goal_input is not None:
+            result["goal_input"] = dict(goal_input)
+        return result

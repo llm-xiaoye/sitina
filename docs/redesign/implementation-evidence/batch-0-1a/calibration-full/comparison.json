@@ -1,0 +1,59 @@
+{
+  "schema": "SITINA_R4_REVIEW_CALIBRATION_COMPARISON_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "comparison_phase": "PARENT_SIDE_AFTER_ALL_REVIEWERS",
+  "reviewers_received_expected_labels": false,
+  "expected_labels_sha256": "bff3bd2daad1113badf230b98b632b81e045edab6c37d89b59696b632d8a31b1",
+  "calibration_results_sha256": "c0b9020054dbce58d400af5c8c3b4d8e3c7afbe4cda13e6589382155ad6dbbd6",
+  "all_program_checks_match_reference": true,
+  "all_final_reviewer_verdicts_match_reference": true,
+  "reviewer_verdict_slots_complete": true,
+  "benchmark_complete": false,
+  "overall_evidence_state": "NEEDS_EVIDENCE",
+  "coverage_limit": {
+    "actual_chart_pixel_review": "NOT_RUN",
+    "chart_to_plot_data_binding": "NOT_RUN",
+    "title_axis_and_readability_review": "NOT_RUN",
+    "reason": "Both case-001 reviewers stated that chart.png could not be safely inspected; program_check checks chart presence but not image content or its binding to the textual data. A parent-side swapped-chart probe still returned PASS.",
+    "scope_of_match_claim": "The final structured verdicts match the evaluator-only labels for textual evidence, conversion, permitted color variation, and missing-evidence behavior; this is not a complete visual artifact acceptance."
+  },
+  "cases": [
+    {
+      "case_id": "case-001",
+      "expected": "PASS",
+      "program": "PASS",
+      "reviewers": ["PASS", "PASS"],
+      "match": true
+    },
+    {
+      "case_id": "case-002",
+      "expected": "BLOCK",
+      "program": "FAIL",
+      "reviewers": ["BLOCK", "BLOCK"],
+      "match": true
+    },
+    {
+      "case_id": "case-003",
+      "expected": "PASS",
+      "program": "PASS",
+      "reviewers": ["PASS", "PASS"],
+      "match": true
+    },
+    {
+      "case_id": "case-004",
+      "expected": "NEEDS_EVIDENCE",
+      "program": "NEEDS_EVIDENCE",
+      "reviewers": ["NEEDS_EVIDENCE", "NEEDS_EVIDENCE"],
+      "match": true
+    }
+  ],
+  "historical_not_run": {
+    "count": 3,
+    "retry_invocations": 1,
+    "stored_counter_note": "The immutable calibration-results.json was generated before the counter default was corrected and records not_run_retry_rounds=2 by counting the initial run plus the retry. Reviewer prior_attempts and raw files show one retry invocation; future script runs count retry invocations from zero.",
+    "preserved_in_prior_attempts": true,
+    "terminal_detail": "stopped: reached max_turns=8 without a final response",
+    "cause_observed": "reviewers attempted unnecessary shell or desktop tools that required approval",
+    "resolution": "kept max_turns=8 and retried only NOT_RUN slots after explicitly limiting the neutral review prompt to directory listing and text reads"
+  }
+}

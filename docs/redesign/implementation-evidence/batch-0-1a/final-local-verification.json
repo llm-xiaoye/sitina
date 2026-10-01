@@ -1,0 +1,31 @@
+{
+  "schema": "SITINA_R4_FINAL_LOCAL_VERIFICATION_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "cwd": "/Users/moss/SitinaHub-r4-b0-1a",
+  "commands": [
+    {
+      "name": "targeted_and_related_tests",
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_loop_batch_1a.py tests/test_loop_contract_r4.py tests/test_provider_tool_protocols.py tests/test_local_journal.py tests/test_local_cas.py tests/test_cas_crypto.py tests/test_journal_model.py tests/test_journal_codec.py tests/test_read_only_diagnostics_cli.py",
+      "exit_code": 0,
+      "stdout": "......................................................................   [100%]\n70 passed in 0.99s\n"
+    },
+    {
+      "name": "compile_and_diff_check",
+      "command": ".venv-r4/bin/python -m compileall -q core/sitina/loop core/sitina/evals/loop_contract.py scripts/r4_review_calibration.py tests/test_loop_batch_1a.py tests/test_loop_contract_r4.py && git diff --check",
+      "exit_code": 0,
+      "stdout": ""
+    },
+    {
+      "name": "evidence_json_parse",
+      "command": ".venv-r4/bin/python <read-only JSON parse over docs/redesign/implementation-evidence/batch-0-1a/**/*.json>",
+      "exit_code": 0,
+      "stdout": "53 JSON evidence files parsed\n"
+    }
+  ],
+  "independent_supervisor_run": {
+    "passed": 69,
+    "note": "The independent run preceded the added C009 negative coverage test; both runs used the same implementation modules.",
+    "evidence": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-2026-09-06/final-independent-audit.json",
+    "sha256": "82f308d30fe9b7928aa014d52ae9d86e7c1433f53e36eef772bac768db575ea5"
+  }
+}

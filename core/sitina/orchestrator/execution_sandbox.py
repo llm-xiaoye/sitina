@@ -477,6 +477,240 @@ class TestEvidence:
         return _sha256_bytes(self.canonical_bytes())
 
 
+@dataclass(frozen=True)
+class ArtifactEvidence:
+    """Immutable evidence that a produced artifact was verified by real observation.
+
+    Peer of :class:`TestEvidence` for goals that produce a concrete artifact but
+    carry no executable test suite.  Every count and digest comes from reading
+    the bytes back off disk, and optionally from executing the artifact in a
+    separate process and hashing its real stdout.  No field is a placeholder: a
+    path that cannot be read back, or whose bytes disagree with the sealed
+    expectation, is counted as such and the evidence is not ``accepted``.
+    """
+
+    run_id: str
+    artifact_plan_hash: str
+    diff_hash_before: str
+    diff_hash_after: str
+    target_hashes: tuple[tuple[str, str], ...]
+    readback_hashes: tuple[tuple[str, str], ...]
+    expected_content_hashes: tuple[tuple[str, str], ...]
+    verified_path_count: int
+    matched_path_count: int
+    mismatched_path_count: int
+    unreadable_path_count: int
+    execution_performed: bool
+    execution_return_code: int
+    execution_timed_out: bool
+    execution_stdout_hash: str
+    execution_stderr_hash: str
+    expected_stdout_hash: str
+    stdout_matched: bool
+    runner_executable_hash: str
+    python_executable_hash: str
+    worker_hash: str
+    argv_hash: str
+    sandbox_policy_hash: str
+    sandbox_provider_id: str
+    sandbox_capability_id: str
+    identity: ExecutionIdentityBinding
+    controller_protocol_response_present: bool
+    controller_protocol_key_hash: str
+    controller_response_hash: str
+    controller_attestation_hash: str
+    cwd: str
+    read_roots: tuple[str, ...]
+    write_roots: tuple[str, ...]
+    resource_limits: tuple[tuple[str, int], ...]
+    started_at: str
+    finished_at: str
+    duration_milliseconds: int
+    runner_argv: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        hashes = (
+            self.artifact_plan_hash,
+            self.diff_hash_before,
+            self.diff_hash_after,
+            self.runner_executable_hash,
+            self.python_executable_hash,
+            self.worker_hash,
+            self.argv_hash,
+            self.sandbox_policy_hash,
+            self.controller_protocol_key_hash,
+            self.controller_response_hash,
+            self.controller_attestation_hash,
+            self.execution_stdout_hash,
+            self.execution_stderr_hash,
+            self.expected_stdout_hash,
+        )
+        if any(len(value) != 64 or any(character not in "0123456789abcdef" for character in value) for value in hashes):
+            raise ValueError("ArtifactEvidence requires exact SHA-256 hashes")
+        counts = (
+            self.verified_path_count,
+            self.matched_path_count,
+            self.mismatched_path_count,
+            self.unreadable_path_count,
+        )
+        if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in counts):
+            raise ValueError("ArtifactEvidence counts must be non-negative integers")
+        if (
+            self.matched_path_count + self.mismatched_path_count + self.unreadable_path_count
+            != self.verified_path_count
+        ):
+            raise ValueError("ArtifactEvidence counts do not reconcile with the verified path total")
+        for flag in (
+            self.execution_performed,
+            self.execution_timed_out,
+            self.stdout_matched,
+            self.controller_protocol_response_present,
+        ):
+            if not isinstance(flag, bool):
+                raise ValueError("ArtifactEvidence flags must be boolean")
+        if type(self.identity) is not ExecutionIdentityBinding:
+            raise ValueError("ArtifactEvidence execution identity binding is invalid")
+        for label, entries in (
+            ("readback", self.readback_hashes),
+            ("expected content", self.expected_content_hashes),
+            ("target", self.target_hashes),
+        ):
+            if not isinstance(entries, tuple) or any(
+                not isinstance(item, tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not item[0]
+                or not isinstance(item[1], str)
+                or len(item[1]) != 64
+                for item in entries
+            ):
+                raise ValueError(f"ArtifactEvidence {label} hashes are invalid")
+        if len(self.readback_hashes) != self.verified_path_count:
+            raise ValueError("ArtifactEvidence readback hashes do not match the verified path count")
+        if not isinstance(self.runner_argv, tuple) or any(
+            not isinstance(value, str) or not value for value in self.runner_argv
+        ):
+            raise ValueError("ArtifactEvidence runner argv is invalid")
+        if self.runner_argv and _sha256_bytes(_canonical(list(self.runner_argv))) != self.argv_hash:
+            raise ValueError("ArtifactEvidence runner argv is not bound to argv hash")
+        if self.execution_performed and not self.runner_argv:
+            raise ValueError("ArtifactEvidence claims execution without a bound argv")
+        if not self.execution_performed and (
+            self.execution_return_code != 0 or self.execution_timed_out or self.stdout_matched
+        ):
+            raise ValueError("ArtifactEvidence execution fields are set without an execution")
+        if not self.controller_attestation_valid:
+            raise ValueError("ArtifactEvidence controller attestation is invalid")
+
+    @property
+    def controller_attestation_valid(self) -> bool:
+        expected = _sha256_bytes(
+            _canonical(
+                {
+                    "schema": "SITINA_SANDBOX_ARTIFACT_ATTESTATION_V1",
+                    "controller_identity": self.sandbox_capability_id,
+                    "diff_hash": self.diff_hash_before,
+                    "artifact_plan_hash": self.artifact_plan_hash,
+                    "execution_identity_hash": self.identity.binding_hash,
+                    "protocol_key_hash": self.controller_protocol_key_hash,
+                    "response_hash": self.controller_response_hash,
+                    "worker_hash": self.worker_hash,
+                    "argv_hash": self.argv_hash,
+                    "readback_hashes": [[path, digest] for path, digest in self.readback_hashes],
+                    "execution_performed": self.execution_performed,
+                    "execution_return_code": self.execution_return_code,
+                    "execution_timed_out": self.execution_timed_out,
+                    "stdout_hash": self.execution_stdout_hash,
+                    "protocol_response_present": self.controller_protocol_response_present,
+                }
+            )
+        )
+        return self.controller_attestation_hash == expected
+
+    @property
+    def verification_complete(self) -> bool:
+        return self.verified_path_count > 0 and self.matched_path_count == self.verified_path_count
+
+    @property
+    def accepted(self) -> bool:
+        if self.execution_performed and (
+            self.execution_return_code != 0 or self.execution_timed_out or not self.stdout_matched
+        ):
+            return False
+        return (
+            self.verification_complete
+            and self.mismatched_path_count == 0
+            and self.unreadable_path_count == 0
+            and self.diff_hash_before == self.diff_hash_after
+            and self.controller_attestation_valid
+        )
+
+    def mapping(self) -> dict[str, object]:
+        return {
+            "schema": "SITINA_ARTIFACT_EVIDENCE_V1",
+            "run_id": self.run_id,
+            "artifact_plan_hash": self.artifact_plan_hash,
+            "diff_hash_before": self.diff_hash_before,
+            "diff_hash_after": self.diff_hash_after,
+            "target_hashes": [[path, digest] for path, digest in self.target_hashes],
+            "readback_hashes": [[path, digest] for path, digest in self.readback_hashes],
+            "expected_content_hashes": [
+                [path, digest] for path, digest in self.expected_content_hashes
+            ],
+            "verified_path_count": self.verified_path_count,
+            "matched_path_count": self.matched_path_count,
+            "mismatched_path_count": self.mismatched_path_count,
+            "unreadable_path_count": self.unreadable_path_count,
+            "execution_performed": self.execution_performed,
+            "execution_return_code": self.execution_return_code,
+            "execution_timed_out": self.execution_timed_out,
+            "execution_stdout_hash": self.execution_stdout_hash,
+            "execution_stderr_hash": self.execution_stderr_hash,
+            "expected_stdout_hash": self.expected_stdout_hash,
+            "stdout_matched": self.stdout_matched,
+            "runner_executable_hash": self.runner_executable_hash,
+            "python_executable_hash": self.python_executable_hash,
+            "worker_hash": self.worker_hash,
+            "argv_hash": self.argv_hash,
+            "runner_argv": list(self.runner_argv),
+            "sandbox_policy_hash": self.sandbox_policy_hash,
+            "sandbox_provider_id": self.sandbox_provider_id,
+            "sandbox_capability_id": self.sandbox_capability_id,
+            "execution_identity": self.identity.mapping(),
+            "execution_identity_hash": self.identity.binding_hash,
+            "controller_protocol_response_present": self.controller_protocol_response_present,
+            "controller_protocol_key_hash": self.controller_protocol_key_hash,
+            "controller_response_hash": self.controller_response_hash,
+            "controller_attestation_hash": self.controller_attestation_hash,
+            "controller_attestation_valid": self.controller_attestation_valid,
+            "trust_boundary": {
+                "schema": "SITINA_ARTIFACT_TRUST_BOUNDARY_V1",
+                "evidence_source": "CONTROLLER_READ_ARTIFACT_BYTES_FROM_DISK_V1",
+                "counts_derived_from_acceptance_prose": False,
+                "counts_derived_from_real_readback": True,
+                "expected_bytes_sealed_before_readback": bool(self.expected_content_hashes),
+                "execution_observed_in_separate_process": self.execution_performed,
+                "signing_controller_executes_target_code": False,
+            },
+            "cwd": self.cwd,
+            "read_roots": list(self.read_roots),
+            "write_roots": list(self.write_roots),
+            "resource_limits": {name: value for name, value in self.resource_limits},
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "duration_milliseconds": self.duration_milliseconds,
+            "verification_complete": self.verification_complete,
+            "accepted": self.accepted,
+        }
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical(self.mapping())
+
+    @property
+    def evidence_hash(self) -> str:
+        return _sha256_bytes(self.canonical_bytes())
+
+
 class TestEvidencePublisher(Protocol):
     def publish(self, raw: bytes, *, evidence_hash: str) -> str: ...
 

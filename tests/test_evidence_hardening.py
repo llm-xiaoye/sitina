@@ -442,27 +442,6 @@ class EvidenceHardeningTests(unittest.TestCase):
             )
         )
 
-    def test_final_projection_runtime_counts_accept_new_completed_turns(self) -> None:
-        script = Path(__file__).resolve().parents[1] / "scripts/storage-production-finalize.py"
-        spec = importlib.util.spec_from_file_location("storage_production_finalize_count_test", script)
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        counts = {
-            "runtime_state_event_count": 55,
-            "pending_run_count": 0,
-            "pending_run_event_count": 0,
-            "session_count": 1,
-            "session_message_count": 12,
-            "accepted_memory_count": 1,
-            "rejected_memory_count": 1,
-        }
-        self.assertEqual(module._validate_runtime_state_counts(counts), 6)
-        counts["session_message_count"] = 11
-        with self.assertRaises(RuntimeError):
-            module._validate_runtime_state_counts(counts)
-
     def test_cli_evidence_missing_command_is_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             recorder = CliEvidenceRecorder(Path(tmp))

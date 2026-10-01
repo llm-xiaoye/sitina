@@ -1,7 +1,21 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-SITINA_HOME="${SITINA_HOME:-$HOME/SitinaHub}"
+SCRIPT_ROOT="${0:A:h:h}"
+
+if [[ $# -eq 0 ]]; then
+  if [[ -t 0 && -t 1 ]]; then
+    set -- loop
+  else
+    set -- --help
+  fi
+fi
+
+if [[ -f "$SCRIPT_ROOT/.sitina-r4-development-root-v1.json" ]]; then
+  exec "$SCRIPT_ROOT/bin/sitina-r4-dev" "$@"
+fi
+
+SITINA_HOME="${SITINA_HOME:-$SCRIPT_ROOT}"
 BUNDLED_PYTHON="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
 
 if [ -x "${SITINA_PYTHON:-}" ]; then
@@ -13,16 +27,10 @@ else
 fi
 
 export SITINA_HOME
+export SITINA_SOURCE_ROOT="$SCRIPT_ROOT"
+export SITINA_PYTHON="$PYTHON_BIN"
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$SITINA_HOME/core:${PYTHONPATH:-}"
-
-if [[ $# -eq 0 ]]; then
-  if [[ -t 0 && -t 1 ]]; then
-    set -- chat
-  else
-    set -- --help
-  fi
-fi
+export PYTHONPATH="$SCRIPT_ROOT/core:${PYTHONPATH:-}"
 
 if [[ "${1:-}" == "run" ]]; then
   set +e

@@ -1,0 +1,80 @@
+{
+  "schema": "SITINA_R4_BATCH_BASELINE_MANIFEST_V1",
+  "target_spec_version": "sitina-loop-v1-r4",
+  "captured_date": "2026-09-06",
+  "source": {
+    "path": "/Users/moss/SitinaHub",
+    "branch": "wip-sitina-live-acceptance-20260903",
+    "head": "27edb59f2ff592fb793a717c6a71ffd8d3d9610a",
+    "modified_tracked_files": {
+      "config/sitina.yaml": "c7736566527311c63f952ecfaaa0b5446ba4c011e951d4ca301122f84a3eea2a",
+      "config/true_multi_agent_policy.json": "a17088f16686a646a6fb3484f59b0ed5e0cb611779f8223b3dfa1aa78d7aac75",
+      "core/sitina/cli.py": "db364af7e7220f1451857bdf36c45de7060de0961b04e0c999fc56612a44367a",
+      "core/sitina/conversation/runtime.py": "2c2e28ab61dd9bcd385fbba6de632ec416e5443b9cafe3ca40b280c6472474c1",
+      "core/sitina/extensions/runtime.py": "7562bea225d6f1a25bc3ecbbf1ece76ea11fe5c884ec715cb2271e9774a4a15b",
+      "core/sitina/orchestrator/execution_bridge.py": "c1d1b2c73a47ce0bf80713391f0f794420d12be5402e24e9322d2fa287851aed",
+      "core/sitina/orchestrator/execution_sandbox.py": "76cce75423ae2d23267741727e24f576a15664967428ef2338453040c9924072",
+      "core/sitina/orchestrator/execution_target.py": "148b02475f19b424c993dda595b5897a935176122c73f94a059a8074ac7eb052",
+      "core/sitina/orchestrator/execution_verification.py": "33507b67919a402d630790228976439138dd5ff3be76c5cd667766e979b31f21",
+      "core/sitina/orchestrator/true_multi_agent.py": "88c46600a979a15640ef956bc25fc7a292382915266712a4773faad4e4123264",
+      "core/sitina/orchestrator/true_multi_agent_runtime.py": "3fe60dd5f8e6f86275f9b8433e56f12aeb46c3aea54486fcf8e68573c59fa460",
+      "scripts/code_mode_reviewer_producer.py": "d819505152f7057f6630c03914be562086813eefec0dd7bf348e531ff6985521",
+      "tests/test_code_mode_runtime_integration.py": "543606f5999c29ff33ec5a09cb33fce9d54a22af017da82a7c6dfa47509d6468",
+      "tests/test_execution_bridge.py": "b17d7d5dc337e29eb75830b106fde0a582973c2eb5d2e3e159405699da6bdab8"
+    },
+    "untracked_names_preserved": [
+      "ACCEPTANCE_CHECKS_FIX.md",
+      "CHANGES.md",
+      "CLAUDE_CODE_COMPARISON.md",
+      "DEBUG_PROGRESS.md",
+      "DIRECTORY_SCAN_ANALYSIS.md",
+      "FINAL_FIX.md",
+      "LATEST_IMPROVEMENTS.md",
+      "MULTI_MODE_FIXES.md",
+      "READY_TO_TEST.md",
+      "SITINA_FLOW_ANALYSIS.md",
+      "TRUST_MODE.md",
+      "TRUST_MODE_COMPLETE.md",
+      "VERIFICATION_ARCHITECTURE_FIX.md",
+      "docs/redesign/",
+      "test_multi_auto.sh",
+      "test_multi_mode.sh",
+      "test_multi_simple.sh"
+    ]
+  },
+  "development_copy": {
+    "path": "/Users/moss/SitinaHub-r4-b0-1a",
+    "branch": "codex/sitina-r4-b0-1a",
+    "base_head": "27edb59f2ff592fb793a717c6a71ffd8d3d9610a",
+    "source_dirty_state_copied": true,
+    "source_tracked_code_unchanged": true,
+    "source_runtime_state_changed": true,
+    "source_runtime_state_side_effect": {
+      "path": "/Users/moss/SitinaHub/data/sitina.db",
+      "cause": "One old provider status probe omitted SITINA_HOME and the launcher used its default source home.",
+      "observed_row": "deepseek|unavailable|2026-09-06T09:59:18.786152Z|2026-09-06T10:14:18.786577Z|1|unexpected smoke response||1187",
+      "rollback_performed": false,
+      "reason_not_rolled_back": "The prior runtime row was not captured, so a speculative destructive rollback would be unsafe.",
+      "tracked_source_hashes_unchanged": true,
+      "transcript_record": "exec-b5a85661-ffc7-4737-9758-a1ddf135842e"
+    },
+    "production_cutover": false,
+    "merge_performed": false,
+    "push_performed": false
+  },
+  "runtime": {
+    "python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "python_version": "3.12.14",
+    "venv": "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4",
+    "requirements": "requirements-bplus.lock",
+    "pytest": "8.4.2"
+  },
+  "entry_and_old_control_inventory": {
+    "formal_existing_agent_entry": "bin/sitina agent -> sitina.cli.cmd_agent -> AutonomousRuntime",
+    "existing_agent_default_max_turns": 50,
+    "existing_stuck_loop_detector": "three repeated identical failing tool calls in AutonomousRuntime",
+    "existing_evaluator": "RunEvaluator over existing run ledger; not the r4 task contract",
+    "batch_1a_development_entry": "bin/sitina loop-state initialize|create|status",
+    "batch_1a_scope": "isolated persistent state skeleton only; not batch 1b business execution"
+  }
+}

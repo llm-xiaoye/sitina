@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import hmac
-import io
 import json
 import os
 import re
@@ -53,8 +51,8 @@ from sitina.orchestrator.true_multi_agent import (
 )
 from sitina.orchestrator.true_multi_agent_runtime import CanonicalStream, TrueMultiAgentRuntimeError
 from sitina.runners.provider import (
-    AnthropicCompatibleClient, ProviderCompletion, ProviderConnectTimeout,
-    ProviderHTTPError, ProviderProfile, ProviderToolCall, ProviderToolTurn,
+    ProviderCompletion, ProviderHTTPError, ProviderProfile, ProviderToolCall,
+    ProviderToolTurn,
 )
 from sitina.security.key_provider import InMemoryKeyProvider
 from sitina.runners.tool_executor import ToolExecutor
@@ -2573,131 +2571,6 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             ),
         )
 
-    def test_real_cmd_chat_entry_reaches_code_mode_without_legacy_start_gate(self) -> None:
-        output = io.StringIO()
-        args = argparse.Namespace(
-            workspace=str(self.workspace),
-            live=False,
-            access_mode="workspace",
-            multi_runtime=self.multi,
-            runtime_context_factory=self.context_factory,
-        )
-        with patch.object(cli, "SITINA_HOME", self.home), patch(
-            "builtins.input",
-            side_effect=[
-                "/multi",
-                "Please create hello.py and run the focused test; do not commit or push.",
-                "/exit",
-            ],
-        ), patch("sys.stdout", output), patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
-            side_effect=AssertionError("cmd_chat Code Mode must not load Legacy B+ context"),
-        ):
-            self.assertEqual(cli.cmd_chat(args), 0)
-        self.assertTrue((self.workspace / "hello.py").is_file())
-        self.assertIn("当前模式：AUTO", output.getvalue())
-        self.assertIn("已切换到 MULTI", output.getvalue())
-        self.assertTrue(self.provider.tool_result_feedback_seen)
-        self.assertEqual(self.provider.physical_requests, 0)
-
-    def test_public_cli_entry_constructs_independent_code_mode_runtime(self) -> None:
-        state = self.home / "cli-state"
-        output = io.StringIO()
-        self.broker.close()
-        observed: dict[str, object] = {}
-        providers: list[object] = []
-        original_confirm = ConversationRuntime.maybe_confirm_tty_review
-        original_provider = cli.CodeModeScriptedProvider
-
-        def observe_provider(workspace: Path) -> object:
-            provider = original_provider(workspace)
-            providers.append(provider)
-            return provider
-
-        def observe_handoff(runtime: ConversationRuntime, result: dict[str, object]) -> dict[str, object]:
-            observed["result"] = dict(result)
-            return original_confirm(runtime, result)
-
-        with patch(
-            "builtins.input",
-            side_effect=[
-                "/multi",
-                "Please create hello.py and run the focused test; do not commit or push.",
-                "/exit",
-            ],
-        ), patch("sys.stdout", output), patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
-            side_effect=AssertionError("public Code Mode CLI must not load Legacy B+ context"),
-        ), patch.object(ConversationRuntime, "maybe_confirm_tty_review", observe_handoff), patch.object(
-            cli, "CodeModeScriptedProvider", observe_provider
-        ):
-            self.assertEqual(cli.main([
-                "chat", "--workspace", str(self.workspace),
-                "--code-mode-state", str(state), "--offline-scripted",
-            ]), 0)
-        self.assertTrue((self.workspace / "hello.py").is_file())
-        self.assertIn("已切换到 MULTI", output.getvalue())
-        handoff = observed["result"]
-        self.assertIsInstance(handoff, dict)
-        self.assertEqual(handoff["terminal_state"], "REVIEW_PENDING")
-        self.assertTrue(handoff["conversation_completion_blocked"])
-        self.assertEqual(len(providers), 1)
-        self.assertEqual(getattr(providers[0], "physical_requests"), 0)
-        self.assertTrue(handoff["headless_review_pending"])
-        self.assertEqual(handoff["review_request"]["schema"], "CODE_MODE_REVIEW_REQUEST_V2")
-        self.assertTrue(handoff["evidence_package"]["reference_id"].startswith("cas:"))
-        self.assertTrue(handoff["candidate_locator"]["reference_id"].startswith("cas:"))
-        self.assertEqual(handoff["candidate_locator"]["run_id"], handoff["run_id"])
-        self.assertNotIn("canary_authorization", handoff)
-
-    def test_public_live_cli_without_hidden_injection_uses_code_mode_context(self) -> None:
-        """The ordinary CLI bootstrap must not consult the Legacy context.
-
-        This only opens the chat and exits, so it proves the runtime boundary
-        without making a Provider request.  A real /multi turn is covered by
-        the scripted integration above, while a live turn remains explicitly
-        gated by the session opt-in and provider activation checks.
-        """
-
-        state = self.home / "ordinary-cli-state"
-        output = io.StringIO()
-        self.broker.close()
-        args = ["chat", "--workspace", str(self.workspace), "--code-mode-state", str(state)]
-        with patch("builtins.input", side_effect=["/exit"]), patch("sys.stdout", output), patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
-            side_effect=AssertionError("ordinary Code Mode CLI must not load Legacy B+ context"),
-        ):
-            self.assertEqual(cli.main(args), 0)
-        self.assertIn("Code Mode：/multi 可写", output.getvalue())
-        self.assertTrue((state / ".sitina-code-mode-v1").is_file())
-
-    def test_public_live_cli_bootstraps_source_identity_before_provider_boundary(self) -> None:
-        """A normal CLI invocation uses source code plus a separate state root."""
-        state = self.home / "ordinary-live-state"
-        output = io.StringIO()
-        self.broker.close()
-        fake_profile = ProviderProfile(
-            "deepseek", "https://api.deepseek.com", "not-persisted-test-token", "deepseek-v4-pro"
-        )
-        with patch("builtins.input", side_effect=[
-            "/multi", "Please update hello.py; do not commit or push.", "/exit"
-        ]), patch("sys.stdout", output), patch(
-            "sitina.orchestrator.bplus_production.ProductionRuntimeContext.load",
-            side_effect=AssertionError("ordinary Code Mode CLI must not load Legacy B+ context"),
-        ), patch.object(AnthropicCompatibleClient, "load_profile", return_value=fake_profile), patch.object(
-            AnthropicCompatibleClient, "_complete_openai",
-            side_effect=ProviderConnectTimeout("synthetic network boundary"),
-        ):
-            self.assertEqual(cli.main([
-                "chat", "--workspace", str(self.workspace), "--code-mode-state", str(state), "--live",
-            ]), 0)
-        self.assertTrue((state / ".sitina-code-mode-v1").is_file())
-        context = CodeModeRuntimeContext.open(state, provider=self.keys, source_root=self.repo)
-        self.assertEqual(context.identity.source_root, str(self.repo.resolve()))
-        self.assertTrue(context.identity.source_manifest_hash)
-        self.assertNotEqual(context.identity.source_root, str(state.resolve()))
-        self.assertEqual(self.provider.physical_requests, 0)
-
     def test_formal_cli_bootstrap_reaches_reviewer_pending_and_closes_host(self) -> None:
         """The ordinary CLI bootstrap owns the reviewer host lifecycle.
 
@@ -2793,13 +2666,21 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
                     "content_hash": "0" * 64, "candidate_id": candidate["candidate_id"],
                     "tree_hash": candidate["tree_hash"], "run_id": test_receipt["run_id"],
                 })
-            # The production headless producer has no semantic verdict source
-            # in this local mode.  It must remain pending rather than turning
-            # the machine receipt into an independent ACCEPT.
-            with self.assertRaises(PermissionError):
-                context.review_headless(
-                    candidate=candidate, review_request=request, reviewer_session=reviewer,
-                )
+            # The headless producer now decides from the controller-sealed
+            # objective facts, and labels its own verdict as a deterministic
+            # machine review so nothing downstream can read it as a human
+            # having confirmed the diff.
+            approval = context.review_headless(
+                candidate=candidate, review_request=request, reviewer_session=reviewer,
+            )
+            self.assertIsNotNone(approval)
+            verdict = getattr(approval, "_verdict", None)
+            self.assertIsInstance(verdict, Mapping)
+            self.assertEqual(verdict["schema"], "CODE_MODE_REVIEW_VERDICT_V2")
+            self.assertEqual(verdict["review_class"], "DETERMINISTIC_MACHINE_REVIEW_V1")
+            self.assertEqual(verdict["human_confirmed"], "false")
+            self.assertIn(verdict["decision"], {"ACCEPT", "REJECT"})
+            self.assertTrue(verdict.get("producer_signature"))
         finally:
             reviewer.close()
 
@@ -2893,13 +2774,12 @@ class CodeModeRuntimeIntegrationTests(unittest.TestCase):
             with self.assertRaises((TypeError, AttributeError)):
                 capability._binding["tree_hash"] = "tampered-tree"  # type: ignore[index]
             self.assertEqual(request["schema"], "CODE_MODE_REVIEW_REQUEST_V2")
-            # Headless review is deliberately unavailable until a real
-            # independent semantic reviewer is installed; no machine-only
-            # receipt may be promoted by this path.
-            with self.assertRaises(PermissionError):
-                context.review_headless(
-                    candidate=candidate, review_request=request, reviewer_session=reviewer,
-                )
+            # Headless review produces a signed machine verdict, but sealing
+            # still requires that verdict to be presented: a capability alone
+            # cannot promote the runtime's own machine receipt into a review.
+            context.review_headless(
+                candidate=candidate, review_request=request, reviewer_session=reviewer,
+            )
             with self.assertRaises(PermissionError):
                 context.seal_offline_reviewer_receipt(
                     candidate=candidate, test_receipt=test_receipt,

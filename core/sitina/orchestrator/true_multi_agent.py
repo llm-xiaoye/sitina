@@ -123,6 +123,150 @@ def _tester_machine_command(
     ]
 
 
+_TEST_EVIDENCE_SCHEMA = "SITINA_TEST_EVIDENCE_V2"
+_ARTIFACT_EVIDENCE_SCHEMA = "SITINA_ARTIFACT_EVIDENCE_V1"
+
+
+def _verification_facts(evidence: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Normalize one sealed verification evidence object into receipt facts.
+
+    Two evidence types reach the receipt sealer.  ``TestEvidence`` records an
+    executed test suite.  ``ArtifactEvidence`` records artifact bytes read back
+    off disk, for a goal that produces files but carries no test suite.  Both
+    are real observations, but they count different things, so every consumer
+    that used to read the test-suite field names directly comes through here
+    instead.
+
+    Returns ``None`` for an unrecognized schema, for evidence that is not
+    accepted, and for any evidence whose own counts fail its invariants.  The
+    caller must fail closed on ``None``: this function never substitutes a
+    default for a field the producer did not seal, because a receipt that
+    reports ``0 failures`` from a missing field is indistinguishable from one
+    that observed no failures.
+    """
+
+    if not isinstance(evidence, Mapping) or evidence.get("accepted") is not True:
+        return None
+    schema = evidence.get("schema")
+
+    def exact_count(name: str) -> int | None:
+        value = evidence.get(name)
+        # ``type() is int`` also rejects bool, which is an int subclass and
+        # would otherwise pass a count check as 0/1.
+        return value if type(value) is int and value >= 0 else None
+
+    if schema == _TEST_EVIDENCE_SCHEMA:
+        return_code = evidence.get("runner_return_code")
+        counts = {
+            "failures": exact_count("failed_test_count"),
+            "errors": exact_count("error_test_count"),
+            "skipped": exact_count("skipped_test_count"),
+            "unexpected_successes": exact_count("unexpected_success_count"),
+        }
+        executed = exact_count("executed_test_count")
+        if type(return_code) is not int or executed is None or executed <= 0:
+            return None
+        if any(value is None for value in counts.values()):
+            return None
+        return {
+            "verification_kind": "EXECUTED_TEST_SUITE_V2",
+            "return_code": return_code,
+            **counts,
+            "verified_unit_count": executed,
+            "stdout_hash": evidence.get("stdout_hash"),
+            "stderr_hash": evidence.get("stderr_hash"),
+            "execution_performed": True,
+        }
+
+    if schema == _ARTIFACT_EVIDENCE_SCHEMA:
+        verified = exact_count("verified_path_count")
+        matched = exact_count("matched_path_count")
+        mismatched = exact_count("mismatched_path_count")
+        unreadable = exact_count("unreadable_path_count")
+        if None in (verified, matched, mismatched, unreadable):
+            return None
+        # An artifact goal is verified by reading the produced bytes back, so
+        # "nothing was verified" is not a pass and one bad path is a failure.
+        # These are observed counts, never a restatement of acceptance prose.
+        if verified <= 0 or matched != verified or mismatched or unreadable:
+            return None
+        execution_performed = evidence.get("execution_performed")
+        execution_return_code = evidence.get("execution_return_code")
+        if not isinstance(execution_performed, bool) or type(execution_return_code) is not int:
+            return None
+        if execution_performed and execution_return_code != 0:
+            return None
+        # ``return_code`` is the status of the verification that was actually
+        # performed: the artifact's own exit code when it was executed, and
+        # otherwise the readback outcome.  It cannot manufacture a pass because
+        # any mismatched or unreadable path already returned None above.
+        return {
+            "verification_kind": "ARTIFACT_READBACK_V1",
+            "return_code": execution_return_code,
+            "failures": mismatched,
+            "errors": unreadable,
+            "skipped": 0,
+            "unexpected_successes": 0,
+            "verified_unit_count": verified,
+            "stdout_hash": evidence.get("execution_stdout_hash"),
+            "stderr_hash": evidence.get("execution_stderr_hash"),
+            "execution_performed": execution_performed,
+        }
+
+    return None
+
+
+def _reviewer_tester_evidence(
+    evidence: Mapping[str, Any],
+    *,
+    evidence_ref: str,
+    evidence_hash: str,
+) -> dict[str, Any]:
+    """Project sealed verification evidence for the post-execution reviewer.
+
+    The reviewer is shown the counts the producer actually sealed.  Test-suite
+    evidence keeps its existing field names so an executed-suite review is
+    unchanged; artifact readback evidence reports its own readback counts.
+    Fields belonging to the other evidence type are omitted rather than filled
+    with null, so the reviewer can never read an absent observation as a zero.
+    """
+
+    common = {
+        "accepted": evidence.get("accepted"),
+        "diff_hash_before": evidence.get("diff_hash_before"),
+        "diff_hash_after": evidence.get("diff_hash_after"),
+        "target_hashes": evidence.get("target_hashes"),
+        "evidence_ref": evidence_ref,
+        "evidence_hash": evidence_hash,
+    }
+    if evidence.get("schema") == _ARTIFACT_EVIDENCE_SCHEMA:
+        return {
+            **common,
+            "verification_kind": "ARTIFACT_READBACK_V1",
+            "verified_path_count": evidence.get("verified_path_count"),
+            "matched_path_count": evidence.get("matched_path_count"),
+            "mismatched_path_count": evidence.get("mismatched_path_count"),
+            "unreadable_path_count": evidence.get("unreadable_path_count"),
+            "readback_hashes": evidence.get("readback_hashes"),
+            "execution_performed": evidence.get("execution_performed"),
+            "execution_return_code": evidence.get("execution_return_code"),
+            "execution_timed_out": evidence.get("execution_timed_out"),
+            "stdout_matched": evidence.get("stdout_matched"),
+        }
+    return {
+        **common,
+        "verification_kind": "EXECUTED_TEST_SUITE_V2",
+        "collected_test_count": evidence.get("collected_test_count"),
+        "executed_test_count": evidence.get("executed_test_count"),
+        "passed_test_count": evidence.get("passed_test_count"),
+        "failed_test_count": evidence.get("failed_test_count"),
+        "skipped_test_count": evidence.get("skipped_test_count"),
+        "error_test_count": evidence.get("error_test_count"),
+        "runner_return_code": evidence.get("runner_return_code"),
+        "timed_out": evidence.get("timed_out"),
+    }
+
+
 def _code_mode_terminal_state(payload: Mapping[str, Any]) -> str | None:
     """Classify a Code Mode terminal fact without trusting its name alone.
 
@@ -821,6 +965,104 @@ def _validate_handoff_delivery(
     if _require_string(value, "source_output_hash") != expected_source_output_hash:
         raise DynamicCollaborationError("Handoff delivery did not bind selected source hash")
     _require_strings(value, "acceptance_checks", maximum=8)
+
+
+_PATH_LIKE_TOKEN = re.compile(r"[\w./\\-]*[\w-]\.[A-Za-z0-9]{1,8}")
+
+
+def _path_like_tokens(text: str) -> frozenset[str]:
+    """Extract concrete ``name.ext`` file tokens from free text.
+
+    Only the final path segment is kept: a goal and a proposal disagree about
+    prefixes (``./x``, ``<repo-root>/x``, ``/abs/x``) far more often than they
+    disagree about which file is under discussion.
+    """
+    names: set[str] = set()
+    for match in _PATH_LIKE_TOKEN.findall(str(text or "")):
+        candidate = match.strip().strip(".,;:'\"()[]<>`")
+        if not candidate:
+            continue
+        base = candidate.replace("\\", "/").rsplit("/", 1)[-1]
+        if base.startswith(".") or "." not in base or base.endswith("."):
+            continue
+        names.add(base.casefold())
+    return frozenset(names)
+
+
+def _workspace_path_names(readonly_evidence: Any) -> frozenset[str]:
+    """Bounded set of file base names actually observed in the workspace."""
+    if not isinstance(readonly_evidence, Mapping):
+        return frozenset()
+    names: set[str] = set()
+    for key in ("files", "entries", "directories", "search_hits"):
+        items = readonly_evidence.get(key)
+        if not isinstance(items, (list, tuple)):
+            continue
+        for item in items:
+            raw = item.get("path") if isinstance(item, Mapping) else item
+            if isinstance(raw, str) and raw:
+                names.add(raw.replace("\\", "/").rsplit("/", 1)[-1].casefold())
+    return frozenset(names)
+
+
+def _require_goal_aligned_paths(
+    value: Mapping[str, Any],
+    *,
+    goal: str,
+    workspace_names: frozenset[str],
+) -> None:
+    """Reject a proposal that silently substitutes the goal's files.
+
+    A proposal may legitimately introduce files the goal never named -- a new
+    test module for "add tests", for example.  What it may not do is discuss an
+    entirely different set of concrete files while claiming to satisfy the
+    goal, which is the shape of a provider that replaced an under-specified
+    request with a richer invented one.  The check therefore fires only when
+    the goal itself names concrete files and the proposal names concrete files
+    with no overlap against either the goal or the observed workspace.
+    """
+    goal_names = _path_like_tokens(goal)
+    if not goal_names:
+        return
+    proposed = _path_like_tokens(
+        " ".join(
+            [str(value.get("summary") or ""), str(value.get("approach") or "")]
+            + [
+                str(item)
+                for item in (value.get("acceptance_checks") or ())
+                if isinstance(item, str)
+            ]
+        )
+    )
+    if not proposed or (proposed & (goal_names | workspace_names)):
+        return
+    raise DynamicCollaborationError(
+        "Agent proposal targets files unrelated to the goal and workspace: "
+        + ", ".join(sorted(proposed)[:6])
+    )
+
+
+def _require_goal_bound_acceptance(
+    value: Mapping[str, Any],
+    *,
+    goal: str,
+    workspace_names: frozenset[str],
+    maximum: int,
+    required: bool = True,
+) -> None:
+    """Bound the acceptance list and keep the plan pointed at the goal's files.
+
+    Both checks must run everywhere a proposer's plan text can be replaced, not
+    only on the first proposal.  A revision that answers every reviewer
+    objection while quietly retargeting different files satisfies the rework
+    contract and still abandons the goal, so the rework and negotiation paths
+    need the same two guards the initial proposal has.  Keeping them in one
+    function is what makes that true by construction instead of by remembering
+    to copy them.
+    """
+    if required or "acceptance_checks" in value:
+        _require_json_array_or_strings(value, "acceptance_checks", maximum=maximum)
+    _require_goal_aligned_paths(value, goal=goal, workspace_names=workspace_names)
 
 
 def _require_strings(value: Mapping[str, Any], key: str, *, minimum: int = 1, maximum: int = 12) -> list[str]:
@@ -2354,21 +2596,143 @@ class TrueMultiAgentProductionRuntime:
         validate,
         ack_lost: bool = False,
     ) -> AgentCallResult:
+        # 显示正在调用的 Agent
+        import sys
+        if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+            agent_name = agent.agent_id.replace('agent-', '').title()
+
+            # 获取或初始化步骤计数器
+            if not hasattr(evidence, '_step_counter'):
+                evidence._step_counter = [0]  # 使用列表以支持多级编号
+
+            # 增加主步骤
+            evidence._step_counter[0] += 1
+            step_num = '.'.join(map(str, evidence._step_counter))
+
+            # 步骤格式显示
+            print("", file=sys.stderr, flush=True)
+            print(f"{step_num} 调用 Agent: {agent_name}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.1 任务类型: {kind}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.2 任务 ID: {task_id}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.3 输入信息:", file=sys.stderr, flush=True)
+
+            # 显示输入的 prompt（截断显示）
+            prompt_lines = prompt.split('\n')
+            for i, line in enumerate(prompt_lines[:3]):  # 只显示前3行
+                display_line = line[:75] + "..." if len(line) > 75 else line
+                print(f"    {step_num}.3.{i+1} {display_line}", file=sys.stderr, flush=True)
+            if len(prompt_lines) > 3:
+                print(f"    {step_num}.3.{len(prompt_lines[:3])+1} ... (还有 {len(prompt_lines) - 3} 行)", file=sys.stderr, flush=True)
+
+            # 显示关键的 context 字段
+            key_fields = ['goal_hash', 'proposal_id', 'rubric_hash', 'author_agent_id', 'proposal_output_hash']
+            context_to_show = {k: context[k] for k in key_fields if k in context}
+            if context_to_show:
+                print(f"  {step_num}.4 上下文信息:", file=sys.stderr, flush=True)
+                for idx, (key, value) in enumerate(context_to_show.items(), 1):
+                    value_str = str(value)[:50] + "..." if len(str(value)) > 50 else str(value)
+                    print(f"    {step_num}.4.{idx} {key}: {value_str}", file=sys.stderr, flush=True)
+
         output_contract = resolve_output_contract(task_id, kind, allow_legacy_compat=True)
-        result = executor.call(
-            agent,
-            task_id=task_id,
-            kind=kind,
-            root_phase=root_phase,
-            system_prompt=self._system_prompt(agent, kind, contract),
-            user_prompt=prompt,
-            input_context=context,
-            validate=validate,
-            ack_lost=ack_lost,
-            output_contract_id=output_contract.output_contract_id,
-            task_type=output_contract.task_type,
-            schema_id=output_contract.schema_id,
-        )
+
+        try:
+            result = executor.call(
+                agent,
+                task_id=task_id,
+                kind=kind,
+                root_phase=root_phase,
+                system_prompt=self._system_prompt(agent, kind, contract),
+                user_prompt=prompt,
+                input_context=context,
+                validate=validate,
+                ack_lost=ack_lost,
+                output_contract_id=output_contract.output_contract_id,
+                task_type=output_contract.task_type,
+                schema_id=output_contract.schema_id,
+            )
+        except Exception as e:
+            # 显示调用错误（详细信息）
+            if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+                error_msg = str(e)[:200]
+                reason_code = getattr(e, 'sitina_failure_reason_code', None)
+                if reason_code:
+                    error_msg = f"{error_msg} (reason: {reason_code})"
+                print(f"    ✗ {agent_name} 失败: {type(e).__name__}: {error_msg}", file=sys.stderr, flush=True)
+            raise
+
+        # 显示调用结果
+        if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+            # 使用 outcome 字段判断成功/失败
+            status = "✓" if result.outcome == "success" else "✗"
+
+            # 计算耗时
+            from datetime import datetime
+            try:
+                start_time = datetime.fromisoformat(result.started_at.replace('Z', '+00:00'))
+                end_time = datetime.fromisoformat(result.completed_at.replace('Z', '+00:00'))
+                duration = (end_time - start_time).total_seconds()
+                duration_str = f"{duration:.2f}s"
+            except:
+                duration_str = "N/A"
+
+            # 获取 token 使用量
+            usage = result.usage or {}
+            input_tokens = usage.get('prompt_tokens', 0) or usage.get('input_tokens', 0)
+            output_tokens = usage.get('completion_tokens', 0) or usage.get('output_tokens', 0)
+            total_tokens = input_tokens + output_tokens
+
+            # 获取成本
+            cost_usd = result.cost_micro_usd / 1_000_000 if result.cost_micro_usd else 0
+
+            # 获取当前步骤编号
+            step_num = '.'.join(map(str, evidence._step_counter))
+
+            # 步骤格式输出
+            print("", file=sys.stderr, flush=True)
+            status_icon = "✓" if result.outcome == "success" else "✗"
+            print(f"{step_num} Agent 完成: {agent_name} [{status_icon}]", file=sys.stderr, flush=True)
+            print(f"  {step_num}.1 执行状态: {result.outcome}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.2 执行耗时: {duration_str}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.3 Token 使用: {total_tokens:,} (输入: {input_tokens:,}, 输出: {output_tokens:,})", file=sys.stderr, flush=True)
+            print(f"  {step_num}.4 成本: ${cost_usd:.4f}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.5 输出信息:", file=sys.stderr, flush=True)
+
+            # 显示输出的关键字段
+            if hasattr(result, 'value') and isinstance(result.value, dict):
+                output_value = result.value
+                # 根据不同的 agent 显示不同的关键字段
+                if kind == "proposal":
+                    keys_to_show = ['summary', 'approach', 'acceptance_checks', 'risks']
+                elif kind == "review":
+                    keys_to_show = ['verdict', 'score', 'reason', 'defects']
+                elif kind == "goal-analysis" or kind == "proposal":
+                    keys_to_show = ['complexity', 'risk_level', 'proposal_count', 'requires_rework', 'protocols']
+                else:
+                    keys_to_show = list(output_value.keys())[:5]
+
+                field_idx = 1
+                for key in keys_to_show:
+                    if key in output_value:
+                        value = output_value[key]
+                        if isinstance(value, (list, tuple)):
+                            print(f"    {step_num}.5.{field_idx} {key}: [{len(value)} 项]", file=sys.stderr, flush=True)
+                            for i, item in enumerate(list(value)[:3]):
+                                item_str = str(item)[:70]
+                                if len(str(item)) > 70:
+                                    item_str += "..."
+                                print(f"      {step_num}.5.{field_idx}.{i+1} {item_str}", file=sys.stderr, flush=True)
+                            if len(value) > 3:
+                                print(f"      {step_num}.5.{field_idx}.{len(value[:3])+1} ... (还有 {len(value) - 3} 项)", file=sys.stderr, flush=True)
+                        else:
+                            value_str = str(value)[:65]
+                            if len(str(value)) > 65:
+                                value_str += "..."
+                            print(f"    {step_num}.5.{field_idx} {key}: {value_str}", file=sys.stderr, flush=True)
+                        field_idx += 1
+
+            hash_display = result.output_hash[:60] if len(result.output_hash) <= 60 else result.output_hash[:57] + "..."
+            print(f"  {step_num}.6 输出哈希: {hash_display}", file=sys.stderr, flush=True)
+
         evidence.calls.append(result)
         evidence.called_agents.add(agent.agent_id)
         return result
@@ -2539,6 +2903,26 @@ class TrueMultiAgentProductionRuntime:
         )
         analysis = GoalAnalysis.parse(result.value, self.policy)
         evidence.analysis = analysis
+
+        # 显示 Atlas 的任务分析结果
+        import sys
+        if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+            # 增加主步骤
+            evidence._step_counter[0] += 1
+            step_num = '.'.join(map(str, evidence._step_counter))
+
+            print("", file=sys.stderr, flush=True)
+            print(f"{step_num} Atlas 分析结果 → 传递给后续智能体", file=sys.stderr, flush=True)
+            print(f"  {step_num}.1 复杂度: {analysis.complexity}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.2 风险级别: {analysis.risk_level}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.3 需要提案者数量: {analysis.proposal_count} 个", file=sys.stderr, flush=True)
+            print(f"  {step_num}.4 需要修改循环: {'是' if analysis.requires_rework else '否'}", file=sys.stderr, flush=True)
+            protocols_str = str(list(analysis.protocols))
+            print(f"  {step_num}.5 协议: {protocols_str}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.6 理由: {analysis.rationale}", file=sys.stderr, flush=True)
+            print(f"  {step_num}.7 传递给: Cirrus (提案者) + Delta (审查者)", file=sys.stderr, flush=True)
+            print(f"  {step_num}.8 存储位置: evidence.analysis (所有后续智能体可访问)", file=sys.stderr, flush=True)
+
         run_stream.append(
             "goal-analysis-accepted",
             ({
@@ -2629,6 +3013,13 @@ class TrueMultiAgentProductionRuntime:
             if isinstance(readonly_evidence, Mapping)
             else {}
         )
+        workspace_path_names = _workspace_path_names(readonly_evidence)
+        # Atlas already judged complexity/risk.  Carry that judgement into the
+        # proposal prompt instead of printing it and dropping it: a proposer
+        # that cannot see "simple" will pad an under-specified goal up to the
+        # schema ceiling, and padding an under-specified goal is exactly how a
+        # one-line request turns into an invented migration task.
+        acceptance_ceiling = {"simple": 2, "standard": 4}.get(analysis.complexity, 8)
         proposal_decision, proposers = self._schedule(
             journal,
             run_stream,
@@ -2706,7 +3097,12 @@ class TrueMultiAgentProductionRuntime:
                     _require_string(value, key)
                 for key in ("risks", "assumptions"):
                     _require_text_or_strings(value, key, maximum=8)
-                _require_json_array_or_strings(value, "acceptance_checks", maximum=12)
+                _require_goal_bound_acceptance(
+                    value,
+                    goal=evidence.goal,
+                    workspace_names=workspace_path_names,
+                    maximum=acceptance_ceiling,
+                )
 
             result = self._call(
                 executor,
@@ -2719,13 +3115,23 @@ class TrueMultiAgentProductionRuntime:
                     "Return claim_id, evidence_hash, and answer_fragment for one satisfied required evidence claim; "
                     "answer_fragment must contain its exact value."
                     if readonly_mode else
-                    "Submit an independently reasoned proposal with summary, approach, risks, assumptions, and acceptance_checks. acceptance_checks must be a JSON string array; risks and assumptions may each be a concise string or string array."
+                    "Submit an independently reasoned proposal with summary, approach, risks, assumptions, and acceptance_checks. "
+                    f"acceptance_checks must be a JSON string array of at most {acceptance_ceiling} strings; "
+                    "risks and assumptions may each be a concise string or string array."
                 ),
                 prompt=(
                     ("Return a reviewed read-only answer grounded only in the required claims. " if readonly_mode else "Create an independent solution for this goal. Do not copy another Agent. ")
                     +
                     f"Goal: {evidence.goal}\nTask graph: {json.dumps(list(analysis.task_graph), ensure_ascii=False)}\n"
                     f"Frozen rubric hash: {rubric}\n"
+                    + (
+                        ""
+                        if readonly_mode else
+                        f"Assessed complexity: {analysis.complexity}. Assessed risk: {analysis.risk_level}. "
+                        f"Return at most {acceptance_ceiling} acceptance_checks and stop there; do not pad the list. "
+                        "Solve exactly the goal as written. Do not substitute a larger or different task, and do "
+                        "not introduce files the goal did not name unless the goal requires creating them.\n"
+                    )
                     + ("READONLY_CLAIMS_JSON=" + json.dumps(list(readonly_claims), ensure_ascii=False, sort_keys=True) + "\n" if readonly_mode else "")
                     + (
                         "Bounded read-only workspace evidence (bounded facts and excerpts; no execution authorization): "
@@ -2853,6 +3259,56 @@ class TrueMultiAgentProductionRuntime:
             if force_changes and (verdict != "changes_requested" or score >= int(self.policy["proposal_minimum_score"])):
                 raise DynamicCollaborationError("independent Reviewer failed to create the required rework path")
             review_defects = list(_require_strings(review.value, "defects", minimum=0, maximum=8))
+
+            # 显示 Delta 审查结果
+            import sys
+            if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+                # 增加主步骤
+                if not hasattr(evidence, '_step_counter'):
+                    evidence._step_counter = [0]
+                evidence._step_counter[0] += 1
+                step_num = '.'.join(map(str, evidence._step_counter))
+
+                print("", file=sys.stderr, flush=True)
+                verdict_icon = "✓" if verdict == "approved" else "!" if verdict == "changes_requested" else "✗"
+                verdict_display = {"approved": "通过", "changes_requested": "要求修改", "reject": "拒绝"}[verdict]
+                print(f"{step_num} Delta 审查结果: {verdict_display} [{verdict_icon}]", file=sys.stderr, flush=True)
+                print(f"  {step_num}.1 审查详情:", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.1 verdict: {verdict}", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.2 score: {score}/100", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.3 最低要求分数: {self.policy['proposal_minimum_score']}", file=sys.stderr, flush=True)
+
+                if force_changes:
+                    print(f"  {step_num}.2 [特殊状态] force_changes = True", file=sys.stderr, flush=True)
+                    print(f"    {step_num}.2.1 这是第一个提案，系统强制要求找出缺陷并返回 changes_requested", file=sys.stderr, flush=True)
+
+                reason_str = str(review.value.get("reason", ""))[:70]
+                if len(str(review.value.get("reason", ""))) > 70:
+                    reason_str += "..."
+                sub_step = 3 if force_changes else 2
+                print(f"  {step_num}.{sub_step} 理由: {reason_str}", file=sys.stderr, flush=True)
+
+                if review_defects:
+                    sub_step += 1
+                    print(f"  {step_num}.{sub_step} 发现的缺陷 ({len(review_defects)} 项):", file=sys.stderr, flush=True)
+                    for i, defect in enumerate(review_defects[:5], 1):
+                        defect_display = defect[:70] if len(defect) <= 70 else defect[:67] + "..."
+                        print(f"    {step_num}.{sub_step}.{i} {defect_display}", file=sys.stderr, flush=True)
+                    if len(review_defects) > 5:
+                        print(f"    {step_num}.{sub_step}.{len(review_defects[:5])+1} ... (还有 {len(review_defects) - 5} 项)", file=sys.stderr, flush=True)
+
+                sub_step += 1
+                print(f"  {step_num}.{sub_step} 下一步:", file=sys.stderr, flush=True)
+                if verdict == "approved":
+                    print(f"    {step_num}.{sub_step}.1 提案通过，进入 Forge 执行阶段", file=sys.stderr, flush=True)
+                elif verdict == "changes_requested":
+                    print(f"    {step_num}.{sub_step}.1 返回 Cirrus 修改提案后重新审查", file=sys.stderr, flush=True)
+                else:
+                    print(f"    {step_num}.{sub_step}.1 提案被拒绝，任务可能终止", file=sys.stderr, flush=True)
+
+            if force_changes and (verdict != "changes_requested" or score >= int(self.policy["proposal_minimum_score"])):
+                raise DynamicCollaborationError("independent Reviewer failed to create the required rework path")
+            review_defects = list(_require_strings(review.value, "defects", minimum=0, maximum=8))
             promoted_rejection = (
                 provider_verdict == "reject"
                 and code_mode_mutation_rework
@@ -2954,8 +3410,16 @@ class TrueMultiAgentProductionRuntime:
                         _require_string(value, "summary")
                     if "approach" in value:
                         _require_string(value, "approach")
-                    if "acceptance_checks" in value:
-                        _require_json_array_or_strings(value, "acceptance_checks", maximum=8)
+                    # A revision need not restate acceptance, but if it does it
+                    # is held to the same Atlas-derived ceiling as the original,
+                    # and either way its plan text must still target the goal.
+                    _require_goal_bound_acceptance(
+                        value,
+                        goal=evidence.goal,
+                        workspace_names=workspace_path_names,
+                        maximum=acceptance_ceiling,
+                        required=False,
+                    )
 
                 revision = self._call_with_bounded_contract_repair(
                     executor,
@@ -2968,15 +3432,17 @@ class TrueMultiAgentProductionRuntime:
                         "Revise the immutable parent. Required fields are exact parent_output_hash and one "
                         "defect_response per Review defect; each response may be a concise string or an object with "
                         "defect and response strings. summary, approach, and acceptance_checks are optional additions. "
-                        "If acceptance_checks is present, it must be a JSON array of at most eight strings only; encode "
+                        f"If acceptance_checks is present, it must be a JSON array of at most {acceptance_ceiling} strings only; encode "
                         "each condition and its named evidence together in one string, never as an object.\n\n"
                         + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
                     ),
                     prompt=(
                         f"Revise your exact parent proposal. Parent output hash: {result.output_hash}. "
                         f"Review output hash: {review.output_hash}. Defects: {json.dumps(review.value.get('defects', []), ensure_ascii=False)}. "
-                        "Return a new proposal object; never overwrite the parent. If you include acceptance_checks, "
-                        "return only strings such as 'Condition — Evidence: named item'; do not return objects.\n\n"
+                        f"Return a new proposal object; never overwrite the parent. If you include acceptance_checks, "
+                        f"return at most {acceptance_ceiling} strings such as 'Condition — Evidence: named item'; do not return objects. "
+                        f"IMPORTANT: Only mention files explicitly named in the goal: {evidence.goal}. "
+                        f"Do not introduce or reference any other files (like README, config files, etc.) in your revision.\n\n"
                         + PRE_EXECUTION_PROPOSAL_REVIEW_SCOPE
                     ),
                     context={
@@ -3054,6 +3520,11 @@ class TrueMultiAgentProductionRuntime:
                 provider_verdict = str(second_review.value["verdict"]).lower()
                 effective_verdict = "approved" if provider_verdict == "approved" else "reject"
                 second_review_accepted = provider_verdict == "approved"
+
+                # 调试审阅结果
+                import sys
+                if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+                    print(f"    → Delta 审阅结果: verdict={provider_verdict}, accepted={second_review_accepted}", file=sys.stderr, flush=True)
                 response_verdict = {
                     "approved": ReviewVerdict.ACCEPT,
                     "changes_requested": ReviewVerdict.NEEDS_CHANGES,
@@ -3180,6 +3651,8 @@ class TrueMultiAgentProductionRuntime:
                 proposal_decision,
                 analysis.risk_level,
                 overrides,
+                acceptance_ceiling,
+                workspace_path_names,
             )
             scores.update(debate_scores)
             dispositions.update(debate_dispositions)
@@ -3190,6 +3663,43 @@ class TrueMultiAgentProductionRuntime:
             for item in proposal.proposals
             if item.state is ProposalState.ACTIVE and dispositions.get(item.proposal_id) == "ACCEPT"
         ]
+
+        # 调试信息：显示提案审核结果
+        import sys
+        if hasattr(evidence, '_interactive_chat') and evidence._interactive_chat:
+            # 统计 Agent 调用次数
+            from collections import Counter
+            agent_calls = Counter()
+            for call in evidence.calls:
+                agent_id = call.agent_id.replace('agent-', '').title()
+                agent_calls[agent_id] += 1
+
+            print(f"\n  📊 Agent 调用统计", file=sys.stderr, flush=True)
+            for agent_name, count in sorted(agent_calls.items()):
+                print(f"    {agent_name}: {count} 次", file=sys.stderr, flush=True)
+
+            print(f"\n  📋 提案审核汇总", file=sys.stderr, flush=True)
+            print(f"    提交的提案: {len(proposal.proposals)} 个", file=sys.stderr, flush=True)
+
+            # 统计各种状态
+            accept_count = sum(1 for p in proposal.proposals if dispositions.get(p.proposal_id) == "ACCEPT")
+            reject_count = sum(1 for p in proposal.proposals if dispositions.get(p.proposal_id) == "REJECT")
+            changes_requested_count = sum(1 for p in proposal.proposals if dispositions.get(p.proposal_id) == "CHANGES_REQUESTED")
+
+            print(f"    审核通过: {accept_count} 个 ✓", file=sys.stderr, flush=True)
+            if reject_count > 0:
+                print(f"    审核拒绝: {reject_count} 个 ✗", file=sys.stderr, flush=True)
+            if changes_requested_count > 0:
+                print(f"    要求修改: {changes_requested_count} 个 ⚠", file=sys.stderr, flush=True)
+            print(f"    可选择提案: {len(eligible)} 个", file=sys.stderr, flush=True)
+
+            # 显示每个提案的详细状态
+            for idx, prop in enumerate(proposal.proposals, 1):
+                disp = dispositions.get(prop.proposal_id, "UNKNOWN")
+                score = scores.get(prop.proposal_id, 0)
+                status_icon = "✓" if disp == "ACCEPT" else "✗" if disp == "REJECT" else "⚠" if disp == "CHANGES_REQUESTED" else "?"
+                print(f"      [{idx}] {status_icon} {disp} (score: {score}, state: {prop.state.name})", file=sys.stderr, flush=True)
+
         if not eligible:
             no_selection = proposal.no_selection(
                 "ARBITRATION" if "arbitration" in analysis.protocols else "CANCEL",
@@ -3340,6 +3850,8 @@ class TrueMultiAgentProductionRuntime:
         source_decision: AgentSchedulingDecision,
         risk_level: str,
         overrides: Mapping[str, Any],
+        acceptance_ceiling: int,
+        workspace_path_names: frozenset[str],
     ) -> tuple[
         ProposalRound,
         list[AgentCallResult],
@@ -3459,7 +3971,14 @@ class TrueMultiAgentProductionRuntime:
                 _require_string(value, "summary")
                 _require_exact_parent_output_hash(value, parent.output_hash)
                 _require_response_items(value, "responses_to_objections", maximum=8)
-                _require_json_array_or_strings(value, "acceptance_checks", maximum=8)
+                # Answering every objection is not the same as still solving the
+                # original goal.  A negotiated revision is held to both.
+                _require_goal_bound_acceptance(
+                    value,
+                    goal=evidence.goal,
+                    workspace_names=workspace_path_names,
+                    maximum=acceptance_ceiling,
+                )
 
             revised = self._call_with_bounded_contract_repair(
                 executor,
@@ -8215,20 +8734,22 @@ class TrueMultiAgentProductionRuntime:
                 "root_present": True,
                 "workspace_observation_after_hash": pending_observation_hash,
             })
-        if tester_evidence.get("accepted") is not True or type(tester_evidence.get("runner_return_code")) is not int or tester_evidence.get("runner_return_code") != 0:
+        # Both an executed test suite and an artifact readback are real
+        # verifications, and they seal different field names.  Normalize once
+        # here rather than reading test-suite fields directly: an unrecognized
+        # schema, or evidence whose own counts fail its invariants, yields None
+        # and is rejected instead of silently becoming a null-valued receipt.
+        tester_facts = _verification_facts(tester_evidence)
+        if tester_facts is None:
             raise DynamicCollaborationError("Code Mode Tester evidence is not a passing verification")
-        tester_passed = (
-            tester_evidence.get("accepted") is True
-            and type(tester_evidence.get("runner_return_code")) is int
-            and tester_evidence.get("runner_return_code") == 0
-        )
+        if tester_facts["return_code"] != 0:
+            raise DynamicCollaborationError("Code Mode Tester evidence is not a passing verification")
         tester = {
-            "status": "passed" if tester_passed else "failed",
-            "return_code": tester_evidence.get("runner_return_code"),
+            "status": "passed",
+            "return_code": tester_facts["return_code"],
+            "verification_kind": tester_facts["verification_kind"],
             "evidence_hash": tester_hash,
         }
-        if not tester_passed:
-            raise DynamicCollaborationError("Code Mode Tester evidence is not a passing verification")
         # This is the execution-loop review performed by the registered
         # reviewer agent.  It is not the final Code Mode review: the latter is
         # the controller-bound TTY/Gate decision and is intentionally absent
@@ -8438,14 +8959,20 @@ class TrueMultiAgentProductionRuntime:
             "interpreter": str(tester_evidence.get("python_executable_hash") or ""),
             "dependencies": {"sandbox_policy_hash": tester_evidence.get("sandbox_policy_hash")},
             "cwd": tester_evidence.get("cwd"),
-            "return_code": tester_evidence.get("runner_return_code"),
-            "failures": tester_evidence.get("failed_test_count"),
-            "errors": tester_evidence.get("error_test_count"),
-            "skipped": tester_evidence.get("skipped_test_count"),
-            "unexpected_successes": tester_evidence.get("unexpected_success_count"),
+            # Projected from the normalized facts, so an artifact readback
+            # reports its own observed counts instead of writing null for
+            # every test-suite field it does not have.
+            "verification_kind": tester_facts["verification_kind"],
+            "verified_unit_count": tester_facts["verified_unit_count"],
+            "execution_performed": tester_facts["execution_performed"],
+            "return_code": tester_facts["return_code"],
+            "failures": tester_facts["failures"],
+            "errors": tester_facts["errors"],
+            "skipped": tester_facts["skipped"],
+            "unexpected_successes": tester_facts["unexpected_successes"],
             "output_summary": {
-                "stdout_hash": tester_evidence.get("stdout_hash"),
-                "stderr_hash": tester_evidence.get("stderr_hash"),
+                "stdout_hash": tester_facts["stdout_hash"],
+                "stderr_hash": tester_facts["stderr_hash"],
             },
             "expires_at": int(time.time()) + 120,
         }
@@ -8666,6 +9193,16 @@ class TrueMultiAgentProductionRuntime:
         independent read-only verification of the ACTUAL diff (H11/H12), bounded
         rework with per-attempt isolation (H6). Borrows the orchestrator journal
         (no second writer lock). Returns a formal ExecutionResult."""
+
+        # 添加执行开始标记
+        import sys
+        import time
+        interactive_chat = hasattr(evidence, '_interactive_chat') and evidence._interactive_chat
+        exec_start_time = time.time()
+
+        if interactive_chat:
+            print(f"  [6.1/6] 开始执行准备... ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
         from sitina.extensions.runtime import (
             AutonomousRuntime,
             BoundedToolTurnClient,
@@ -8712,6 +9249,36 @@ class TrueMultiAgentProductionRuntime:
         proposal = winner.value if isinstance(winner.value, Mapping) else {}
         approach = str(proposal.get("approach") or proposal.get("summary") or "")
         acceptance = proposal.get("acceptance_checks") or []
+
+        # 显示提案提取和传递
+        if interactive_chat:
+            # 增加主步骤
+            if not hasattr(evidence, '_step_counter'):
+                evidence._step_counter = [0]
+            evidence._step_counter[0] += 1
+            step_num = '.'.join(map(str, evidence._step_counter))
+
+            print("", file=sys.stderr, flush=True)
+            print(f"{step_num} 从 Cirrus 提案中提取信息 → 传递给 Forge & Tester", file=sys.stderr, flush=True)
+            print(f"  {step_num}.1 来源: Cirrus 的 proposal 对象", file=sys.stderr, flush=True)
+
+            # 显示 approach
+            approach_display = approach[:70] if len(approach) <= 70 else approach[:67] + "..."
+            print(f"  {step_num}.2 实现方法 (approach):", file=sys.stderr, flush=True)
+            print(f"    {step_num}.2.1 {approach_display}", file=sys.stderr, flush=True)
+
+            print(f"  {step_num}.3 验收标准 (acceptance_checks): {len(acceptance)} 项", file=sys.stderr, flush=True)
+            for i, check in enumerate(acceptance[:5], 1):
+                check_display = check[:70] if len(check) <= 70 else check[:67] + "..."
+                print(f"    {step_num}.3.{i} {check_display}", file=sys.stderr, flush=True)
+
+            if len(acceptance) > 5:
+                print(f"    {step_num}.3.{len(acceptance[:5])+1} ... (还有 {len(acceptance) - 5} 项)", file=sys.stderr, flush=True)
+
+            print(f"  {step_num}.4 传递路径:", file=sys.stderr, flush=True)
+            print(f"    {step_num}.4.1 approach → Forge (执行指导)", file=sys.stderr, flush=True)
+            print(f"    {step_num}.4.2 acceptance_checks → Tester (验证标准)", file=sys.stderr, flush=True)
+            print(f"    {step_num}.4.3 acceptance_checks → Reviewer (最终审核标准)", file=sys.stderr, flush=True)
         policy_hash_64 = self.policy_hash.removeprefix("sha256:")
         # FIX2 (identity model): the 8 registry agents are ALL read-only,
         # provider-text-only — Forge included (it is the FAST synthesis agent,
@@ -8741,6 +9308,18 @@ class TrueMultiAgentProductionRuntime:
         selected_workspace = Path(raw_workspace).expanduser().resolve(strict=True)
         if not selected_workspace.is_dir() or selected_workspace.is_symlink():
             raise DynamicCollaborationError("selected execution workspace must be a real directory")
+
+        # 检测：如果是主目录且文件很多，给出警告
+        home_dir = Path.home()
+        if selected_workspace == home_dir:
+            if interactive_chat:
+                print(f"  [6.1.0.1/6] ⚠️  检测到 workspace 是主目录: {selected_workspace}", file=sys.stderr, flush=True)
+                print(f"  [6.1.0.2/6] ⚠️  扫描主目录可能很慢且消耗大量内存", file=sys.stderr, flush=True)
+                print(f"  [6.1.0.3/6] 💡 建议：cd 到一个小目录后再运行 sitina", file=sys.stderr, flush=True)
+
+        if interactive_chat:
+            print(f"  [6.1.1/6] Workspace 已验证: {selected_workspace} ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
         # The public CLI carries the authenticated conversation binding in the
         # outer controls envelope.  Keep the live Forge path on that same
         # binding; never infer it from a caller-supplied payload or leave the
@@ -8769,9 +9348,14 @@ class TrueMultiAgentProductionRuntime:
             if str(code_mode_authorization.get("session_id") or "").strip() != str(controls.get("conversation_session_id") or "").strip():
                 raise DynamicCollaborationError("Code Mode session authorization binding mismatch")
             authorizer = getattr(self, "_code_mode_authorizer", None)
+            # Every authorization must be validated against the issuing gate.
+            # The fields checked above are all self-reported by the same dict,
+            # so validate_issued_authorization is the only real check here;
+            # there is deliberately no branch that lets a caller-supplied
+            # marker skip it.
             if authorizer is None or not callable(getattr(authorizer, "validate_issued_authorization", None)):
                 raise DynamicCollaborationError("Code Mode authorization issuer is not bound to this runtime")
-            if not authorizer.validate_issued_authorization(
+            elif not authorizer.validate_issued_authorization(
                 code_mode_authorization,
                 mode=str(code_mode_authorization.get("mode") or ""),
                 message=intent_text,
@@ -8779,7 +9363,45 @@ class TrueMultiAgentProductionRuntime:
                 workspace=selected_workspace,
             ):
                 raise DynamicCollaborationError("Code Mode authorization is not an issued current-session capability")
-        target_baseline = WorkspaceBaseline.capture(selected_workspace)
+
+        if interactive_chat:
+            print(f"  [6.1.2/6] 授权验证通过，准备工作区... ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
+        if interactive_chat:
+            import os
+            # 估算工作区文件数量
+            print(f"  [6.1.2.1/6] 正在分析工作区: {selected_workspace}", file=sys.stderr, flush=True)
+            try:
+                # 快速估算文件数（最多扫描 1000 个）
+                file_count = 0
+                for root, dirs, files in os.walk(selected_workspace):
+                    file_count += len(files)
+                    if file_count > 1000:
+                        print(f"  [6.1.2.2/6] ⚠ 工作区包含 >1000 个文件，这可能很慢", file=sys.stderr, flush=True)
+                        break
+                else:
+                    print(f"  [6.1.2.2/6] 工作区包含约 {file_count} 个文件", file=sys.stderr, flush=True)
+            except:
+                pass
+
+        # The baseline is always captured.  An empty baseline would make
+        # expected_hash() return None for every path, which disables the
+        # concurrent-change check and turns rollback into deletion rather than
+        # restoration (see WorkspaceBaseline.restore: a missing record unlinks
+        # the file).  Scan depth may be bounded for simple goals; the records
+        # themselves may not be skipped.
+        scan_depth = None
+        goal_analysis = getattr(evidence, "analysis", None)
+        if goal_analysis is not None and getattr(goal_analysis, "complexity", None) == "simple":
+            scan_depth = 1
+            if interactive_chat:
+                print(f"  [6.1.2.3/6] 简单任务：基线扫描限制为一层目录", file=sys.stderr, flush=True)
+
+        target_baseline = WorkspaceBaseline.capture(selected_workspace, max_depth=scan_depth)
+
+        if interactive_chat:
+            print(f"  [6.1.3/6] 工作区基线已捕获 ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
         use_worktree = _execution_isolation_required(evidence.goal, controls)
         worktree_manager = GitWorktreeManager(self.home)
         managed_worktree: Path | None = None
@@ -9957,9 +10579,162 @@ class TrueMultiAgentProductionRuntime:
                     provider_failure_settlement=executor.settle_failed_embedded_provider_call,
                     write_executor=worker_executor,
                 )
+
+                if interactive_chat:
+                    max_turns = int(self.policy.get("max_execution_turns", 16))
+                    print(f"    [6.1.4.1/6] Forge 尝试 #{attempt}: 最多 {max_turns} 轮对话 ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
                 self._exec_last_attempt = attempt
-                r = runtime.run_embedded(task, run_id=exec_run_id, journal_audit=audit)
+
+                # 记录 API 调用前的状态
+                forge_start_time = time.time()
+                if interactive_chat:
+                    print(f"    [6.1.4.2/6] Forge #{attempt} 开始执行... ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+                    print(f"      [详细] 工作区: {ws}", file=sys.stderr, flush=True)
+                    print(f"      [详细] 最大轮次: {int(self.policy.get('max_execution_turns', 16))}", file=sys.stderr, flush=True)
+                    print(f"      [详细] 任务内容长度: {len(task)} 字符", file=sys.stderr, flush=True)
+                    if effective_approach:
+                        print(f"      [详细] 方案: {effective_approach[:100]}...", file=sys.stderr, flush=True)
+                    if effective_acceptance:
+                        print(f"      [详细] 验收标准: {len(effective_acceptance)} 项", file=sys.stderr, flush=True)
+
+                def forge_progress(event: str, payload: Mapping[str, Any]) -> None:
+                    """Surface each Forge provider turn as it happens.
+
+                    The tool loop has always emitted these events; nothing was
+                    listening, so a 97-second Forge attempt showed one line and
+                    a status.  Printing them is what distinguishes "the model
+                    kept calling tools" from "every call failed".
+                    """
+                    if not interactive_chat:
+                        return
+                    turn = payload.get("turn")
+                    if event == "model_turn":
+                        print(
+                            f"        · 第 {turn} 轮: 请求 Provider…",
+                            file=sys.stderr, flush=True,
+                        )
+                    elif event == "tool_calls":
+                        names = ", ".join(str(item) for item in payload.get("tools") or ()) or "无"
+                        print(
+                            f"        · 第 {turn} 轮: 模型请求工具 [{names}]",
+                            file=sys.stderr, flush=True,
+                        )
+                    elif event == "tool_results":
+                        for item in payload.get("results") or ():
+                            if not isinstance(item, Mapping):
+                                continue
+                            state = str(item.get("status") or "")
+                            mark = "✓" if state == "ok" else "✗"
+                            line = f"        · 第 {turn} 轮: {mark} {item.get('name')} ({state})"
+                            if state != "ok":
+                                line += f" — {redact_text(str(item.get('detail') or ''))[:200]}"
+                            print(line, file=sys.stderr, flush=True)
+
+                r = runtime.run_embedded(
+                    task,
+                    run_id=exec_run_id,
+                    journal_audit=audit,
+                    status_callback=forge_progress,
+                )
+
+                if interactive_chat:
+                    forge_duration = time.time() - forge_start_time
+                    print(f"    [6.1.4.3/6] Forge #{attempt} 执行结束 (耗时: {forge_duration:.1f}s, {time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+                    # 显示 Forge 的执行结果
+                    if isinstance(r, Mapping):
+                        status = r.get('status', 'unknown')
+                        print(f"    [6.1.4.4/6] Forge #{attempt} 状态: {status}", file=sys.stderr, flush=True)
+                        # 显示所有可用的字段
+                        print(f"      [详细] 返回字段: {list(r.keys())}", file=sys.stderr, flush=True)
+                        # 显示详细信息
+                        if status == 'incomplete':
+                            print(f"      [详细] 原因: Forge 未完成任务", file=sys.stderr, flush=True)
+                            # ``_result`` carries the graceful-stop reason in
+                            # ``response``; it has no reason/turns_used/
+                            # final_message keys, so asking for those printed
+                            # nothing and made a turn-cap stop and a stuck-loop
+                            # stop look identical.  Report the keys that exist.
+                            stop_reason = redact_text(str(r.get('response') or ''))[:300]
+                            if stop_reason:
+                                print(f"      [详细] 停止原因: {stop_reason}", file=sys.stderr, flush=True)
+                            print(
+                                f"      [详细] Provider 轮次: {r.get('provider_call_count')}"
+                                f"/{int(self.policy.get('max_execution_turns', 16))}"
+                                f" | 工具调用: {r.get('tool_call_count')}"
+                                f" | 文件变更事件: {r.get('file_mutation_event_count')}",
+                                file=sys.stderr, flush=True,
+                            )
+                            failed_calls = [
+                                item for item in (r.get('tool_results') or [])
+                                if isinstance(item, Mapping) and item.get('status') != 'ok'
+                            ]
+                            if failed_calls:
+                                print(f"      [详细] 失败的工具调用 {len(failed_calls)} 次:", file=sys.stderr, flush=True)
+                                for item in failed_calls[:5]:
+                                    # The record seals the tool output under
+                                    # "result"; there is no "value" key here.
+                                    detail = redact_text(str(item.get('result') or item.get('status') or ''))[:200]
+                                    print(f"        - {item.get('name')}: {detail}", file=sys.stderr, flush=True)
+                            denied = r.get('denied_effect_attempt_count')
+                            unsupported = r.get('unsupported_file_operations')
+                            if denied or unsupported:
+                                print(
+                                    f"      [详细] 被拒绝的副作用: {denied} | 不支持的文件操作: {unsupported}",
+                                    file=sys.stderr, flush=True,
+                                )
+                            if 'stop_reason' in r:
+                                print(f"      [详细] 停止原因: {r.get('stop_reason')}", file=sys.stderr, flush=True)
+                        elif status == 'error':
+                            print(f"      [详细] 原因: Forge 执行出错", file=sys.stderr, flush=True)
+                            if 'error' in r:
+                                error_msg = str(r.get('error'))[:200]
+                                print(f"      [详细] 错误: {error_msg}", file=sys.stderr, flush=True)
+                            if 'error_type' in r:
+                                print(f"      [详细] 错误类型: {r.get('error_type')}", file=sys.stderr, flush=True)
+                        elif status == 'ok':
+                            print(f"      [详细] Forge 执行成功", file=sys.stderr, flush=True)
+                            # A successful tool loop still has to have changed
+                            # something.  ``turns_used``/``files_written`` are
+                            # not keys this result carries, so print the counts
+                            # it does: an "ok" with zero mutations is the shape
+                            # that later fails the boundary gate on an empty diff.
+                            print(
+                                f"      [详细] Provider 轮次: {r.get('provider_call_count')}"
+                                f" | 工具调用: {r.get('tool_call_count')}"
+                                f" | 文件变更事件: {r.get('file_mutation_event_count')}"
+                                f" | 变更路径数: {r.get('unique_mutated_path_count')}",
+                                file=sys.stderr, flush=True,
+                            )
+                            mutated = [
+                                str(item.get('path'))
+                                for item in (r.get('mutation_events') or ())
+                                if isinstance(item, Mapping) and item.get('path')
+                            ]
+                            if mutated:
+                                print(f"      [详细] 已变更: {', '.join(mutated[:5])}", file=sys.stderr, flush=True)
+                            else:
+                                print(
+                                    "      [详细] ⚠️  未观测到任何文件变更（空 diff 会在边界关卡被拒绝）",
+                                    file=sys.stderr, flush=True,
+                                )
+                            if r.get('denied_effect_attempt_count') or r.get('unsupported_file_operations'):
+                                print(
+                                    f"      [详细] 被拒绝的副作用: {r.get('denied_effect_attempt_count')}"
+                                    f" | 不支持的文件操作: {r.get('unsupported_file_operations')}",
+                                    file=sys.stderr, flush=True,
+                                )
+                        if 'external_mutation_count' in r:
+                            print(f"      [详细] external_mutation_count: {r.get('external_mutation_count')}", file=sys.stderr, flush=True)
+                    else:
+                        print(f"    [6.1.4.4/6] Forge #{attempt} 返回类型异常: {type(r)}", file=sys.stderr, flush=True)
+
             except Exception as error:
+                if interactive_chat:
+                    print(f"    [6.1.4.4/6] ⚠️  Forge #{attempt} 抛出异常", file=sys.stderr, flush=True)
+                    print(f"      [详细] 异常类型: {type(error).__name__}", file=sys.stderr, flush=True)
+                    print(f"      [详细] 异常消息: {str(error)[:200]}", file=sys.stderr, flush=True)
+
                 # Keep Forge failures inside the bounded execution bridge so
                 # Tester/rework evidence is still produced.  Only typed error
                 # identity is persisted; exception text never enters
@@ -10351,22 +11126,11 @@ class TrueMultiAgentProductionRuntime:
                     "denied_effect_attempt_count": forge_result.get("denied_effect_attempt_count"),
                     "external_mutation_count": forge_result.get("external_mutation_count"),
                 },
-                "tester": {
-                    "accepted": test_evidence.get("accepted"),
-                    "collected_test_count": test_evidence.get("collected_test_count"),
-                    "executed_test_count": test_evidence.get("executed_test_count"),
-                    "passed_test_count": test_evidence.get("passed_test_count"),
-                    "failed_test_count": test_evidence.get("failed_test_count"),
-                    "skipped_test_count": test_evidence.get("skipped_test_count"),
-                    "error_test_count": test_evidence.get("error_test_count"),
-                    "runner_return_code": test_evidence.get("runner_return_code"),
-                    "timed_out": test_evidence.get("timed_out"),
-                    "diff_hash_before": test_evidence.get("diff_hash_before"),
-                    "diff_hash_after": test_evidence.get("diff_hash_after"),
-                    "target_hashes": test_evidence.get("target_hashes"),
-                    "evidence_ref": test_evidence_ref,
-                    "evidence_hash": test_evidence_hash,
-                },
+                "tester": _reviewer_tester_evidence(
+                    test_evidence,
+                    evidence_ref=test_evidence_ref,
+                    evidence_hash=test_evidence_hash,
+                ),
                 "patch_manifest": manifest,
                 "patch_manifest_ref": manifest_receipt.object_ref.reference_id,
                 "patch_manifest_hash": manifest_hash,
@@ -10379,6 +11143,41 @@ class TrueMultiAgentProductionRuntime:
             # Delegating to extracted helper for testability (eliminates mirror drift)
             from sitina.orchestrator.execution_verification import verify_execution_diff
             from sitina.orchestrator.execution_sandbox import CASTestEvidencePublisher
+
+            attempt = int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1))
+
+            if interactive_chat:
+                # 增加主步骤
+                if not hasattr(evidence, '_step_counter'):
+                    evidence._step_counter = [0]
+                evidence._step_counter[0] += 1
+                step_num = '.'.join(map(str, evidence._step_counter))
+
+                print("", file=sys.stderr, flush=True)
+                print(f"{step_num} Tester 验证阶段 - 接收 Forge 执行结果", file=sys.stderr, flush=True)
+                print(f"  {step_num}.1 从 Forge 接收的信息:", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.1 状态: {forge_result.get('status')}", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.2 终端状态: {forge_result.get('terminal_state')}", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.3 修改的文件数: {len(diff_paths)}", file=sys.stderr, flush=True)
+
+                if diff_paths:
+                    print(f"    {step_num}.1.4 修改的文件:", file=sys.stderr, flush=True)
+                    for i, path in enumerate(list(diff_paths)[:3], 1):
+                        path_display = str(path)[-65:] if len(str(path)) > 65 else str(path)
+                        print(f"      {step_num}.1.4.{i} {path_display}", file=sys.stderr, flush=True)
+                    if len(diff_paths) > 3:
+                        print(f"      {step_num}.1.4.{len(diff_paths[:3])+1} ... (还有 {len(diff_paths) - 3} 个文件)", file=sys.stderr, flush=True)
+
+                print(f"  {step_num}.2 从 Cirrus 接收的验收标准 ({len(acceptance)} 项):", file=sys.stderr, flush=True)
+                for i, check in enumerate(acceptance[:3], 1):
+                    check_display = check[:70] if len(check) <= 70 else check[:67] + "..."
+                    print(f"    {step_num}.2.{i} {check_display}", file=sys.stderr, flush=True)
+
+                if len(acceptance) > 3:
+                    print(f"    {step_num}.2.{len(acceptance[:3])+1} ... (还有 {len(acceptance) - 3} 项)", file=sys.stderr, flush=True)
+
+                print(f"  {step_num}.3 开始验证...", file=sys.stderr, flush=True)
+
             verdict = verify_execution_diff(
                 diff_paths,
                 verifier_id,
@@ -10404,18 +11203,75 @@ class TrueMultiAgentProductionRuntime:
                 ),
                 evidence_publisher=CASTestEvidencePublisher(cas, context.provider),
                 worker_executor=attempt_workers.get(int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1))),
+                acceptance_checks=acceptance,
             )
+
+            if interactive_chat:
+                # 增加主步骤
+                if not hasattr(evidence, '_step_counter'):
+                    evidence._step_counter = [0]
+                evidence._step_counter[0] += 1
+                step_num = '.'.join(map(str, evidence._step_counter))
+
+                print("", file=sys.stderr, flush=True)
+                verdict_icon = "✓" if verdict.accepted else "✗"
+                verdict_text = "通过" if verdict.accepted else "拒绝"
+                print(f"{step_num} Tester 验证结果: {verdict_text} [{verdict_icon}]", file=sys.stderr, flush=True)
+                print(f"  {step_num}.1 验证详情:", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.1 accepted: {verdict.accepted}", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.2 checked_diff: {verdict.checked_diff}", file=sys.stderr, flush=True)
+                print(f"    {step_num}.1.3 checked_tests: {verdict.checked_tests}", file=sys.stderr, flush=True)
+                verifier_display = verdict.verifier_id[:60] if len(verdict.verifier_id) <= 60 else verdict.verifier_id[:57] + "..."
+                print(f"    {step_num}.1.4 verifier_id: {verifier_display}", file=sys.stderr, flush=True)
+
+                if verdict.test_evidence_ref:
+                    ref_display = verdict.test_evidence_ref[:60] if len(verdict.test_evidence_ref) <= 60 else verdict.test_evidence_ref[:57] + "..."
+                    print(f"    {step_num}.1.5 证据引用: {ref_display}", file=sys.stderr, flush=True)
+                else:
+                    print(f"    {step_num}.1.5 证据引用: None (未生成可验证证据对象)", file=sys.stderr, flush=True)
+
+                if not verdict.accepted and verdict.reasons:
+                    print(f"  {step_num}.2 拒绝原因:", file=sys.stderr, flush=True)
+                    for i, reason in enumerate(list(verdict.reasons)[:5], 1):
+                        reason_display = str(reason)[:70] if len(str(reason)) <= 70 else str(reason)[:67] + "..."
+                        print(f"    {step_num}.2.{i} {reason_display}", file=sys.stderr, flush=True)
+                    if len(verdict.reasons) > 5:
+                        print(f"    {step_num}.2.{len(verdict.reasons[:5])+1} ... (还有 {len(verdict.reasons) - 5} 条)", file=sys.stderr, flush=True)
+
+                sub_step = 3 if not verdict.accepted and verdict.reasons else 2
+                print(f"  {step_num}.{sub_step} 下一步:", file=sys.stderr, flush=True)
+                if verdict.accepted:
+                    print(f"    {step_num}.{sub_step}.1 传递给 Reviewer (最终审核)", file=sys.stderr, flush=True)
+                else:
+                    print(f"    {step_num}.{sub_step}.1 由于验证失败，可能触发 replan (重新规划)", file=sys.stderr, flush=True)
+
             if not verdict.accepted:
                 return verdict
 
             attempt = int(forge_result.get("attempt") or getattr(self, "_exec_last_attempt", 1))
-            artifact = _prepare_review_artifact(attempt, diff_paths, forge_result, verdict)
+
+            if interactive_chat:
+                print(f"      [6.1.5.5.1/6] 准备 Reviewer 证据...", file=sys.stderr, flush=True)
+
+            try:
+                artifact = _prepare_review_artifact(attempt, diff_paths, forge_result, verdict)
+            except Exception as e:
+                if interactive_chat:
+                    print(f"      [6.1.5.5.2/6] ⚠️  准备证据失败: {type(e).__name__}: {str(e)[:100]}", file=sys.stderr, flush=True)
+                raise
+
+            if interactive_chat:
+                print(f"      [6.1.5.5.3/6] 证据已准备，调用 Reviewer Agent...", file=sys.stderr, flush=True)
 
             # This is the sole post-execution Reviewer for this attempt.  It
             # runs only after the independent Tester and after an immutable
             # manifest has been published.  A rejection is returned through
             # the bridge, which performs rollback and Planner replan without
             # resetting the bounded attempt budget.
+
+            if interactive_chat:
+                print(f"      [6.1.5.5.4/6] 开始调用 Reviewer Agent (reviewer_id={reviewer_id})...", file=sys.stderr, flush=True)
+
             try:
                 review = self._call(
                     executor,
@@ -10434,8 +11290,12 @@ class TrueMultiAgentProductionRuntime:
                     prompt=(
                         "Independently review this execution evidence for this exact attempt after "
                         "independent Tester verification. Accept only when the actual diff, Tester "
-                        "evidence, immutable patch manifest, and execution identity are mutually bound. "
-                        "Reject when the evidence is not safe and complete. The verified_evidence object below is "
+                        "evidence, immutable patch manifest, and execution identity are mutually bound, "
+                        "AND the execution satisfies all original acceptance criteria. "
+                        "The acceptance_checks below are the original requirements from the Proposer; "
+                        "verify that the actual changes fulfill them. "
+                        "Reject when the evidence is not safe and complete, or when acceptance criteria are not met. "
+                        "The verified_evidence object below is "
                         "reopened from immutable CAS objects after deterministic validation; inspect its concrete "
                         "test counts, mutation accounting, changed entries, content hashes, and identity bindings "
                         "instead of treating their top-level hashes as missing evidence. Return exactly this JSON "
@@ -10448,6 +11308,7 @@ class TrueMultiAgentProductionRuntime:
                                 "run_id": evidence.run_id,
                                 "execution_attempt_id": artifact["execution_attempt_id"],
                                 "attempt": attempt,
+                                "acceptance_checks": list(acceptance),
                                 "diff_paths": list(diff_paths),
                                 "tester_evidence_hash": verdict.test_evidence_hash,
                                 "tester_verdict_hash": verdict.verdict_hash,
@@ -10477,9 +11338,27 @@ class TrueMultiAgentProductionRuntime:
             except Exception as error:
                 review = None
                 review_error_hash = sha256_bytes(type(error).__name__.encode("utf-8"))
+                # The hash is one-way, so on its own it cannot distinguish a
+                # crash in this module from a reviewer that read the diff and
+                # said no.  Keep the redacted message: a review that raised is
+                # a defect to fix, not a verdict to act on.
+                review_error_detail = redact_text(f"{type(error).__name__}: {error}")[:400]
             else:
                 review_error_hash = ""
+                review_error_detail = ""
             if review is None or str(review.value.get("decision") or "").casefold() != "accept":
+                if interactive_chat:
+                    if review_error_detail:
+                        print(f"      [6.1.5.6/6] Reviewer 审核未完成（内部错误，非拒绝）", file=sys.stderr, flush=True)
+                        print(f"        - 错误: {review_error_detail}", file=sys.stderr, flush=True)
+                    else:
+                        print(f"      [6.1.5.6/6] Reviewer 审核结果: REJECTED", file=sys.stderr, flush=True)
+                        if review and review.value.get("reason"):
+                            reason = str(review.value.get("reason"))[:200]
+                            print(f"        - 拒绝原因: {reason}", file=sys.stderr, flush=True)
+                        else:
+                            print(f"        - 拒绝原因: 未提供", file=sys.stderr, flush=True)
+
                 reason_hash = review_error_hash or sha256_bytes(
                     str(review.value.get("reason") or "review rejected").encode("utf-8")
                 )
@@ -10572,6 +11451,18 @@ class TrueMultiAgentProductionRuntime:
                 },),
                 actor=reviewer_id,
             )
+
+            if interactive_chat:
+                print(f"      [6.1.5.6/6] Reviewer 审核结果: ACCEPTED ✓", file=sys.stderr, flush=True)
+                # An acceptance is the point where the run stops being
+                # reversible, so record what the reviewer says it checked
+                # rather than only that it agreed.
+                print(f"        - 审阅者: {reviewer_id}", file=sys.stderr, flush=True)
+                accept_reason = str(review.value.get("reason") or "").strip()
+                if accept_reason:
+                    print(f"        - 结论: {redact_text(accept_reason)[:300]}", file=sys.stderr, flush=True)
+                for item in review.value.get("evidence_checks") or ():
+                    print(f"        - 已核查: {redact_text(str(item))[:200]}", file=sys.stderr, flush=True)
             return verdict
 
         def rollback(attempt: int) -> None:
@@ -10784,6 +11675,9 @@ class TrueMultiAgentProductionRuntime:
             replan_context[attempt] = record
             return record
 
+        if interactive_chat:
+            print(f"  [6.1.4/6] 开始调用 Forge 执行引擎... ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+
         result = run_safe_execution(
             binding=binding, executor_id=executor_id, workspace=str(execution_root),
             forge_runner=forge_runner, collect_diff=collect_diff,
@@ -10792,6 +11686,19 @@ class TrueMultiAgentProductionRuntime:
             replan=replan,
             original_plan_hash=original_execution_plan_hash,
         )
+
+        if interactive_chat:
+            print(f"  [6.1.5/6] Forge 执行完成，开始验证... ({time.strftime('%H:%M:%S')})", file=sys.stderr, flush=True)
+            # 显示初始验证状态
+            print(f"    [6.1.5.1/6] 初始状态: accepted={result.accepted}, status={result.status}", file=sys.stderr, flush=True)
+            # 显示尝试结果
+            for attempt_num, attempt_result in attempt_results.items():
+                print(f"    [6.1.5.2/6] 尝试 #{attempt_num} 结果:", file=sys.stderr, flush=True)
+                print(f"      - 状态: {attempt_result.get('status', 'unknown')}", file=sys.stderr, flush=True)
+                print(f"      - 外部修改: {attempt_result.get('external_mutation_count', 0)}", file=sys.stderr, flush=True)
+                if 'files_written' in attempt_result:
+                    print(f"      - 写入文件: {attempt_result.get('files_written', [])}", file=sys.stderr, flush=True)
+
         if not result.accepted and managed_worktree is not None:
             cleanup_report = worktree_manager.cleanup(
                 str(selected_workspace), str(managed_worktree), evidence.run_id
@@ -10857,6 +11764,9 @@ class TrueMultiAgentProductionRuntime:
         if result.accepted:
             accepted_runtime = attempt_results.get(result.attempts, {})
             if int(accepted_runtime.get("external_mutation_count", 0) or 0) != 0:
+                if interactive_chat:
+                    print(f"    [6.1.5.3/6] ⚠️  检测到外部修改，拒绝执行", file=sys.stderr, flush=True)
+                    print(f"      - 外部修改数量: {accepted_runtime.get('external_mutation_count', 0)}", file=sys.stderr, flush=True)
                 result = dataclasses.replace(
                     result,
                     status="rejected",
@@ -14677,6 +15587,21 @@ class TrueMultiAgentProductionRuntime:
         if not isinstance(goal, str) or not goal.strip():
             raise DynamicCollaborationError("true multi-agent execution requires a non-empty goal")
         controls = dict(overrides or {})
+
+        # Execution authorization is issued by the CodeModeGate through
+        # ConversationRuntime (see runtime.py, which calls
+        # code_mode_policy.authorize(...) and passes the issued token in
+        # controls["code_mode_authorization"]).  This orchestrator holds no
+        # gate instance and therefore cannot mint an authorization for itself:
+        # a self-issued token would only be as trustworthy as the code asking
+        # for it.  If no issued authorization reached us, Code Mode stays
+        # unauthorized and the run degrades to proposals instead of writes.
+
+        # 添加进度显示
+        import sys
+        interactive_chat = bool(controls.get("interactive_chat"))
+        if interactive_chat:
+            print("  [1/6] 初始化 MULTI 运行时环境...", file=sys.stderr, flush=True)
         # Code Mode authorization is a typed production input, not an
         # optional decoration of the run.  Validate its schema and derive the
         # non-secret projection before a context, Journal/CAS writer, or
@@ -14925,6 +15850,8 @@ class TrueMultiAgentProductionRuntime:
                         or self.home
                     ),
                 )
+            if interactive_chat:
+                print("  [2/6] 激活 Provider 连接...", file=sys.stderr, flush=True)
             activation = activate_runtime(
                 self.home, context, cas, self.registry, self.policy,
                 live_capability=controls.get("live_capability"),
@@ -14941,6 +15868,8 @@ class TrueMultiAgentProductionRuntime:
                 # missing runtime context before reaching activation).
                 source_root=getattr(self, "source_root", self.home),
             )
+            if interactive_chat:
+                print("  [3/6] Provider 已激活，准备调度 Agent...", file=sys.stderr, flush=True)
             if isinstance(code_mode_authorization, Mapping):
                 # Code Mode uses the typed in-memory execution facts object;
                 # generic RunEvidence remains confined to the legacy path.
@@ -14952,6 +15881,10 @@ class TrueMultiAgentProductionRuntime:
                 )
             else:
                 evidence = RunEvidence(run_id, goal, sha256_bytes(goal.encode()), self.policy_hash)
+
+            # 标记是否交互式聊天，用于进度显示
+            evidence._interactive_chat = interactive_chat
+
             if conversation_lifecycle is not None:
                 assert conversation_session_id is not None and conversation_turn_index is not None
                 conversation_lifecycle.link_run(
@@ -15058,6 +15991,8 @@ class TrueMultiAgentProductionRuntime:
                 ),
                 pre_provider_authorization=pre_provider_authorization,
             )
+            # 标记交互式聊天模式，用于调试输出
+            executor._interactive_chat = interactive_chat
         except BaseException as error:
             if conversation_lifecycle is not None and conversation_session_id is not None and conversation_turn_index is not None:
                 try:
@@ -15149,7 +16084,15 @@ class TrueMultiAgentProductionRuntime:
                     analysis = self._code_mode_analysis(analysis)
                 else:
                     analysis = self._interactive_chat_analysis(analysis)
-                    if not _execution_goal_authorized(evidence.goal, controls):
+                    execution_authorized = _execution_goal_authorized(evidence.goal, controls)
+
+                    # 调试执行授权
+                    if interactive_chat:
+                        print(f"  [DEBUG] execution_authorized={execution_authorized}", file=sys.stderr, flush=True)
+                        print(f"    intent_authorized={controls.get('intent_authorized')}", file=sys.stderr, flush=True)
+                        print(f"    code_mode_intent={controls.get('code_mode_intent')}", file=sys.stderr, flush=True)
+
+                    if not execution_authorized:
                         # Read-only MULTI is a reviewed analysis response. It
                         # must not implicitly enter Debate/Handoff (both are
                         # execution-adjacent protocols and can create writes).
@@ -15200,15 +16143,27 @@ class TrueMultiAgentProductionRuntime:
             winner, winner_agent, proposals, proposal_decision = self._proposal_and_review(
                 journal, run_stream, executor, evidence, analysis, controls
             )
+            if interactive_chat:
+                print("  [4/6] 提案审阅完成，准备生成用户响应...", file=sys.stderr, flush=True)
+
             if bool(controls.get("interactive_chat")):
+                if interactive_chat:
+                    print("  [4.1/6] 正在渲染用户响应...", file=sys.stderr, flush=True)
                 response = render_selected_user_response(winner.value)
                 if not response:
                     raise DynamicCollaborationError("selected chat proposal has no user-facing response")
                 evidence.user_response = response
                 evidence.user_response_agent_id = winner_agent.agent_id
                 evidence.user_response_output_hash = winner.output_hash
+                if interactive_chat:
+                    print("  [5/6] 用户响应已生成，准备执行或完成...", file=sys.stderr, flush=True)
+
             integrated_closure = _integrated_closure_required(evidence.goal)
             integrated_continuation: Mapping[str, Any] | None = None
+
+            if interactive_chat:
+                print(f"  [5.1/6] integrated_closure={integrated_closure}, protocols={list(analysis.protocols)[:3]}...", file=sys.stderr, flush=True)
+
             if "arbitration" in analysis.protocols:
                 self._arbitrate(
                     journal, run_stream, executor, evidence, analysis, proposals, winner, winner_agent, proposal_decision, controls
@@ -15344,6 +16299,16 @@ class TrueMultiAgentProductionRuntime:
             # Deterministic execution-goal decision (Req 1): NOT dependent on
             # whether Atlas emitted a "handoff" protocol.
             execution_goal = bool(self.policy.get("execution_bridge_enabled")) and _execution_goal_authorized(evidence.goal, controls)
+
+            if interactive_chat:
+                import sys
+                print(f"  [5.2/6] 执行决策检查", file=sys.stderr, flush=True)
+                print(f"    execution_bridge_enabled: {self.policy.get('execution_bridge_enabled')}", file=sys.stderr, flush=True)
+                print(f"    intent_authorized: {controls.get('intent_authorized')}", file=sys.stderr, flush=True)
+                print(f"    code_mode_intent: {controls.get('code_mode_intent')}", file=sys.stderr, flush=True)
+                print(f"    _execution_goal_authorized: {_execution_goal_authorized(evidence.goal, controls)}", file=sys.stderr, flush=True)
+                print(f"    execution_goal: {execution_goal}", file=sys.stderr, flush=True)
+
             if "checkpoint" in analysis.protocols or bool(controls.get("force_checkpoint_restart")):
                 # Req 8: an execution goal must never be resolved via a restart
                 # that skips the execution bridge — that would mark it done
@@ -15367,6 +16332,9 @@ class TrueMultiAgentProductionRuntime:
             # enforce migrated invariants (boundary redaction, independent
             # verify, bounded rework). Gated by execution_bridge_enabled.
             if execution_goal:
+                if interactive_chat:
+                    import sys
+                    print(f"  [6/6] 进入执行阶段...", file=sys.stderr, flush=True)
                 review_calls = [
                     item for item in evidence.calls
                     if item.value.get("kind") in {"review", "fresh_review"}
@@ -15382,6 +16350,62 @@ class TrueMultiAgentProductionRuntime:
                 exec_result = self._execute_winner(
                     context, journal, cas, run_stream, executor, evidence, winner, winner_agent, controls,
                 )
+
+                if interactive_chat:
+                    import sys
+                    print(f"  [6.2/6] 执行完成", file=sys.stderr, flush=True)
+                    print(f"    状态: {exec_result.status}", file=sys.stderr, flush=True)
+                    print(f"    接受: {exec_result.accepted}", file=sys.stderr, flush=True)
+                    print(f"    尝试次数: {exec_result.attempts}", file=sys.stderr, flush=True)
+                    # ``ExecutionResult`` has no files_written/rejection_reason/
+                    # validation_errors attributes, so the old hasattr probes
+                    # were always false and this block printed a header with
+                    # nothing under it.  Report the fields the result declares.
+                    print(
+                        f"    变更路径: {len(exec_result.diff_paths)}"
+                        f"{' -> ' + ', '.join(exec_result.diff_paths[:5]) if exec_result.diff_paths else ' (无文件变更)'}",
+                        file=sys.stderr, flush=True,
+                    )
+
+                    # 如果被拒绝，显示详细原因
+                    if not exec_result.accepted:
+                        print(f"", file=sys.stderr, flush=True)
+                        print(f"  ⚠️  执行被拒绝的原因分析：", file=sys.stderr, flush=True)
+                        # notes carries the per-attempt gate label, e.g.
+                        # "attempt1:scope_blocked" vs "attempt1:redaction_blocked";
+                        # without it the two blocked exits are indistinguishable.
+                        for note in exec_result.notes or ("(无 notes)",):
+                            print(f"    关卡记录: {redact_text(str(note))[:200]}", file=sys.stderr, flush=True)
+                        if exec_result.verification is not None:
+                            verification = exec_result.verification
+                            print(
+                                f"    验证: accepted={verification.accepted}"
+                                f" diff={verification.checked_diff} 测试/回读={verification.checked_tests}",
+                                file=sys.stderr, flush=True,
+                            )
+                            for reason in verification.reasons or ():
+                                print(f"    验证拒绝原因: {redact_text(str(reason))[:300]}", file=sys.stderr, flush=True)
+                        else:
+                            print("    验证: 未产生判定（在验证之前就已失败）", file=sys.stderr, flush=True)
+                        for entry in exec_result.attempt_ledger or ():
+                            if isinstance(entry, Mapping):
+                                print(
+                                    f"    尝试记录: " + redact_text(
+                                        ", ".join(f"{k}={v}" for k, v in list(entry.items())[:6])
+                                    )[:300],
+                                    file=sys.stderr, flush=True,
+                                )
+                        # 检查工作区是否有文件
+                        try:
+                            import os
+                            workspace_files = list(Path(selected_workspace).glob('*'))
+                            print(f"    工作区文件: {len(workspace_files)} 个", file=sys.stderr, flush=True)
+                            if workspace_files:
+                                for f in workspace_files[:5]:
+                                    print(f"      - {f.name}", file=sys.stderr, flush=True)
+                        except:
+                            pass
+
                 evidence.execution_result = exec_result.as_event()
                 if controls.get("_code_mode_managed_worktree_for_review") is True:
                     # Preserve this small lifecycle fact in the immutable
@@ -15421,6 +16445,11 @@ class TrueMultiAgentProductionRuntime:
                     )
             return terminal_result
         except Exception as error:
+            # 打印错误到终端（用于调试）
+            if interactive_chat:
+                print(f"\n  ✗ 执行失败: {type(error).__name__}", file=sys.stderr, flush=True)
+                print(f"     {str(error)[:200]}", file=sys.stderr, flush=True)
+
             # Session finalization occurs after the immutable run terminal. If
             # it fails, surface the reconciliation requirement; never attempt
             # a second run terminal transition.

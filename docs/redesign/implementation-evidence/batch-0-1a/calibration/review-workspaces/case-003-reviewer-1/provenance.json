@@ -1,0 +1,13 @@
+{
+  "source_file": "source.csv",
+  "source_sha256": "961f6b4699352048f643d15553148e35009420e00fcba351f79f49438a90697a",
+  "input_units": {
+    "time_s": "s",
+    "concentration_mg_L": "mg/L"
+  },
+  "transformation": "concentration_g_L = concentration_mg_L / 1000",
+  "plot_data_file": "plot-data.csv",
+  "plot_data_sha256": "625cc6fc530134056fa8d2a55513ea0f1e0cdebbfe85f17045cf1860f4ee488d",
+  "renderer": "render_plot.py",
+  "chart_file": "chart.png"
+}

@@ -1,0 +1,591 @@
+{
+  "schema": "SITINA_R4_BATCH_2_G3_LIVE_REPORT_V1",
+  "target_spec_version": "sitina-loop-v1-r4",
+  "spec_version": "sitina-loop-v1-r4",
+  "gate": "G3",
+  "claim": "BATCH_2_DEVELOPMENT_READY",
+  "generated_on": "2026-09-06",
+  "source_root": "/Users/moss/SitinaHub-r4-b0-1a",
+  "branch": "codex/sitina-r4-b0-1a",
+  "state_root": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+  "production_cutover": false,
+  "commit_performed": false,
+  "push_performed": false,
+  "merge_performed": false,
+  "batch_3_through_7_started": false,
+  "provider_calls_performed": 18,
+  "provider_call_count_scope": "Committed exact physical sends in the four selected live gate cases; two cancelled in-flight attempts are separately recorded as uncertain rather than falsely counted as exact zero or exact one.",
+  "uncertain_inflight_provider_attempts": 2,
+  "external_network_provider_calls_performed": true,
+  "provider_identity": {
+    "profile": "deepseek",
+    "endpoint": "https://api.deepseek.com",
+    "model": "deepseek-v4-pro",
+    "wire_protocol": "openai_chat_completions",
+    "context_capacity_tokens": 1000000,
+    "execution": {
+      "thinking_mode": "enabled",
+      "reasoning_effort": "low",
+      "max_output_tokens": 32768
+    },
+    "capacity_policy_sha256": "679386f7412cd4126e90fa79c1547d7efb4020f1ee5713ff36eb1fe9a43601c9",
+    "effective_provider_home_policy_sha256": "679386f7412cd4126e90fa79c1547d7efb4020f1ee5713ff36eb1fe9a43601c9",
+    "policy_copy_byte_identical": true,
+    "provenance_sha256": "9a38f4639a85dceb2cd6c2ffddc0714a0db3e3f62d3381bd33e9c66836149df8",
+    "effective_provider_home_provenance_sha256": "9a38f4639a85dceb2cd6c2ffddc0714a0db3e3f62d3381bd33e9c66836149df8",
+    "provenance_copy_byte_identical": true,
+    "official_sources": {
+      "thinking_and_tool_continuation": "https://api-docs.deepseek.com/guides/thinking_mode/",
+      "completion_and_length_finish_reason": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "context_and_output_capacity": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "32768_integration_default": "https://api-docs.deepseek.com/quick_start/agent_integrations/crush/"
+    }
+  },
+  "evidence_classes": {
+    "true_live_external_model": {
+      "description": "Real LoopTaskRunner tasks using the configured DeepSeek profile and external Provider endpoint.",
+      "selected_task_ids": [
+        "g3-live-a-005",
+        "g3-live-b-003",
+        "g3-live-control-correction-003",
+        "g3-live-a-004"
+      ]
+    },
+    "independent_local_http_transport": {
+      "description": "Supervisor-owned loopback HTTP fixtures using the stock client/worker and stable production sources; these prove exact wire and transport edge contracts but are not represented as external-model success.",
+      "real_external_provider_calls": 0
+    },
+    "deterministic_program_and_unit_contracts": {
+      "description": "Isolated program checks and pytest contracts; these do not substitute for the selected live cases."
+    }
+  },
+  "implemented_rules": [
+    "R10 bounded per-request assembly against the exact profile/endpoint/model/wire identity, with the complete serialized body admitted before dispatch",
+    "R10 task/session-bound history list/read operations over Journal/CAS sources with bounded UTF-8/base64 pages and recomputable projected-content hashes",
+    "R10 persistence of full tool/provider evidence with bounded receipts/references and optional old-group compaction in the provider-default/scripted mode; explicit DeepSeek thinking mode conservatively keeps every protocol-required complete assistant/tool/reasoning group and blocks admission rather than compacting or omitting it",
+    "R02/R05 input and control barriers across context assembly, Provider wait, program check, independent review and final acceptance",
+    "Provider thinking mode and reasoning-effort fields inside the protected OpenAI-compatible wire body",
+    "encrypted persistence and exact internal replay of Provider reasoning_content for tool-call continuation, with an explicit public-history projection that omits the raw private field",
+    "finish_reason=length fail-closed behavior for empty content, non-empty content, apparently valid tool calls and malformed tool calls, without dispatch or a same-limit retry",
+    "physical-send accounting that preserves a known completed send and reports post-worker timeout/EOF/cancellation as a lower bound plus uncertain attempts",
+    "independent reviewer instructions inside execution_context and the protected wire, plus a gate that requires successful bounded reads of every registered artifact/program/main/preflight source"
+  ],
+  "verified_rules": [
+    "A real 317750-byte long-material task persisted the large read, later recovered four bounded pages, retained early/middle/late/end facts and completed successfully under the 1M/32K thinking policy.",
+    "A real code-change task moved from an isolated failing preflight to a passing three-test program check, changed only the implementation file, and succeeded only after the reviewer read all four registered evidence sources and returned strict bare JSON.",
+    "A real mid-flight CORRECTION discarded the old Provider result, rebuilt against goal version 2/input sequence 1, retained the original marker and added the corrected marker before the only success terminal.",
+    "A real mid-flight CANCEL discarded the old Provider result, emitted no later operation intent, preserved the unchanged business snapshot and reached one CANCELLED terminal with no unknown effect.",
+    "All selected successful Provider results were admitted, had request-body hash equal to admitted-body hash, used no retry/fallback and retained exact physical-send counts.",
+    "The G2 100+ meaningful-round and at-least-three-compaction contract was verified with the scripted/provider-default mode. G3 does not claim a 100+ round real DeepSeek thinking-mode compaction run; thinking-mode protocol groups are instead preserved intact and accounted in admission.",
+    "Independent current-source loopback probes verified seven transport-count cases, four output-truncation shapes, private reasoning continuation/history projection, and registered reviewer instructions on the protected wire.",
+    "The full related Batch 1a/1b/2 regression suite passed after legacy scripted reviewer fixtures were updated to perform the newly required reads; no production guard was relaxed."
+  ],
+  "command_evidence": {
+    "common_environment": {
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "SITINA_HOME": "/Users/moss/SitinaHub-r4-b0-1a",
+      "SITINA_R4_DEV_ROOT": "/Users/moss/SitinaHub-r4-b0-1a",
+      "SITINA_PYTHON": "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python"
+    },
+    "entrypoint": "/Users/moss/SitinaHub-r4-b0-1a/bin/sitina-r4-dev",
+    "credentials_included": false,
+    "reproduction_safety": "These are records of commands already executed against durable task IDs. Do not rerun them with the same IDs; use a fresh task/workspace if reproducing.",
+    "records": [
+      {
+        "case": "A005-long-material",
+        "kind": "launch",
+        "argv_with_goal_text_omitted": [
+          "loop-task", "run",
+          "--state-root", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+          "--workspace", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-a-005",
+          "--task-id", "g3-live-a-005",
+          "--task-kind", "readonly",
+          "--provider-profile", "deepseek",
+          "--goal", "<task text omitted from report; bound by the durable g3-live-a-005 task record>"
+        ],
+        "durable_link": {"event_positions": [726, 755], "terminal_event_id": "task-terminal-f0d6d367dcc57eaf212615de6a23b6c3d3db0d88"}
+      },
+      {
+        "case": "B003-code-program-review",
+        "kind": "launch",
+        "argv_with_goal_text_omitted": [
+          "loop-task", "run",
+          "--state-root", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+          "--workspace", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-b-003",
+          "--task-id", "g3-live-b-003",
+          "--task-kind", "code_change",
+          "--provider-profile", "deepseek",
+          "--check-command-json", "[\"/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python\",\"-I\",\"-m\",\"unittest\",\"discover\",\"-s\",\".\",\"-p\",\"test_*.py\"]",
+          "--approve-writes",
+          "--goal", "<task text omitted from report; bound by the durable g3-live-b-003 task record>"
+        ],
+        "durable_link": {"event_positions": [688, 725], "terminal_event_id": "task-terminal-475332e4297373f6073809df9ffac96aff79c498"}
+      },
+      {
+        "case": "correction-003",
+        "kind": "launch",
+        "argv": [
+          "loop-task", "run",
+          "--state-root", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+          "--workspace", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-control-correction-003",
+          "--task-id", "g3-live-control-correction-003",
+          "--task-kind", "readonly",
+          "--provider-profile", "deepseek",
+          "--goal", "Read markers.txt and return ORIGINAL_MARKER exactly. Do not modify files."
+        ],
+        "durable_link": {"task_created_position": 784, "old_provider_intent_position": 785}
+      },
+      {
+        "case": "correction-003",
+        "kind": "midflight_authority_control_rpc",
+        "driver_tool_id": "exec-93c2ea7e-79d4-4472-b666-da8d64bfd3e8",
+        "launch_method": "subprocess.Popen of the formal bin/sitina-r4-dev loop-task run entrypoint recorded above",
+        "injection_function": "sitina.loop.control.send_control_request",
+        "injection_trigger": {"observed_active_operation_ids": ["provider-1-89f25f04c96b173f"]},
+        "payload": {
+          "command": "input",
+          "task_id": "g3-live-control-correction-003",
+          "kind": "CORRECTION",
+          "input_id": "g3-live-control-correction-003-input-001",
+          "body": "Keep the original requirement and also include this exact second line in the final response: CORRECTION_MARKER=G3-CORRECTION-ADDED-7746"
+        },
+        "corresponding_cli_input_command_exercised": false,
+        "entry_boundary_note": "The task was launched through the formal CLI. The in-flight correction was injected through that authority's control socket API; an equivalent bin/sitina-r4-dev loop-task input command was not exercised for correction-003.",
+        "durable_link": {"received_position": 786, "handled_position": 787, "old_provider_partial_position": 788}
+      },
+      {
+        "case": "A004-live-cancel",
+        "kind": "launch",
+        "argv_with_goal_text_omitted": [
+          "loop-task", "run",
+          "--state-root", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+          "--workspace", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-a-004",
+          "--task-id", "g3-live-a-004",
+          "--task-kind", "readonly",
+          "--provider-profile", "deepseek",
+          "--goal", "<task text omitted from report; bound by the durable g3-live-a-004 task record>"
+        ],
+        "durable_link": {"task_created_position": 412, "old_provider_intent_position": 427}
+      },
+      {
+        "case": "A004-live-cancel",
+        "kind": "midflight_input",
+        "recorded_argv_prefix": [
+          "loop-task", "input",
+          "--state-root", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+          "--workspace", "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-a-004",
+          "--task-id", "g3-live-a-004",
+          "--kind", "CANCEL",
+          "--input-id", "g3-live-a-004-cancel-001"
+        ],
+        "optional_body_argument": "<omitted from report; CANCEL semantics do not depend on body text>",
+        "durable_link": {"received_position": 428, "handled_position": 429, "old_provider_partial_position": 430, "terminal_position": 431}
+      }
+    ]
+  },
+  "selected_live_cases": [
+    {
+      "case": "A005-long-material",
+      "task_id": "g3-live-a-005",
+      "workspace": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-a-005",
+      "task_kind": "readonly",
+      "status": "SUCCEEDED",
+      "event_positions": [726, 755],
+      "terminal_event_id": "task-terminal-f0d6d367dcc57eaf212615de6a23b6c3d3db0d88",
+      "acceptance_id": "acceptance-a22406e7433ccf9d33727a71",
+      "goal_version": 1,
+      "acceptance_version": 2,
+      "handled_input_seq": 0,
+      "operation_count": 13,
+      "changed_paths": [],
+      "unknown_effect_operation_ids": [],
+      "fixture": {
+        "path": "long-material.txt",
+        "bytes": 317750,
+        "sha256": "16b872f5da37fc05648b1bfd72e266857d08f159514f344338daf7d1cf70db44",
+        "raw_file_fact_offsets": {
+          "EARLY_FACT": 38,
+          "MIDDLE_FACT": 159267,
+          "LATE_FACT": 317697,
+          "END_MARKER": 317725
+        }
+      },
+      "exact_final_values": {
+        "EARLY_FACT": "amber-orchid-2719",
+        "MIDDLE_FACT": "cobalt-river-4831",
+        "LATE_FACT": "violet-comet-6953",
+        "END_MARKER": "G3-A-END-9184"
+      },
+      "history_source_ref": "history:c6944ea2c917ef77e70a3813f3493b005926e5f66f2ea237ce46eb8475b32ae5:10:eb764fa7802173cfdbce50ffb4e9684942f0b1eb8025862f1dd7b193200278a2",
+      "history_reads": [
+        {"event_position": 738, "offset": 310000, "returned_bytes": 3138, "status": "OK"},
+        {"event_position": 740, "offset": 150000, "returned_bytes": 3138, "status": "OK"},
+        {"event_position": 748, "offset": 159000, "returned_bytes": 3138, "status": "OK"},
+        {"event_position": 750, "offset": 318000, "returned_bytes": 1680, "status": "OK"}
+      ],
+      "provider": {
+        "committed_provider_results": 6,
+        "exact_physical_sends": 6,
+        "uncertain_attempts": 0,
+        "retry_count": 0,
+        "fallback_count": 0,
+        "input_tokens": 120193,
+        "output_tokens": 27307,
+        "total_tokens": 147500,
+        "reasoning_records": 6,
+        "reasoning_bytes": 93043,
+        "reasoning_content_omitted": true,
+        "all_admission_hashes_match_sent_body": true,
+        "request_body_hashes": [
+          "b911167626b50872a7e4f42aac9457db7930c76dbd9a2ed23bcf9afac4a7feee",
+          "ccbe2f94ced569e10b7588c31dc6cf9b901138757227cff376838414374ba1e1",
+          "cb4789461ee14de73bf83c9d1c33c6d3bd5ccc309b2484faf6b910ea8b4b4935",
+          "542c1c82a7f6dae7ecc3237982e29e14974f44420a8f8b3a95d88b7422e0411c",
+          "5ca6c637ef00419be289c500f358af0d2246976a6bbc6bb2ab22896441739f50",
+          "b6538ace6c289747c245106d43326adb5beef648e3b4ea05ea3f3500db206a32"
+        ],
+        "reasoning_sha256": [
+          "cd13c167590f98cac0c8c7ba9e1cc6a23738d5ee37bdde45e80bc9139e6ca07c",
+          "c77d13ba736224c55220f6a6c5b66a42fb5e76864486de8830c648dd675f2175",
+          "8eeabe7c156197e3a0fbf53a5c4a4844b01c7cedfaeae996c9d114fe117b10ff",
+          "bbaeea572e014a5c1c0e38a63b96edd9f6485f999e4ab616f412a0e89bc38d84",
+          "db480002fa735f07299ad2a4760625cb2fa2f563b62f44bb7913dd117fd8c393",
+          "a366a9e41e257178cabb60c0a31d1393d6ea1ea247fd023c7b676e3febb4afc5"
+        ]
+      },
+      "result": "PASS"
+    },
+    {
+      "case": "B003-code-program-review",
+      "task_id": "g3-live-b-003",
+      "workspace": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-b-003",
+      "task_kind": "code_change",
+      "status": "SUCCEEDED",
+      "event_positions": [688, 725],
+      "terminal_event_id": "task-terminal-475332e4297373f6073809df9ffac96aff79c498",
+      "acceptance_id": "acceptance-1c06afbb9e7b233f3c7fa3b9",
+      "accepted_artifact_ref": "cas:9f04d8b6d360b316ae16ff746baabe49acfdb705834b9b6d72235ed6d1dfb46b",
+      "goal_version": 1,
+      "acceptance_version": 2,
+      "handled_input_seq": 0,
+      "operation_count": 17,
+      "changed_paths": ["name_tools.py"],
+      "unknown_effect_operation_ids": [],
+      "immutable_test_sha256": "2e12b62a36bac3b9bed21d774fd0712620362236b8bacb9c6512512525405c09",
+      "final_implementation_sha256": "0d110fba5cbf5871a43049af42d6040e860f8d844755f92c4644565a19835cec",
+      "program_check": {
+        "command": [
+          "/Users/moss/SitinaHub-r4-b0-1a/.venv-r4/bin/python",
+          "-I",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          ".",
+          "-p",
+          "test_*.py"
+        ],
+        "sandbox": "macos-seatbelt-check-copy-v1",
+        "preflight_event_position": 690,
+        "preflight_status": "FAIL",
+        "preflight_exit_code": 1,
+        "final_event_position": 710,
+        "final_status": "PASS",
+        "final_exit_code": 0,
+        "tests_run": 3,
+        "business_artifact_unchanged_by_check": true,
+        "check_input_unchanged": true
+      },
+      "reviewer": {
+        "response_format": "one bare JSON object with exactly schema/verdict/reason/artifact_ref",
+        "verdict": "PASS",
+        "artifact_ref_matches_accepted_artifact": true,
+        "registered_sources_read_before_verdict": [
+          {"kind": "program", "event_position": 715, "source_ref": "history:163d127309283b5228ddbaf0b7788866810b53aa69f58fe4086b2ee06b929dc5:24:99ec017eff2d6b4685381254a920f69831f8dd2de5ba0a968526b0c9a9d2867f", "content_hash": "f6fc201629f9433264171e70a571712fd06bf01f5223449d056331d477d41050", "status": "OK"},
+          {"kind": "preflight", "event_position": 717, "source_ref": "history:163d127309283b5228ddbaf0b7788866810b53aa69f58fe4086b2ee06b929dc5:4:d13127e3ac07d43ca9988a7b19ae52a2de89d8ec5d910def7aeab577e36f80b8", "content_hash": "96159404018584e013508def8905c4738c470ec6596e8ea5d63cadbe354d0886", "status": "OK"},
+          {"kind": "main", "event_position": 719, "source_ref": "history:163d127309283b5228ddbaf0b7788866810b53aa69f58fe4086b2ee06b929dc5:22:47d400eb2c8f92c0614f60b193cf662a25080e7c0628ac0a5e6049d1dc279ca2", "source_content_hash": "0c4c468d4c711045cb882dfc1d1e129608b86e65f3fcbbb3d4478216f1075b2f", "content_projection": "provider-result-public-fields-v1", "projected_content_hash": "2bccead61def98afd8d0bbcd61e2c1510375870782dc19f0f1b44153129f8db2", "status": "OK"},
+          {"kind": "artifact", "event_position": 721, "source_ref": "history:163d127309283b5228ddbaf0b7788866810b53aa69f58fe4086b2ee06b929dc5:25:8244444f10b11e38597f1a381c2c556d6369db1dae92f1bfa3fdaa6dbd74e474", "content_hash": "d9aeb4854299000bf21040f3333840a4d6c18f4331738c113dd7f3e39b7bfa1b", "status": "OK"}
+        ]
+      },
+      "provider": {
+        "committed_provider_results": 6,
+        "exact_physical_sends": 6,
+        "uncertain_attempts": 0,
+        "retry_count": 0,
+        "fallback_count": 0,
+        "reasoning_records": 4,
+        "reasoning_bytes": 2711,
+        "reasoning_content_omitted": true,
+        "all_admission_hashes_match_sent_body": true
+      },
+      "result": "PASS"
+    },
+    {
+      "case": "correction-003",
+      "task_id": "g3-live-control-correction-003",
+      "workspace": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-control-correction-003",
+      "task_kind": "readonly",
+      "status": "SUCCEEDED",
+      "event_positions": [784, 801],
+      "terminal_event_id": "task-terminal-8712456cd0db04cfd08105c51cc2a911a9166523",
+      "acceptance_id": "acceptance-a1209e3850b947c3a126fde3",
+      "goal_version": 2,
+      "acceptance_version": 3,
+      "handled_input_seq": 1,
+      "operation_count": 6,
+      "changed_paths": [],
+      "unknown_effect_operation_ids": [],
+      "old_inflight_provider_operation": "provider-1-89f25f04c96b173f",
+      "old_operation_binding": {"goal_version": 1, "acceptance_version": 1, "handled_input_seq": 0},
+      "old_operation_settlement": {"event_position": 788, "effect_status": "PARTIAL", "provider_response_discarded": true, "physical_send_count_lower_bound": 0, "uncertain_physical_send_attempt_count": 1},
+      "new_execution_binding": {"goal_version": 2, "acceptance_version": 2, "handled_input_seq": 1},
+      "final_markers": [
+        "ORIGINAL_MARKER=G3-CORRECTION-ORIGINAL-2218",
+        "CORRECTION_MARKER=G3-CORRECTION-ADDED-7746"
+      ],
+      "provider": {
+        "committed_provider_results": 3,
+        "exact_physical_sends": 3,
+        "uncertain_attempts": 1,
+        "retry_count": 0,
+        "fallback_count": 0,
+        "reasoning_records": 2,
+        "reasoning_bytes": 797,
+        "reasoning_content_omitted": true,
+        "all_committed_admission_hashes_match_sent_body": true
+      },
+      "result": "PASS"
+    },
+    {
+      "case": "A004-live-cancel",
+      "task_id": "g3-live-a-004",
+      "workspace": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces/g3-live-a-004",
+      "task_kind": "readonly",
+      "status": "CANCELLED",
+      "event_positions": [412, 431],
+      "terminal_event_id": "task-terminal-020679adc28cf451a32d549b162110ac19e7320e",
+      "handled_input_seq": 1,
+      "changed_paths": [],
+      "unknown_effect_operation_ids": [],
+      "cancel_received_position": 428,
+      "cancel_handled_position": 429,
+      "old_inflight_provider_operation": "provider-8-660d08770bfe25da",
+      "old_operation_settlement": {"event_position": 430, "effect_status": "PARTIAL", "provider_response_discarded": true, "physical_send_count_lower_bound": 0, "uncertain_physical_send_attempt_count": 1},
+      "operation_intents_after_cancel": 0,
+      "provider": {
+        "committed_provider_results_before_cancel": 3,
+        "exact_physical_sends": 3,
+        "uncertain_attempts": 1,
+        "retry_count": 0,
+        "fallback_count": 0,
+        "reasoning_records": 3,
+        "reasoning_bytes": 1772,
+        "reasoning_content_omitted": true,
+        "all_committed_admission_hashes_match_sent_body": true
+      },
+      "launch_version_boundary": "This cancellation occurred before the later phase-instruction wiring change. It is used only as real cancellation evidence and is combined with final-source control regressions and independent probes; it is not evidence for the later reviewer instruction change.",
+      "result": "PASS"
+    }
+  ],
+  "preserved_non_gate_attempts": [
+    {
+      "task_id": "g3-live-a-001",
+      "status_after_reopen": "RECOVERY_BLOCKED",
+      "launch_policy": "earlier 4096-output control",
+      "disposition": "Preserved failed attempt; not reused and not counted toward G3 success."
+    },
+    {
+      "task_id": "g3-live-a-002",
+      "status_after_reopen": "RECOVERY_BLOCKED",
+      "durable_waiting_status": "WAITING_INPUT",
+      "launch_policy": "thinking enabled, high effort, 16384 output reserve",
+      "observed": "A mid-flight correction advanced goal/input versions and discarded the stale result, but the corrected long-material cycle exhausted the output reserve.",
+      "disposition": "Negative truncation/control evidence only; replaced for gate success by A005 and correction-003."
+    },
+    {
+      "task_id": "g3-live-a-003",
+      "status_after_reopen": "RECOVERY_BLOCKED",
+      "durable_waiting_status": "WAITING_INPUT",
+      "launch_policy": "thinking enabled, low effort, 16384 output reserve",
+      "observed": "The final Provider response stopped for length after three exact sends; the runtime did not retry at the same limit or claim success.",
+      "disposition": "Preserved negative truncation evidence; A005 is the current 32768-output success."
+    },
+    {
+      "task_id": "g3-live-b-001",
+      "status_after_reopen": "RECOVERY_BLOCKED",
+      "durable_waiting_status": "STALLED",
+      "observed": "The checker fixture used an absolute source-workspace path inside the isolated check copy, so the sandbox correctly denied it and the same program-check blocker reached four no-progress attempts.",
+      "disposition": "Fixture failure, preserved; no production permission was weakened."
+    },
+    {
+      "task_id": "g3-live-b-002",
+      "status_after_reopen": "RECOVERY_BLOCKED",
+      "durable_waiting_status": "WAITING_INPUT",
+      "observed": "Launched before the reviewer phase instruction was placed in execution_context; three reviewer formatting/evidence disagreements were preserved.",
+      "disposition": "Pre-fix evidence only; B003 and reviewer-wire-supervisor-06 verify the corrected path."
+    },
+    {
+      "task_ids": ["g3-live-control-correction-001", "g3-live-control-correction-002"],
+      "status": "SUCCEEDED",
+      "observed": "Both completed before a correction could reach the live authority.",
+      "disposition": "Harmless baselines, not counted as correction-success evidence."
+    },
+    {
+      "task_id": "g3-live-diagnostic-001",
+      "status": "SUCCEEDED",
+      "observed": "One-send live diagnostic proved ordinary visible final content at the 32768 reserve.",
+      "disposition": "Diagnostic only; it does not substitute for the long-material case."
+    }
+  ],
+  "private_reasoning_contract": {
+    "persisted_location": "Encrypted task CAS operation-result content",
+    "internal_replay": "Exact reasoning_content is retained with its complete assistant tool-call group and returned in the protocol-required assistant history of subsequent Provider requests for as long as that group remains required; it is not limited to exactly one next request.",
+    "user_and_tool_view": "User-facing output is message.content only. message.tool_calls remains internal execution data, and message.reasoning_content remains internal protocol data.",
+    "public_projection": "provider-result-public-fields-v1",
+    "public_hash_scope": "projected-readable-content",
+    "user_result_contains_raw_reasoning": false,
+    "report_contains_raw_reasoning": false,
+    "history_read_contains_raw_reasoning": false,
+    "local_privacy_audit": {
+      "status": "PASS",
+      "task_count": 4,
+      "provider_results_checked": 20,
+      "reasoning_records_checked": 15,
+      "history_pages_checked": 20,
+      "encrypted_state_files_scanned": 3088,
+      "raw_reasoning_field_absent_from_public_views": true,
+      "raw_reasoning_bodies_absent_from_state_files": true,
+      "method_scope": "This local validation opened LoopBackend and is not represented as a pure read-only authority scan. Final state-case authority comes from the separately hashed supervisor read-only snapshot."
+    }
+  },
+  "state_audit": {
+    "method_scope": "Local LoopBackend.open audit; reopening applied the designed RECOVERY_BLOCKED overlay to historical nonterminal tasks, so preserved durable waiting_status fields and the supervisor read-only snapshot are used for interpretation.",
+    "task_count": 23,
+    "status_counts": {"SUCCEEDED": 12, "CANCELLED": 4, "RECOVERY_BLOCKED": 7},
+    "active_operation_tasks": [],
+    "unknown_effect_tasks": [],
+    "historical_nonterminal_tasks_preserved": true
+  },
+  "supervisor_independent_evidence": [
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-selected-cases-review-01.json",
+      "sha256": "4509dfad2a0a438964aca0056e3f4ac0d326ca0aace0b69d33a6c2ab9fc8152e",
+      "result": "PASS",
+      "coverage": "Read-only Journal verification of A005, B003, correction-003 and A004."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-selected-cases-review-01-journal.json",
+      "sha256": "49a3c8a1d456f5c6fc75127f054186b6b47de796d815505bc17fa6c1b83f3c1f",
+      "result": "snapshot used by selected-case review"
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-reviewer-wire-supervisor-06.json",
+      "sha256": "faf340eca9a3834dd3a797d05cce5e0eec02d1c15cceb28d0e48d6acbc21ba71",
+      "result": "6/6 PASS",
+      "coverage": "Stock worker/local HTTP truncation, thinking continuation, public projection hashes, actual registered reviewer instruction on every protected wire, real reads of every registered source, and strict reviewer JSON."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-transport-counts-final-03.json",
+      "sha256": "2111ddbc6448295bcfe09cbe7de745dafceba640c9a2d2039a37d6b89a9740db",
+      "result": "7/7 PASS",
+      "coverage": "Final current-source physical-send accounting through the stock client/worker and loopback HTTP server; source hashes remained stable."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-transport-counts-supervisor-02.json",
+      "sha256": "337e9c4b6276ff9b61db30939ad13caca2202cde608597e1283197deae01f333",
+      "result": "7/7 PASS",
+      "coverage": "Historical independent transport-count probe retained for traceability; superseded for final-source identity by final-03."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-thinking-wire-supervisor-03.json",
+      "sha256": "6fde3e1da604420736a12813488aba24939e6d4ded01f377b27b48a3841f027c",
+      "result": "5/5 PASS",
+      "coverage": "Explicit thinking/reserve, exact admitted hashes, four truncation modes, private continuation and projected history hash."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-production-guards-restored.json",
+      "sha256": "ed9fe95c9ae89630bf3d9fb5d632e1393f18cbfcf9ed8569ccc28742a7c3bba4",
+      "result": "PASS",
+      "coverage": "Production runtime type and ledger-capability guards match their baseline hashes."
+    },
+    {
+      "path": "/Users/moss/Documents/ChatGPT/sitinaRedesign/implementation-supervision-batch-2-2026-09-06/g3-observed-tests-final.json",
+      "sha256": "0a06dd38cf12d46a15e037f92e534cacf5a5699ff4e9ae18ef0fd59890cc4c64",
+      "result": "176 current combined regression tests observed passing",
+      "coverage": "Independent observation of the final related regression command and its focused precursors."
+    }
+  ],
+  "verification": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_extensions.py tests/test_loop_batch_2_context_core.py tests/test_loop_batch_2_g2_runtime.py tests/test_conversation_storage_integration.py tests/test_provider_tool_protocols.py tests/test_true_multi_agent_provider_transport.py",
+      "result": "103 passed in 62.52s"
+    },
+    {
+      "command": "targeted rerun of the seven legacy Batch 1b reviewer-fixture failures after fixture-only proof-read updates",
+      "result": "7 passed in 4.20s"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_extensions.py tests/test_loop_batch_1a.py tests/test_loop_batch_1b_runtime.py tests/test_loop_batch_1b_boundary.py tests/test_loop_batch_1b_launcher.py tests/test_loop_contract_r4.py tests/test_provider_tool_protocols.py tests/test_loop_batch_2_context_core.py tests/test_loop_batch_2_g2_runtime.py tests/test_conversation_storage_integration.py tests/test_true_multi_agent_provider_transport.py",
+      "result": "176 passed in 73.19s"
+    },
+    {
+      "command": "privacy audit over selected task public projections, history pages and raw state files",
+      "result": "PASS: 20 Provider results, 20 history pages and 3088 Journal/CAS files checked"
+    },
+    {
+      "command": "compile() syntax validation of 12 G3 source/test modules with bytecode writes disabled",
+      "result": "passed"
+    },
+    {
+      "command": "JSON parse plus declared source/supervisor fingerprint verification, effective-provider config byte comparison, and git diff --check",
+      "result": "passed"
+    }
+  ],
+  "non_authoritative_test_attempt": {
+    "result": "169 passed, 7 failed",
+    "cause": "Legacy Batch 1b scripted reviewers returned verdicts without the source reads newly required by G3, exhausted their fixed scripts and then raised IndexError.",
+    "disposition": "Not used as pass evidence. Only test fixtures were updated to issue bounded task-bound history reads; the strict production review gate and write/ledger guards were not relaxed. The final broader suite passed 176/176."
+  },
+  "implemented_but_not_verified": [
+    "Anthropic Messages exact protected transport remains deterministic/loopback verified only; the selected external live model uses OpenAI Chat Completions.",
+    "A 100+ round real DeepSeek thinking-mode run with compaction is not verified or claimed. Required thinking protocol groups are conservatively retained intact; the G2 100+ round/three-compaction evidence uses scripted/provider-default mode.",
+    "General semantic dialogue summarization and eliminated-method inference are intentionally not implemented or claimed by Batch 2."
+  ],
+  "unimplemented_items": [
+    "Batch 3 complete background reconnect, cross-process identity continuation, in-flight effect probing and general UNKNOWN-effect reconciliation.",
+    "Batch 4 Skill acquisition, candidate trial, authoritative publication and ordinary new-session consumption.",
+    "Batch 5 publication interruption matrix, late projection and durable quarantine/rollback obligations.",
+    "Batch 6 complete experience candidate inventory, independent disposition and downstream memory-benefit verification.",
+    "Batch 7 long-task recovery, visual acceptance and complete first-release acceptance.",
+    "Production cutover, old-path retirement, merge, commit and push."
+  ],
+  "prior_evidence_integrity": {
+    "g2_report_path": "docs/redesign/implementation-evidence/batch-2/g2-runtime-report.json",
+    "g2_report_sha256": "e0d61b03b14d52d3f7426672d65809a285f00a8808a3223d04af1c6234616d10",
+    "unchanged": true
+  },
+  "files": {
+    "core/sitina/loop/context_window.py": "e6b5bcb2327058cc86b96fa0ea5d786f7009ffa3c38b326d32c4271a91493b23",
+    "core/sitina/loop/task_runtime.py": "cacf2540ea5cb37e0b931295ecb3c0de9ad11233e7eafcb49a3213874518f081",
+    "core/sitina/extensions/runtime.py": "6916fdabc40d14e4416ae4b6ab418b020881d4b41d66de629846bd6d3050dca7",
+    "core/sitina/extensions/tools.py": "47933979b4ce550e39f49e991bd2eaf7cb6470efdc005cdbe7f34f9cce3cedae",
+    "core/sitina/runners/provider.py": "2466b063100a470f78af13bb263896c1e806f4e15e9030c8c02fa11938e576d8",
+    "config/loop_context_capacity.json": "679386f7412cd4126e90fa79c1547d7efb4020f1ee5713ff36eb1fe9a43601c9",
+    "config/loop_context_capacity.provenance.json": "9a38f4639a85dceb2cd6c2ffddc0714a0db3e3f62d3381bd33e9c66836149df8",
+    "tests/test_extensions.py": "73f1c46a0d5aa17f3f0929875bc9bc56123a7a3117bf832fc324693f2f683016",
+    "tests/test_loop_batch_1b_runtime.py": "51c0fed52dc1a66473de64faaf7a1832e4c3b51ba853c7120bedd3e294c5cbe4",
+    "tests/test_loop_batch_2_context_core.py": "1ada3b2d852f9c2a747253029fab23c96d0c8c972c015102ecf391770efb89f3",
+    "tests/test_loop_batch_2_g2_runtime.py": "c80e45f2ddeea42df78b70f196705a06aae89b33630b5bf98a02a967500c6a22",
+    "tests/test_conversation_storage_integration.py": "f2af317d6161dcb906b3ef0b83fecd2508c0f704dcdd625ecd50517d2bd8154c",
+    "tests/test_provider_tool_protocols.py": "31d1fd51388085d95fa7a015fc2631d5fcc2eb207282922a3dc5639c2f59ee25",
+    "tests/test_true_multi_agent_provider_transport.py": "79cb58fd4ad3757b308f6926327c3c49d2426dec53d4a8247ddadb28e477fd25",
+    "docs/redesign/README.md": "5bb6d2ad42ac9b94be9f64d3a867d8179bdd032702ea5173b8821506682e9741",
+    "docs/redesign/04-实施步骤.md": "ff20079675bdac19843aed7cc0470a9e7f0c585ce0d67e7e843ff6035b7628b6"
+  },
+  "production_guard_fingerprints": {
+    "core/sitina/conversation/fast_runtime.py": "4ca9eff138f4fa9c6c003a9863df76bd79c1480cfd110dd819ce97b0dd11a83b",
+    "core/sitina/orchestrator/true_multi_agent_runtime.py": "3fe60dd5f8e6f86275f9b8433e56f12aeb46c3aea54486fcf8e68573c59fa460",
+    "baseline_match": true
+  },
+  "gate_marker": "B2-G3-READY"
+}

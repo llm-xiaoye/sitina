@@ -6,7 +6,15 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from sitina.runners.provider import AnthropicCompatibleClient, ProviderError, ProviderProfile, ScriptedMockToolClient
+from sitina.runners.provider import (
+    OPENAI_CHAT_COMPLETIONS,
+    AnthropicCompatibleClient,
+    ProviderError,
+    ProviderProfile,
+    ScriptedMockToolClient,
+    provider_messages_for_wire,
+)
+from sitina.extensions.runtime import BoundedToolTurnClient
 
 
 class CapturingClient(AnthropicCompatibleClient):
@@ -98,11 +106,13 @@ class ProviderToolProtocolTests(unittest.TestCase):
             },
             {"role": "tool", "tool_call_id": "call-1", "name": "read_fact", "content": "fact"},
         ]
-        second = client.complete_tool_turn(
+        reviewer_client = BoundedToolTurnClient(client, profile, request_timeout_seconds=0.25)
+        second = reviewer_client.complete_tool_turn(
             profile,
             system_prompt="system",
             messages=messages,
             tools=TOOLS,
+            request_timeout_seconds=10.0,
         )
         self.assertEqual(second.text, "confirmed")
         wire_messages = client.requests[1]["body"]["messages"]
@@ -120,6 +130,31 @@ class ProviderToolProtocolTests(unittest.TestCase):
         })
         self.assertEqual(wire_messages[-1]["role"], "tool")
         self.assertEqual(wire_messages[-1]["tool_call_id"], "call-1")
+        self.assertEqual(client.requests[0]["kwargs"]["request_timeout_seconds"], client.timeout_config.total_request_timeout)
+        self.assertEqual(client.requests[1]["kwargs"]["request_timeout_seconds"], 0.25)
+        for invalid in (True, 0, -1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                BoundedToolTurnClient(client, profile, request_timeout_seconds=invalid)
+
+    def test_openai_wire_omits_empty_tool_calls_but_preserves_nonempty_calls(self) -> None:
+        wire = provider_messages_for_wire(
+            [
+                {"role": "assistant", "content": "neutral history", "tool_calls": []},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {"id": "call-1", "name": "read_fact", "arguments": {"path": "/tmp/f"}}
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call-1", "content": "fact"},
+            ],
+            OPENAI_CHAT_COMPLETIONS,
+        )
+        self.assertEqual(wire[0], {"role": "assistant", "content": "neutral history"})
+        self.assertNotIn("tool_calls", wire[0])
+        self.assertEqual(wire[1]["tool_calls"][0]["id"], "call-1")
+        self.assertEqual(wire[2], {"role": "tool", "tool_call_id": "call-1", "content": "fact"})
 
     def test_anthropic_tool_use_and_tool_result_wire_shapes(self) -> None:
         client = CapturingClient(

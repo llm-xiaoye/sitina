@@ -95,6 +95,7 @@ class JournalNativeMemoryV1Tests(unittest.TestCase):
         namespace: str = "project/example/auth",
         supersedes: tuple[str, ...] = (),
         acl: MemoryACL | None = None,
+        expires_at: str | None = None,
     ) -> MemoryDocument:
         return self.memory.create_candidate(
             memory_id=memory_id,
@@ -108,8 +109,8 @@ class JournalNativeMemoryV1Tests(unittest.TestCase):
             confidence=0.86,
             sensitivity="low",
             valid_from="2026-07-18T00:00:00Z",
-            expires_at=None,
-            retention_policy="until-superseded",
+            expires_at=expires_at,
+            retention_policy="until-expired" if expires_at is not None else "until-superseded",
             supersedes=supersedes,
             acl=acl or self._acl(),
             actor="memory-agent",
@@ -147,6 +148,88 @@ class JournalNativeMemoryV1Tests(unittest.TestCase):
         duplicate = self._candidate("memory-one")
         self.assertEqual(duplicate.content_ref, candidate.content_ref)
         self.assertEqual(len(list((self.home / "cas/objects").rglob("*.obj"))), 1)
+
+        # Exercise the real retention owner against this Journal and CAS.
+        import datetime as dt
+        import time
+        from unittest.mock import patch
+        from sitina.archive.retention_operations import MemoryRetention, RetentionOperationError
+
+        retention = MemoryRetention(self.memory)
+        due = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1)
+        documents = {}
+        for label in ("normal", "protected", "unknown"):
+            document = self._candidate(
+                "memory-expiry-" + label,
+                expires_at=due.isoformat().replace("+00:00", "Z"),
+            )
+            documents[label] = document
+            result = retention.schedule(operation_id="expiry-" + label,
+                                        memory_id=document.memory_id, actor="user-1")
+            self.assertEqual(result["state"], "SCHEDULED")
+        normal = documents["normal"]
+        paths = {label: self.cas._object_path(document.content_ref.removeprefix("cas:"))
+                 for label, document in documents.items()}
+        self.assertEqual(
+            retention.execute(operation_id="expiry-normal", actor="user-1")["state"],
+            "WAITING_DUE",
+        )
+        self.assertTrue(all(path.is_file() for path in paths.values()))
+        with self.assertRaises(MemoryAccessDenied):
+            retention.schedule(operation_id="expiry-no-authority", memory_id=normal.memory_id,
+                               actor="attacker")
+
+        occurred = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        hold_command = CommandEnvelope("retention-hold-command", self.memory.TENANT,
+                                       "retention-hold", "hold", "user-1", occurred, {})
+        hold_event = EventEnvelope(
+            "retention-hold-event", "legal-retention.activated", self.memory.TENANT,
+            "retention-hold", 0, 0, occurred,
+            {"hold_id": "retention-test-hold", "object_refs": [documents["protected"].content_ref]},
+            (),
+        )
+        self.journal.append(hold_command, 0, [hold_event])
+        time.sleep(max(0, (due - dt.datetime.now(dt.timezone.utc)).total_seconds()) + 0.02)
+        completed = retention.execute(operation_id="expiry-normal", actor="user-1")
+        self.assertEqual(completed["state"], "COMPLETED")
+        self.assertTrue(completed["physical_outcome"]["path_absent"])
+        self.assertEqual(completed["physical_outcome"]["opened_inode_nlink_after"], 0)
+        self.assertFalse(paths["normal"].exists())
+        self.assertEqual(self.memory._raw_get(normal.memory_id).status, "expired")
+        with patch.object(self.cas, "delete_retained_content", side_effect=AssertionError("repeated effect")):
+            self.assertEqual(retention.execute(operation_id="expiry-normal", actor="user-1"), completed)
+        with self.assertRaisesRegex(RetentionOperationError, "active legal-retention"):
+            retention.execute(operation_id="expiry-protected", actor="user-1")
+        self.assertTrue(paths["protected"].is_file())
+        self.assertEqual(retention.status(operation_id="expiry-protected", actor="user-1")["state"],
+                         "SCHEDULED")
+
+        physical_delete = self.cas.delete_retained_content
+        def lost_acknowledgement(reference, *, expected_copy):
+            physical_delete(reference, expected_copy=expected_copy)
+            raise OSError("acknowledgement lost after unlink")
+        with patch.object(self.cas, "delete_retained_content", side_effect=lost_acknowledgement):
+            with self.assertRaisesRegex(RetentionOperationError, "UNKNOWN"):
+                retention.execute(operation_id="expiry-unknown", actor="user-1")
+        self.assertFalse(paths["unknown"].exists())
+        with patch.object(self.cas, "delete_retained_content", side_effect=AssertionError("unknown replay")):
+            unknown = retention.execute(operation_id="expiry-unknown", actor="user-1")
+        self.assertEqual(unknown["state"], "UNKNOWN")
+        self.assertEqual(unknown["copy_observation"], "ABSENT_UNATTRIBUTED")
+        self.assertIsNone(unknown["physical_delete_executed"])
+        self.assertFalse(unknown["automatic_retry_allowed"])
+        retention_events = [event for event in self.journal.iter_events(0)
+                            if event.stream_id.startswith("retention-operation/")]
+        self.assertFalse(any("durable lesson" in str(event.payload) for event in retention_events))
+        self.journal.close()
+        self.journal = LocalJournal.open(self.home, self.auth)
+        self.memory = MemoryRepository(self.journal, self.cas, self.keys,
+                                       feature_activations=self.activations)
+        reopened = MemoryRetention(self.memory)
+        self.assertEqual(reopened.status(operation_id="expiry-normal", actor="user-1"), completed)
+        self.assertEqual(reopened.status(operation_id="expiry-unknown", actor="user-1"), unknown)
+        self.assertEqual(self.memory._raw_get(normal.memory_id).status, "expired")
+        self.assertEqual(self.memory.retrieve(actor="controller-agent"), ())
 
     def test_memory_v1_writer_fails_before_cas_without_journal_feature_activation(self) -> None:
         before = len(list((self.home / "cas/objects").rglob("*.obj")))

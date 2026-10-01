@@ -4637,13 +4637,122 @@ class AuthorityService:
                     arguments_raw = function.get("arguments")
                     if type(name) is not str or not name or type(arguments_raw) is not str or not arguments_raw:
                         raise AuthorityError("host provider tool function fields are invalid")
+
+                    # Debug logging
+                    try:
+                        with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                            debug_f.write(f"\n{'='*80}\n")
+                            debug_f.write(f"Tool call: {name}\n")
+                            debug_f.write(f"Arguments type: {type(arguments_raw)}\n")
+                            debug_f.write(f"Arguments length: {len(arguments_raw)}\n")
+                            debug_f.write(f"Arguments (first 500 chars): {arguments_raw[:500]}\n")
+                            debug_f.flush()
+                    except Exception:
+                        pass
+
                     try:
                         arguments = json.loads(arguments_raw)
                     except (TypeError, json.JSONDecodeError) as error:
-                        raise AuthorityError(
-                            "host provider tool arguments are invalid",
-                            reason_code="PROVIDER_TOOL_ARGUMENTS_INVALID_JSON",
-                        ) from error
+                        # Log the parsing failure
+                        try:
+                            with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                debug_f.write(f"JSON PARSE FAILED: {error}\n")
+                                debug_f.write(f"Error position: {getattr(error, 'pos', 'N/A')}\n")
+                                debug_f.flush()
+                        except Exception:
+                            pass
+
+                        # Attempt to repair malformed JSON from DeepSeek and other providers
+                        repaired_arguments = None
+                        if isinstance(arguments_raw, str):
+                            # Try common repairs
+                            stripped = arguments_raw.strip()
+
+                            # 1. Try closing unterminated strings and adding missing braces
+                            if "Unterminated string" in str(error):
+                                # Find the last complete quote and try to close from there
+                                for attempt in [
+                                    stripped + '"}',  # Close string and object
+                                    stripped + '"}}',  # Close string and two objects
+                                    stripped + '"}}}',  # Close string and three objects
+                                    stripped + '", "truncated": true}',  # Close with truncation flag
+                                    stripped + '..."}',  # Add ellipsis and close
+                                ]:
+                                    try:
+                                        repaired_arguments = json.loads(attempt)
+                                        try:
+                                            with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                                debug_f.write(f"REPAIR SUCCESS: closed unterminated string\n")
+                                                debug_f.flush()
+                                        except Exception:
+                                            pass
+                                        break
+                                    except (TypeError, json.JSONDecodeError):
+                                        pass
+
+                            # 2. Try adding missing closing braces/brackets
+                            if repaired_arguments is None:
+                                for suffix in ["}", "}}", "}}}", "]", "]]", "}]", "]}}"]:
+                                    try:
+                                        repaired_arguments = json.loads(stripped + suffix)
+                                        try:
+                                            with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                                debug_f.write(f"REPAIR SUCCESS with suffix: {suffix}\n")
+                                                debug_f.flush()
+                                        except Exception:
+                                            pass
+                                        break
+                                    except (TypeError, json.JSONDecodeError):
+                                        pass
+
+                            # 3. Try removing trailing commas
+                            if repaired_arguments is None:
+                                try:
+                                    fixed = re.sub(r',\s*([}\]])', r'\1', stripped)
+                                    repaired_arguments = json.loads(fixed)
+                                    try:
+                                        with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                            debug_f.write(f"REPAIR SUCCESS: removed trailing commas\n")
+                                            debug_f.flush()
+                                    except Exception:
+                                        pass
+                                except (TypeError, json.JSONDecodeError):
+                                    pass
+
+                            # 4. Try extracting first complete JSON object
+                            if repaired_arguments is None:
+                                match = re.search(r'\{.*\}', stripped, re.DOTALL)
+                                if match:
+                                    try:
+                                        repaired_arguments = json.loads(match.group(0))
+                                        try:
+                                            with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                                debug_f.write(f"REPAIR SUCCESS: extracted object\n")
+                                                debug_f.flush()
+                                        except Exception:
+                                            pass
+                                    except (TypeError, json.JSONDecodeError):
+                                        pass
+
+                        if repaired_arguments is not None and isinstance(repaired_arguments, dict):
+                            arguments = repaired_arguments
+                            try:
+                                with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                    debug_f.write(f"USING REPAIRED ARGUMENTS\n")
+                                    debug_f.flush()
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                with open("/tmp/sitina_authority_debug.log", "a") as debug_f:
+                                    debug_f.write(f"REPAIR FAILED - raising error\n")
+                                    debug_f.flush()
+                            except Exception:
+                                pass
+                            raise AuthorityError(
+                                "host provider tool arguments are invalid",
+                                reason_code="PROVIDER_TOOL_ARGUMENTS_INVALID_JSON",
+                            ) from error
                     if not isinstance(arguments, Mapping):
                         raise AuthorityError("host provider tool arguments are not an object")
                     normalized_calls.append({"id": call_id, "name": name, "arguments": dict(arguments)})

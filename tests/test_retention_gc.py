@@ -33,6 +33,19 @@ class RetentionGCTests(unittest.TestCase):
         proposal=self.gc.propose_retention_operation("object-1",operation_id="retention-1",grace_elapsed=True,second_confirmation=True)
         self.assertEqual(proposal["schema"],"GC_RETENTION_OPERATION_PROPOSED_V1")
         self.assertFalse(proposal["delete_authorized"]); self.assertFalse(proposal["physical_delete_executed"])
+        with self.assertRaisesRegex(GCFenceError, "active GC cycle"):
+            with self.gc.retention_guard("object-1"):
+                self.fail("active cycle admitted physical retention")
+        idle = GCController(lambda event, payload: self.records.append((event, payload)))
+        with idle.retention_guard("object-1"):
+            pass
+        lease = idle.with_reference_lease("object-1")
+        with self.assertRaisesRegex(GCFenceError, "protected"):
+            with idle.retention_guard("object-1"):
+                self.fail("live reference lease admitted physical retention")
+        idle.release_reference(lease)
+        with idle.retention_guard("object-1"):
+            pass
 
 
 if __name__ == "__main__": unittest.main()

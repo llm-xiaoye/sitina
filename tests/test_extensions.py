@@ -21,7 +21,13 @@ from sitina.extensions.runtime import (
 )
 from sitina.extensions.tools import ToolApprovalDenied, ToolCatalog
 from sitina.journal.local import LocalJournal
-from sitina.runners.provider import ProviderHTTPError, ProviderProfile, ProviderToolCall, ProviderToolTurn
+from sitina.runners.provider import (
+    ProviderCancelledError,
+    ProviderHTTPError,
+    ProviderProfile,
+    ProviderToolCall,
+    ProviderToolTurn,
+)
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 
 
@@ -240,6 +246,19 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual((self.root / "out.txt").read_text(encoding="utf-8"), "written after approval")
 
+    def test_grep_accepts_an_explicit_single_file_path(self) -> None:
+        source_file = self.root / "single-grep.txt"
+        source_file.write_text("before\nSINGLE-FILE-MARKER-7419\nafter\n", encoding="utf-8")
+        catalog = ToolCatalog(self.manager, workspace=self.root, strict_workspace=True)
+        result = catalog.execute(
+            "sitina_grep",
+            {"path": str(source_file), "pattern": "SINGLE-FILE-MARKER"},
+        )
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.value["count"], 1)
+        self.assertEqual(result.value["matches"][0]["file"], str(source_file.resolve()))
+        self.assertEqual(result.value["matches"][0]["line"], 2)
+
     def test_autonomous_runtime_replays_tool_result_into_next_model_turn(self) -> None:
         source_file = self.root / "fact.txt"
         source_file.write_text("confirmed fact", encoding="utf-8")
@@ -314,6 +333,56 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertFalse(any(item.get("role") == "tool" for item in client.messages[1]))
         audit = (self.manager.root / "runs" / "empty-final-fail-closed.jsonl").read_text(encoding="utf-8")
         self.assertEqual(audit.count("empty_final_response_repair_requested"), 1)
+
+    def test_length_exhausted_empty_final_does_not_repeat_the_same_output_limit(self) -> None:
+        client = FakeToolClient(
+            [ProviderToolTurn("", (), "length", {"protocol": "mock"})]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        with self.assertRaisesRegex(
+            AutonomousRuntimeError,
+            "exhausted the configured output reserve",
+        ):
+            runtime.run_embedded("finish the task", run_id="empty-final-length")
+        self.assertEqual(len(client.messages), 1)
+        audit = (self.manager.root / "runs" / "empty-final-length.jsonl").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(audit.count("provider_output_exhausted"), 1)
+        self.assertNotIn("empty_final_response_repair_requested", audit)
+
+    def test_length_exhausted_nonempty_turn_never_dispatches_tools_or_succeeds(self) -> None:
+        client = FakeToolClient(
+            [ProviderToolTurn(
+                "incomplete visible prefix",
+                (ProviderToolCall("truncated-call", "read_file", {"path": "never-read.txt"}),),
+                "length",
+                {"protocol": "mock"},
+            )]
+        )
+        runtime = AutonomousRuntime(
+            self.sitina_home,
+            manager=self.manager,
+            client=client,
+            profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
+        )
+        with patch.object(runtime, "_execute_calls") as execute_calls:
+            with self.assertRaisesRegex(
+                AutonomousRuntimeError,
+                "exhausted the configured output reserve",
+            ):
+                runtime.run_embedded("finish the task", run_id="nonempty-final-length")
+            execute_calls.assert_not_called()
+        audit = (self.manager.root / "runs" / "nonempty-final-length.jsonl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("provider_output_exhausted", audit)
+        self.assertNotIn("run_succeeded", audit)
 
     def test_embedded_runtime_reports_full_provider_usage_and_budget_callbacks(self) -> None:
         events: list[tuple[str, object]] = []
@@ -427,6 +496,251 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(turn.metadata["fallback_count"], 1)
         self.assertEqual(turn.metadata["sitina_provider_profile"], "fallback")
         self.assertEqual(turn.metadata["sitina_provider_model"], "model-b")
+
+    def test_bounded_direct_live_transport_preserves_observed_physical_send_count(self) -> None:
+        profile = ProviderProfile("deepseek", "https://api.deepseek.com", "none", "deepseek-v4-pro")
+
+        class DirectLiveFixture:
+            def complete_tool_turn(self, _profile, **_kwargs):
+                return ProviderToolTurn(
+                    "done",
+                    (),
+                    "stop",
+                    {"provider_mode": "live", "physical_send_count": 1},
+                )
+
+        bounded = BoundedToolTurnClient(DirectLiveFixture(), profile)
+        turn = bounded.complete_tool_turn(
+            profile,
+            system_prompt="",
+            messages=[],
+            tools=[],
+            max_tokens=1,
+        )
+        self.assertEqual(turn.metadata["physical_send_count"], 1)
+
+        from types import SimpleNamespace
+        import hashlib
+        from sitina.loop.context_window import ProviderContextIdentity, render_provider_tool_request
+        from sitina.extensions.runtime import _provider_usage_totals
+        from sitina.runners.provider import (
+            AnthropicCompatibleClient, OPENAI_CHAT_COMPLETIONS,
+            ProviderMalformedResponse, ProviderRequiredOutputEmpty,
+        )
+
+        identity = ProviderContextIdentity(
+            profile.name, profile.base_url, profile.model, OPENAI_CHAT_COMPLETIONS
+        )
+        valid_message = {"content": '{"decision":"proceed"}'}
+        cases = [
+            ("missing", [{}, valid_message], "stop", None),
+            ("null", [{"content": None}, valid_message], "stop", None),
+            ("empty", [{"content": ""}, valid_message], "stop", None),
+            ("whitespace", [{"content": " \n\t"}, valid_message], "stop", None),
+            ("exhausted", [{"content": ""}] * 3, "stop", ProviderRequiredOutputEmpty),
+            ("missing-usage", [{"content": ""}, valid_message], "stop", None),
+            ("non-json", [{"content": "not JSON"}], "stop", None),
+            ("wrong-schema", [{"content": "[]"}], "stop", None),
+            ("refusal", [{"content": None, "refusal": "fixture refusal"}], "stop", None),
+            ("length", [{"content": ""}], "length", None),
+            ("filter", [{"content": ""}], "content_filter", None),
+            ("other-stop", [{"content": ""}], "cancelled", None),
+            ("malformed-tools", [{"content": "", "tool_calls": "bad"}], "stop", ProviderMalformedResponse),
+            ("tool-only", [{"content": None, "tool_calls": [{
+                "id": "call-1", "type": "function",
+                "function": {"name": "read", "arguments": "{}"},
+            }]}], "tool_calls", None),
+        ]
+        for name, response_messages, finish, expected_error in cases:
+            with self.subTest(name=name):
+                tools = [{"name": "read", "description": "Read", "input_schema": {
+                    "type": "object", "properties": {},
+                }}] if name == "tool-only" else []
+                prepared = render_provider_tool_request(
+                    identity, system_prompt="Return JSON", messages=[{"role": "user", "content": "decide"}],
+                    tools=tools, max_tokens=32768, thinking_mode="enabled",
+                    expect_json=name != "tool-only",
+                )
+                sent = []
+                def transport(_url, body, _headers, **_kwargs):
+                    sent.append(json.loads(json.dumps(body)))
+                    index = len(sent) - 1
+                    payload = {
+                        "id": f"response-{index + 1}",
+                        "choices": [{"message": {
+                            **response_messages[index], "reasoning_content": "private reasoning",
+                        }, "finish_reason": finish}],
+                    }
+                    if not (name == "missing-usage" and index == 0):
+                        payload["usage"] = {
+                            "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12,
+                        }
+                    wire = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                    return payload, {
+                        "physical_send_count": 1, "provider_request_id": f"request-{index + 1}",
+                        "http_request_id": f"http-{index + 1}", "http_status_code": 200,
+                        "request_body_hash": hashlib.sha256(wire).hexdigest(),
+                    }
+                adapter = object.__new__(AnthropicCompatibleClient)
+                adapter._request_json = transport
+                bounded = BoundedToolTurnClient(
+                    SimpleNamespace(complete_tool_turn=adapter._tool_turn_openai),
+                    profile, retry_limit=2, backoff_seconds=0,
+                    fallback_profiles=(ProviderProfile("other", profile.base_url, "none", "other-model"),),
+                    fallback_allowed=True, max_fallbacks=1,
+                )
+                kwargs = dict(system_prompt="", messages=[], tools=tools, max_tokens=32768,
+                              request_timeout_seconds=30, prepared_request=prepared)
+                if expected_error is not None:
+                    with self.assertRaises(expected_error) as caught:
+                        bounded.complete_tool_turn(profile, **kwargs)
+                    error = caught.exception
+                    self.assertEqual(error.sitina_physical_send_count, len(response_messages))
+                    self.assertEqual(error.sitina_retry_count, len(response_messages) - 1)
+                    self.assertEqual(error.sitina_fallback_count, 0)
+                    attempts = error.sitina_provider_output_attempts
+                    if expected_error is ProviderRequiredOutputEmpty:
+                        self.assertEqual(error.sitina_token_usage, {
+                            "input_tokens": 30, "output_tokens": 6, "total_tokens": 36,
+                        })
+                        self.assertEqual(error.sitina_usage_status, "known")
+                else:
+                    turn = bounded.complete_tool_turn(profile, **kwargs)
+                    self.assertEqual(turn.metadata["physical_send_count"], len(response_messages))
+                    self.assertEqual(turn.metadata["retry_count"], len(response_messages) - 1)
+                    self.assertEqual(turn.metadata["fallback_count"], 0)
+                    if name == "tool-only":
+                        self.assertEqual(len(turn.tool_calls), 1)
+                        self.assertNotIn("provider_output_attempts", turn.metadata)
+                        attempts = []
+                    else:
+                        attempts = turn.metadata["provider_output_attempts"]
+                        if name == "missing-usage":
+                            self.assertIsNone(turn.metadata["token_usage"])
+                            self.assertEqual(turn.metadata["usage_status"], "partial_unknown")
+                            self.assertEqual(attempts[-1]["token_usage"]["total_tokens"], 12)
+                            usage = _provider_usage_totals((turn.metadata,))
+                            self.assertIsNone(usage["input_tokens"])
+                            self.assertIsNone(usage["output_tokens"])
+                            self.assertIsNone(usage["total_tokens"])
+                        else:
+                            self.assertEqual(turn.metadata["token_usage"]["total_tokens"], 12 * len(sent))
+                            self.assertEqual(_provider_usage_totals((turn.metadata,))["total_tokens"], 12 * len(sent))
+                    self.assertEqual(turn.stop_reason, finish)
+                    self.assertEqual(turn.text, str(response_messages[-1].get("content") or "").strip())
+                    self.assertNotEqual(turn.text, "private reasoning")
+                self.assertEqual(sent, [prepared.body] * len(response_messages))
+                for index, observation in enumerate(attempts):
+                    message = response_messages[index]
+                    content = message.get("content")
+                    self.assertEqual(observation["attempt"], index + 1)
+                    self.assertEqual(observation["physical_send_count"], 1)
+                    self.assertEqual(observation["profile"], profile.name)
+                    self.assertEqual(observation["model"], profile.model)
+                    self.assertEqual(observation["request_body_hash"], prepared.body_hash)
+                    self.assertEqual(observation["http_status_code"], 200)
+                    self.assertEqual(observation["http_request_id"], f"http-{index + 1}")
+                    self.assertEqual(observation["response_id"], f"response-{index + 1}")
+                    self.assertEqual(observation["content_present"], "content" in message)
+                    self.assertEqual(observation["content_type"], type(content).__name__ if "content" in message else "missing")
+                    self.assertEqual(observation["content_utf8_bytes"], len(content.encode()) if isinstance(content, str) else None)
+                    self.assertEqual(observation["content_sha256"], hashlib.sha256(content.encode()).hexdigest() if isinstance(content, str) else None)
+                    self.assertEqual(observation["finish_reason"], finish)
+                    self.assertEqual(observation["explicit_refusal"], message.get("refusal") is not None)
+                    self.assertNotIn("private reasoning", str(observation))
+
+    def test_bounded_cancelled_live_transport_reports_uncertain_send_not_exact_zero(self) -> None:
+        profile = ProviderProfile("deepseek", "https://api.deepseek.com", "none", "deepseek-v4-pro")
+
+        class CancelledLiveFixture:
+            def complete_tool_turn(self, _profile, **_kwargs):
+                error = ProviderCancelledError("cancelled after worker start")
+                error.sitina_physical_send_count = None
+                error.sitina_physical_send_status = "unknown_after_worker_start"
+                raise error
+
+        bounded = BoundedToolTurnClient(CancelledLiveFixture(), profile)
+        with self.assertRaises(ProviderCancelledError) as caught:
+            bounded.complete_tool_turn(
+                profile,
+                system_prompt="",
+                messages=[],
+                tools=[],
+                max_tokens=1,
+            )
+        self.assertEqual(caught.exception.sitina_physical_send_count, 0)
+        self.assertEqual(
+            caught.exception.sitina_physical_send_count_status,
+            "lower_bound_with_uncertain_attempts",
+        )
+        self.assertEqual(caught.exception.sitina_uncertain_physical_send_attempt_count, 1)
+
+        from sitina.runners.provider import ProviderRequiredOutputEmpty
+
+        class EmptyThenCancelled(CancelledLiveFixture):
+            def __init__(self):
+                self.calls = 0
+
+            def complete_tool_turn(self, _profile, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise ProviderRequiredOutputEmpty({
+                        "required_output": "json_object_without_tools", "physical_send_count": 1,
+                        "token_usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+                    })
+                return super().complete_tool_turn(_profile, **_kwargs)
+
+        client = EmptyThenCancelled()
+        bounded = BoundedToolTurnClient(client, profile, retry_limit=2, backoff_seconds=0)
+        with self.assertRaises(ProviderCancelledError) as caught:
+            bounded.complete_tool_turn(profile, system_prompt="", messages=[], tools=[], max_tokens=1)
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(caught.exception.sitina_physical_send_count, 1)
+        self.assertEqual(caught.exception.sitina_uncertain_physical_send_attempt_count, 1)
+        self.assertEqual(caught.exception.sitina_usage_status, "partial_unknown")
+        self.assertIsNone(caught.exception.sitina_token_usage)
+        self.assertEqual(caught.exception.sitina_provider_output_attempts[0]["token_usage"]["total_tokens"], 12)
+        from sitina.runners.provider import ProviderReadTimeout, ProviderConnectTimeout, ProviderDeadlineExceeded
+        for error_type, count, status, can_retry in (
+            (ProviderReadTimeout, 1, "response_received", False),
+            (ProviderReadTimeout, None, "unknown_after_worker_start", False),
+            (ProviderDeadlineExceeded, 1, "request_sent", False),
+            (ProviderConnectTimeout, 0, "not_dispatched", True),
+        ):
+            for callback_enabled in (False, True):
+                with self.subTest(error_type=error_type.__name__, count=count, callback=callback_enabled):
+                    class Transport:
+                        def __init__(self):
+                            self.calls = 0
+                        def complete_tool_turn(self, _profile, **_kwargs):
+                            self.calls += 1
+                            if self.calls == 1:
+                                error = error_type("bounded transport fixture")
+                                error.sitina_physical_send_count = count
+                                error.sitina_physical_send_status = status
+                                error.sitina_uncertain_physical_send_attempt_count = 0 if count is not None else 1
+                                raise error
+                            return ProviderToolTurn("done", (), "stop", {"physical_send_count": 1})
+                    client = Transport()
+                    bounded = BoundedToolTurnClient(client, profile, retry_limit=2,
+                        backoff_seconds=0, fallback_profiles=(profile,),
+                        fallback_allowed=True, max_fallbacks=1)
+                    kwargs = dict(system_prompt="", messages=[], tools=[], max_tokens=1)
+                    if callback_enabled:
+                        kwargs["retry_recovery"] = lambda error, accounting: True
+                    if can_retry:
+                        turn = bounded.complete_tool_turn(profile, **kwargs)
+                        self.assertEqual(client.calls, 2)
+                        self.assertEqual(turn.metadata["retry_count"], 1)
+                        self.assertEqual(turn.metadata["fallback_count"], 0)
+                    else:
+                        with self.assertRaises(error_type) as caught:
+                            bounded.complete_tool_turn(profile, **kwargs)
+                        self.assertEqual(client.calls, 1)
+                        self.assertEqual(caught.exception.sitina_retry_count, 0)
+                        self.assertEqual(caught.exception.sitina_fallback_count, 0)
+                        self.assertEqual(caught.exception.sitina_provider_output_attempts[0]["retry_safety_basis"],
+                                         "NO_RETRY_UNKNOWN_EFFECT")
 
     def test_autonomous_runtime_promotes_fallback_lineage_to_run_result(self) -> None:
         primary = ProviderProfile("primary", "https://api.deepseek.com", "none", "model-a")
@@ -548,6 +862,39 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(failed["retry_count"], 3)
         self.assertTrue(failed["automatic_retry_performed"])
 
+        from sitina.runners.provider import ProviderRequiredOutputEmpty
+
+        class EmptyClient:
+            def complete_tool_turn(self, _profile, **_kwargs):
+                raise ProviderRequiredOutputEmpty({
+                    "required_output": "json_object_without_tools",
+                    "physical_send_count": 1, "http_status_code": 200,
+                    "content_present": True, "content_type": "str", "content_utf8_bytes": 0,
+                    "token_usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+                })
+
+        settled.clear()
+        audit.events.clear()
+        runtime = AutonomousRuntime(
+            self.sitina_home, manager=self.manager,
+            client=BoundedToolTurnClient(EmptyClient(), primary, retry_limit=2, backoff_seconds=0),
+            profile=primary, provider_failure_settlement=lambda metadata: settled.append(dict(metadata)),
+        )
+        with self.assertRaises(ProviderRequiredOutputEmpty):
+            runtime.run_embedded("exercise empty response", run_id="embedded-empty-usage", journal_audit=audit)
+        self.assertEqual(len(settled), 1)
+        self.assertEqual(settled[0]["physical_send_count"], 3)
+        self.assertEqual(settled[0]["retry_count"], 2)
+        self.assertEqual(settled[0]["usage_status"], "known")
+        self.assertFalse(settled[0]["usage_unsettled"])
+        self.assertEqual(settled[0]["token_usage"]["total_tokens"], 36)
+        failed = next(payload for event, payload in audit.events if event == "provider_call_failed")
+        self.assertEqual(failed["provider_output_attempts"], settled[0]["provider_output_attempts"])
+        self.assertEqual(len(failed["provider_output_attempts"]), 3)
+        self.assertEqual(failed["token_usage"]["total_tokens"], 36)
+        self.assertEqual(failed["required_output_observation"]["http_status_code"], 200)
+        self.assertEqual(failed["error_type"], "ProviderRequiredOutputEmpty")
+
     def test_autonomous_audit_redacts_structured_payload_without_corrupting_json(self) -> None:
         client = FakeToolClient(
             [ProviderToolTurn("done", (), "stop", {"protocol": "mock"})]
@@ -559,11 +906,38 @@ class ExtensionManagerTests(unittest.TestCase):
             profile=ProviderProfile("mock", "https://example.invalid", "none", "mock"),
         )
         result = runtime.run('review token: abcdefgh\\"quoted-tail')
+        private_payload = {
+            "turn": 2,
+            "effect_id": "audit-private-input-effect",
+            "task": "private-task-marker",
+            "system_prompt": "private-system-marker",
+            "messages": [
+                {"role": "user", "content": json.dumps({"execution_context": "private-user-marker"})},
+                {"role": "system", "content": "private-system-message-marker"},
+                {"role": "developer", "content": "private-developer-marker"},
+                {"role": "assistant", "content": "public decision", "reasoning_content": "private-reasoning-marker"},
+                {"role": "tool", "name": "read_file", "tool_call_id": "observed-read", "content": "public tool result"},
+            ],
+        }
+        original_payload = json.loads(json.dumps(private_payload))
+        runtime._audit(result["run_id"], "provider_call_intended", private_payload)
         audit_path = self.manager.root / "runs" / f"{result['run_id']}.jsonl"
         records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
         self.assertTrue(records)
-        self.assertNotIn("abcdefgh", json.dumps(records, ensure_ascii=False))
-        self.assertEqual(records[-1]["event"], "run_succeeded")
+        serialized = json.dumps(records, ensure_ascii=False)
+        for private in (
+            "abcdefgh", "private-task-marker", "private-system-marker",
+            "private-user-marker", "private-system-message-marker",
+            "private-developer-marker", "private-reasoning-marker",
+        ):
+            self.assertNotIn(private, serialized)
+        self.assertEqual(records[-2]["event"], "run_succeeded")
+        intended = records[-1]
+        self.assertEqual(intended["effect_id"], "audit-private-input-effect")
+        self.assertEqual(intended["messages"][3]["content"], "public decision")
+        self.assertEqual(intended["messages"][4], original_payload["messages"][4])
+        self.assertEqual(private_payload, original_payload)
+        self.assertIn("abcdefgh", str(client.messages))
 
     def test_embedded_runtime_records_ordered_authorized_file_mutations(self) -> None:
         target = self.root / "execution" / "result.txt"
@@ -749,7 +1123,8 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(summary["journal_first_position"], event.position)
         self.assertEqual(summary["cas_references"], list(event.object_refs))
         object_ref = cas.resolve_reference(event.object_refs[0])
-        self.assertIn(b"private provider input body", cas.open_verified(object_ref))
+        self.assertNotIn(b"private provider input body", cas.open_verified(object_ref))
+        self.assertIn(b"<redacted-private-model-input>", cas.open_verified(object_ref))
         journal.close()
 
     def test_parallel_read_tools_commit_intended_and_completed_in_call_order(self) -> None:

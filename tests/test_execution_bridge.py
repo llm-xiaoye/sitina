@@ -144,8 +144,10 @@ class ExecutionBridgeTests(unittest.TestCase):
             forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
             boundary_check=lambda d: [],
             verifier=lambda d, r: VerificationVerdict(
-                True, "agent-delta", True, False, identity()
-            ),  # no test evidence
+                True, "agent-delta", True, False, identity(),
+                test_evidence_ref="test-evidence:" + "c" * 64,
+                test_evidence_hash="c" * 64,
+            ),  # carries evidence, but no tests were checked
             rollback=lambda a: rolled.append(a), max_attempts=2,
         )
         self.assertFalse(result.accepted)
@@ -153,18 +155,16 @@ class ExecutionBridgeTests(unittest.TestCase):
         self.assertEqual(rolled, [1, 2])
 
     def test_accept_without_immutable_evidence_reference_is_rejected(self) -> None:
-        rolled: list[int] = []
-        result = run_safe_execution(
-            binding=binding(), executor_id=EXECUTOR_ID, workspace="/ws",
-            forge_runner=ok_forge, collect_diff=lambda: ["src/x.py"],
-            boundary_check=lambda d: [],
-            verifier=lambda d, r: VerificationVerdict(
-                True, "agent-delta", True, True, identity()
-            ),
-            rollback=lambda a: rolled.append(a), max_attempts=1,
-        )
-        self.assertFalse(result.accepted)
-        self.assertEqual(rolled, [1])
+        # The "accepted implies immutable evidence" invariant is enforced at
+        # construction, so a hollow acceptance cannot be built at all.
+        with self.assertRaisesRegex(ValueError, "immutable evidence reference"):
+            VerificationVerdict(True, "agent-delta", True, True, identity())
+
+    def test_rejection_without_evidence_reference_is_allowed(self) -> None:
+        # A rejection legitimately references no evidence.
+        rejected = VerificationVerdict(False, "agent-delta", True, False, identity())
+        self.assertFalse(rejected.accepted)
+        self.assertIsNone(rejected.test_evidence_ref)
 
     def test_executor_cannot_be_its_own_verifier(self) -> None:
         with self.assertRaisesRegex(ValueError, "three distinct"):

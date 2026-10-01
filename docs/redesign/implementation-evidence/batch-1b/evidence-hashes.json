@@ -1,0 +1,59 @@
+{
+  "schema": "SITINA_R4_EVIDENCE_HASH_MANIFEST_V1",
+  "algorithm": "sha256",
+  "spec_version": "sitina-loop-v1-r4",
+  "files": {
+    "baseline-manifest.json": "f322c5a7926e8a029e7961bc0fcaa7d9679e51709dacf1aee10b60e7a0362c31",
+    "batch-report.json": "69a58fd8b1a9828651dafc5eb9717f71fdb43835866679ffd38c5f96a8382539",
+    "formal-cli-evidence.json": "f37f8d492f9156309005ffdbae72268a96324c10450b8c6fbf81ba043591cff4",
+    "isolation-and-unit-verification.json": "21352e14ac42422a3fb7accdb472a81b87fdc2751b5560ba35ac75dff02c21d6",
+    "verification.md": "4a15f7ce2e6f0265218fd8a4516a1d246f27bd7456f47ab082680c228558722c"
+  },
+  "implementation_files": {
+    ".sitina-r4-development-root-v1.json": "39b9f83796687a8c095bd5c6928e152c8eec0fff3460c1d8aa47a465b2611231",
+    "bin/sitina": "4eceae649a2b2d67445393f3bed677dd592e84f7ea1960c86b20caa2500cfc44",
+    "bin/sitina-r4-dev": "20f79a8176b398e192693f49df27a64340a32bd4e550f230a86220ca6c5221c1",
+    "core/sitina/cli.py": "08dcb64e05abd6ff8ef2cf05e943dafa9bcb93f133de098517736a180dcbedf5",
+    "core/sitina/evals/loop_contract.py": "db3c42be1acf027fabcea8b168f78e9d19cf59dfb990ac427d15558e7ea3c875",
+    "core/sitina/extensions/runtime.py": "4e4b7f838fa7358b4add79ef356089bbb6b2f38c585dea9bab06e5ab1fb99c53",
+    "core/sitina/loop/control.py": "545ada9ef2627fab7c80e8b64c95f9c14a2c4335fac1d22719c72ac44debcaf1",
+    "core/sitina/loop/coordinator.py": "5c2e569a422edca577ae85fec9379f6b8e5e77d0fa75e08558987455a43c5b52",
+    "core/sitina/loop/development.py": "8ba0464c72cb25d9b602f520fdf41c0a95091528ce4ac27183b474efc844354e",
+    "core/sitina/loop/model.py": "2459e22531fa0c50637028347bf073c9cbf68f4e7a24849b72b836efd62d8bde",
+    "core/sitina/loop/task_runtime.py": "aa3d596a56e32951c7d38fe4b76fd3e6c940c824d3c0183afbce0f521fe2c97b",
+    "core/sitina/runners/provider.py": "5882150d87daabf8080c0e4a36e9c5f1806c9dac4ae54efb249196a5c6d139bd",
+    "tests/test_loop_batch_1b_boundary.py": "8bbd98dffe930f09aaee1c5df22257673dfa954af342d3728eb13e1c5650ba52",
+    "tests/test_loop_batch_1b_launcher.py": "74d901fcc1793097973a1478555771cc20cccc945faf15e28eb802d2fbe9b788",
+    "tests/test_loop_batch_1b_runtime.py": "c060edb4efe5eee096c4d8606d1949b760775a536a71e6ad68179d181bc2bbf8",
+    "docs/redesign/00-本版生效规则与执行契约.md": "cf2224f6cd0f2e5f635245e6318fb1ccab9b15de5dff7489cfdc048df7b0da4d"
+  },
+  "formal_runtime_artifacts": {
+    "runtime/r4-loop-dev/state/journal/active.seg": "154ec71dbbe5607d59320aa9c19aeaa30520bb0c742fdf3440b661213f7ce8ce",
+    "runtime/r4-loop-dev/workspaces/canonical-readonly-facts-001/facts.txt": "3b559f9455c891c63ec8aa96d5405b7615c44d8caf01edc4214b9cff50637848",
+    "runtime/r4-loop-dev/workspaces/canonical-code-rework-001/target.py": "2556887f5aed534b18cbbc858886dcb5d66697630a0862668622d3bfe3eaa629",
+    "runtime/r4-loop-dev/workspaces/canonical-code-correct-001/answer.py": "5db028e2723bc88cf5657f92b784f28683657f7459caf7f0c54299bf6cb4b3fc",
+    "runtime/r4-loop-dev/workspaces/canonical-correction-002/value.txt": "21998928836741932680bb7ef8fb3fe2d8709b5afdf896752642d10595f9a610",
+    "runtime/r4-loop-dev/workspaces/canonical-pause-002/value.txt": "b8c97ddaf0d32992a9e1ea1b3e4caee8cf1b43c2230ea9e3a54b49b930c6f187",
+    "runtime/r4-loop-dev/workspaces/canonical-cancel-005/value.txt": "34cd4b2b763ac5fdeb63102b7d7375eb1647ba3b4c52b7b61e9566138d3f6f25"
+  },
+  "independent_supervisor_files": {
+    "evidence-handoffs-fixed.jsonl": "193d4e9711a774fc805d1dccf9cc57fa19ca69bb8a7d6ca2a561c92bfae8bc5a",
+    "final-boundaries-fixed.jsonl": "75f4e02cbd40ca9ffd69c99725cf7b81125518055bcf05d1fa249cb8f2359c91",
+    "structured-progress-fixed-independent.txt": "dde794eb67f9dc8534e5ecb6079b9c46b71de8f0abb2843eeeb2d87725411187",
+    "repeat-cancel-fixed.jsonl": "4d88aa33f78322ca31a66aadedf8745cfc512b969d34542652822d7ea2094f05",
+    "frozen-evidence-and-source-audit.json": "d6ed1d844b1a654cd9e8f4477b2edf7671fe2c8458110a1e73ea37b561bd9c8e",
+    "final-targeted-regression-independent.txt": "e99d56ba6d09f997b56299fb8d31fe3ea9624bc7697dd3c8b84dc83e359c22a7",
+    "authenticated-current-artifact-audit.json": "afe4364296bafa206f3f5ab00b542e0663de94b8a3e255ddcbf82c5af35206e9",
+    "observed-final-cli-transcripts.json": "3c6e11f4a1977d9c4c40eb31766f56a95dd16643956395f0c5638da0999f245a",
+    "authenticated-final-case-audit.json": "eea6c0eeff0625247e1103e2137b7662883b8cccad988e82e1cea569bde8f6f4"
+  },
+  "frozen_batch_0_1a_manifest": {
+    "path": "../batch-0-1a/evidence-hashes.json",
+    "sha256": "ec44b858136742c267ffbb2c6915442e69ed9572afcc626f32311f56d59db024"
+  },
+  "notes": [
+    "This manifest intentionally omits its own hash.",
+    "The Journal hash was captured after canonical-cancel-005, which ran after cancellation artifact capture and the repeated-CANCEL fix; the later UNKNOWN non-looping branch is covered by the final targeted regression. The Journal hash was unchanged by the independent read-only authenticated audit.",
+    "Superseded and failed experiments remain on disk and are indexed in formal-cli-evidence.json; they are not represented as final passes."
+  ]
+}

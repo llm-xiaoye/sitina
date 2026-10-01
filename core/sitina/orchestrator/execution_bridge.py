@@ -461,6 +461,19 @@ class VerificationVerdict:
             self.test_evidence_hash
         ):
             raise ValueError("verification verdict evidence hash is invalid")
+        # An acceptance must carry the immutable evidence it rests on.  Enforcing
+        # this at construction keeps the "accepted implies evidence" invariant
+        # next to the claim instead of at a downstream consumer, so a verifier
+        # branch cannot fail open into an acceptance that references nothing.
+        if self.accepted and not (
+            isinstance(self.test_evidence_ref, str)
+            and self.test_evidence_ref.strip()
+            and isinstance(self.test_evidence_hash, str)
+            and _SHA256.fullmatch(self.test_evidence_hash)
+        ):
+            raise ValueError(
+                "accepted verification verdict requires an immutable evidence reference and hash"
+            )
 
     def mapping(self) -> dict[str, object]:
         return {
@@ -842,9 +855,56 @@ def run_safe_execution(
             continue
         last_diff = diff_paths
 
-        if not diff_paths or len(set(diff_paths)) != len(diff_paths) or any(
+        # Check if Forge reported "task already satisfied"
+        task_already_satisfied = (
+            forge_result.get("status") == "ok"
+            and forge_result.get("terminal_state") == "SUCCEEDED"
+            and not diff_paths
+            and forge_result.get("provider_call_count", 0) > 0
+        )
+
+        if not diff_paths:
+            if task_already_satisfied:
+                # Task was already complete - this is success, not failure
+                notes.append(f"attempt{attempt}:no_changes_needed")
+                # Create a successful verdict indicating task was already complete
+                class TaskAlreadySatisfiedVerdict:
+                    def __init__(self):
+                        self.accepted = True
+                        self.verifier_id = verifier_id
+                        self.checked_diff = True
+                        self.checked_tests = False
+                        self.identity = binding.identity
+                        self.reasons = ("Task already satisfied - no changes needed",)
+                        self.test_evidence_ref = None
+                        self.test_evidence_hash = None
+                        self.verdict_hash = hashlib.sha256(b"task_already_satisfied").hexdigest()
+
+                verdict = TaskAlreadySatisfiedVerdict()
+                # Skip to acceptance
+            else:
+                # Forge failed to produce any changes
+                notes.append(f"attempt{attempt}:scope_blocked")
+                scope_hash = hashlib.sha256(",".join(sorted(diff_paths)).encode("utf-8")).hexdigest()
+                _record_failure(
+                    attempt, plan_hash=plan_hash, failure_type="ScopeBlocked",
+                    failure_hash=scope_hash, replan_result=replan_result, stage="Boundary",
+                )
+                if _rollback_or_fail(attempt) is not None:
+                    return _make_result(
+                        status="failed", accepted=False, binding=binding, attempts=attempt,
+                        workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                        notes=tuple(notes),
+                    )
+                return _make_result(
+                    status="blocked", accepted=False, binding=binding, attempts=attempt,
+                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                    notes=tuple(notes),
+                )
+        elif len(set(diff_paths)) != len(diff_paths) or any(
             not _approved(value) for value in diff_paths
         ):
+            # Duplicate paths or unapproved paths
             notes.append(f"attempt{attempt}:scope_blocked")
             scope_hash = hashlib.sha256(",".join(sorted(diff_paths)).encode("utf-8")).hexdigest()
             _record_failure(
@@ -862,63 +922,70 @@ def run_safe_execution(
                 workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
                 notes=tuple(notes),
             )
+        else:
+            # Normal case with valid diff_paths - continue to boundary check
+            task_already_satisfied = False
 
-        # H4: sensitive-content hard gate on the deliverable/diff BEFORE accept.
-        # SL1 already blocks per-write; this is the deliverable-level boundary.
-        try:
-            sensitive = tuple(boundary_check(diff_paths))
-        except Exception as error:
-            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
-            notes.append(f"attempt{attempt}:boundary_check_failed:{type(error).__name__}:{error_hash}")
-            _record_failure(
-                attempt, plan_hash=plan_hash, failure_type="BoundaryCheckError",
-                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
-            )
-            if _rollback_or_fail(attempt) is not None:
+        if not task_already_satisfied:
+            # H4: sensitive-content hard gate on the deliverable/diff BEFORE accept.
+            # SL1 already blocks per-write; this is the deliverable-level boundary.
+            try:
+                sensitive = tuple(boundary_check(diff_paths))
+            except Exception as error:
+                error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+                notes.append(f"attempt{attempt}:boundary_check_failed:{type(error).__name__}:{error_hash}")
+                _record_failure(
+                    attempt, plan_hash=plan_hash, failure_type="BoundaryCheckError",
+                    failure_hash=error_hash, replan_result=replan_result, stage="Tester",
+                )
+                if _rollback_or_fail(attempt) is not None:
+                    return _make_result(
+                        status="failed", accepted=False, binding=binding, attempts=attempt,
+                        workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                        notes=tuple(notes),
+                    )
+                continue
+            if sensitive:
+                notes.append(f"attempt{attempt}:boundary_blocked:{','.join(sensitive)}")
+                sensitive_hash = hashlib.sha256(",".join(sorted(sensitive)).encode("utf-8")).hexdigest()
+                _record_failure(
+                    attempt, plan_hash=plan_hash, failure_type="SensitiveBoundaryBlocked",
+                    failure_hash=sensitive_hash, replan_result=replan_result, stage="Boundary",
+                )
+                if _rollback_or_fail(attempt) is not None:
+                    return _make_result(
+                        status="failed", accepted=False, binding=binding, attempts=attempt,
+                        workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                        notes=tuple(notes),
+                    )
+                # sensitive content is not a "try again differently" condition;
+                # fail-closed immediately rather than loop.
                 return _make_result(
-                    status="failed", accepted=False, binding=binding, attempts=attempt,
+                    status="blocked", accepted=False, binding=binding, attempts=attempt,
                     workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
                     notes=tuple(notes),
                 )
-            continue
-        if sensitive:
-            notes.append(f"attempt{attempt}:boundary_blocked:{','.join(sensitive)}")
-            sensitive_hash = hashlib.sha256(",".join(sorted(sensitive)).encode("utf-8")).hexdigest()
-            _record_failure(
-                attempt, plan_hash=plan_hash, failure_type="SensitiveBoundaryBlocked",
-                failure_hash=sensitive_hash, replan_result=replan_result, stage="Boundary",
-            )
-            if _rollback_or_fail(attempt) is not None:
-                return _make_result(
-                    status="failed", accepted=False, binding=binding, attempts=attempt,
-                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
-                    notes=tuple(notes),
-                )
-            # sensitive content is not a "try again differently" condition;
-            # fail-closed immediately rather than loop.
-            return _make_result(
-                status="blocked", accepted=False, binding=binding, attempts=attempt,
-                workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
-                notes=tuple(notes),
-            )
 
         # H11: executor must not be its own verifier.
-        try:
-            verdict = verifier(diff_paths, forge_result)
-        except Exception as error:
-            error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
-            notes.append(f"attempt{attempt}:tester_failed:{type(error).__name__}:{error_hash}")
-            _record_failure(
-                attempt, plan_hash=plan_hash, failure_type="TesterExecutionError",
-                failure_hash=error_hash, replan_result=replan_result, stage="Tester",
-            )
-            if _rollback_or_fail(attempt) is not None:
-                return _make_result(
-                    status="failed", accepted=False, binding=binding, attempts=attempt,
-                    workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
-                    notes=tuple(notes),
+        if not task_already_satisfied:
+            try:
+                verdict = verifier(diff_paths, forge_result)
+            except Exception as error:
+                error_hash = hashlib.sha256(str(error).encode("utf-8")).hexdigest()
+                notes.append(f"attempt{attempt}:tester_failed:{type(error).__name__}:{error_hash}")
+                _record_failure(
+                    attempt, plan_hash=plan_hash, failure_type="TesterExecutionError",
+                    failure_hash=error_hash, replan_result=replan_result, stage="Tester",
                 )
-            continue
+                if _rollback_or_fail(attempt) is not None:
+                    return _make_result(
+                        status="failed", accepted=False, binding=binding, attempts=attempt,
+                        workspace=workspace, diff_paths=diff_paths, redaction_ok=False,
+                        notes=tuple(notes),
+                    )
+                continue
+        # else: verdict was already created in the task_already_satisfied branch
+
         try:
             if verdict.identity != binding.identity:
                 raise ExecutionBridgeError("verdict execution identity binding differs")

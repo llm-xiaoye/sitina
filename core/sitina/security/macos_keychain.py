@@ -466,6 +466,64 @@ class MacOSKeychainProvider:
         self._references[descriptor.key_id] = OpaqueKeychainReference(descriptor.key_id, self.service, self._account(purpose, version), purpose)
         return descriptor
 
+    def initialize_persistent_descriptors(
+        self,
+        purposes: tuple[KeyPurpose, ...],
+    ) -> tuple[KeyDescriptor, ...]:
+        """Create the requested immutable key versions and persist their registry.
+
+        Ordinary provider calls retain their lazy behaviour.  Runtime bootstrap
+        uses this explicit method so a fresh Journal/CAS namespace has a durable
+        version registry before it can record any business state.
+        """
+
+        if not purposes or len(set(purposes)) != len(purposes):
+            raise KeyProviderError("persistent key bootstrap requires unique purposes")
+        with self._lock:
+            descriptors = tuple(self.current_descriptor(purpose) for purpose in purposes)
+            self._persist_registry()
+            return descriptors
+
+    def require_existing_descriptor(
+        self,
+        purpose: KeyPurpose,
+        *,
+        key_id: str | None = None,
+    ) -> KeyDescriptor:
+        """Load an existing Keychain item without creating replacement material.
+
+        Recovery callers must never use the lazy ``current_descriptor`` path:
+        that path intentionally creates a missing key for a new namespace.  A
+        missing registry or item here is therefore a hard recovery error.
+        """
+
+        registry = self.backend.get(self.service, "registry")
+        if registry is None:
+            raise KeyProviderError("persistent Keychain version registry is unavailable")
+        try:
+            versions = json.loads(registry)
+            version = int(versions[purpose.value])
+        except Exception as error:
+            raise KeyProviderError("persistent Keychain version registry is malformed") from error
+        descriptor = self._descriptor(purpose, version)
+        if key_id is not None and descriptor.key_id != key_id:
+            raise KeyProviderError("persistent Keychain descriptor differs from the recorded key ID")
+        account = self._account(purpose, version)
+        material = self.backend.get(self.service, account)
+        if material is None:
+            raise KeyProviderError("persistent Keychain key material is unavailable")
+        if len(material) != 32:
+            raise KeyProviderError("persistent Keychain key material has an invalid length")
+        with self._lock:
+            self._material_cache[(purpose, version)] = bytes(material)
+            self._references[descriptor.key_id] = OpaqueKeychainReference(
+                descriptor.key_id,
+                self.service,
+                account,
+                purpose,
+            )
+        return descriptor
+
     def _parse_id(self, key_id: str, expected: KeyPurpose) -> int:
         prefix = f"{self.provider_id}:{self.environment}:{self.namespace}:{expected.value}:v"
         if not key_id.startswith(prefix):

@@ -661,14 +661,5 @@ class FastConversationRuntimeTests(unittest.TestCase):
         fast.execute.assert_called_once()
         autonomous.run.assert_not_called()
 
-    def test_secret_text_is_not_returned_by_cli_error_renderer(self) -> None:
-        from sitina.cli import _chat_failure_text
-
-        secret = "sk-example-secret-that-must-not-appear"
-        rendered = _chat_failure_text("AuthenticationError", f"Authorization: Bearer {secret}")
-        self.assertNotIn(secret, rendered)
-        self.assertNotIn("Authorization", rendered)
-
-
 if __name__ == "__main__":
     unittest.main()

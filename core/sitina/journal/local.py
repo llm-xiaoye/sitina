@@ -283,6 +283,8 @@ class LocalJournal:
         journal_id: str,
         epoch: int,
         namespace_kind: str = "code_mode",
+        backup_manifest: Any = None,
+        expected_backup_manifest_hash: str | None = None,
     ) -> tuple[DecodedFrame, ...]:
         """Reopen an isolated Journal without acquiring a writer lock.
 
@@ -293,7 +295,15 @@ class LocalJournal:
         ``LocalJournal`` recovery.
         """
         root = Path(home).expanduser().resolve(strict=True)
-        if namespace_kind != "code_mode" or not (root / ".sitina-code-mode-v1").is_file():
+        if namespace_kind == "session":
+            from sitina.loop.storage import _verify_loop_archive_members
+
+            _source, _bindings, original_journal_id = _verify_loop_archive_members(
+                root, backup_manifest, expected_backup_manifest_hash
+            )
+            if journal_id != original_journal_id or epoch != backup_manifest.frontier.epoch:
+                raise LocalJournalError("Loop archive Journal identity differs from its backup")
+        elif namespace_kind != "code_mode" or not (root / ".sitina-code-mode-v1").is_file():
             raise LocalJournalError("authenticated read requires an isolated Code Mode Journal")
         journal_root = root / "journal"
         sealed_root = journal_root / "sealed"
@@ -325,6 +335,14 @@ class LocalJournal:
                 raise JournalRecoveryError("authenticated Journal event verification failed")
             expected_position = transaction.last_position + 1
             stream_versions[transaction.stream_id] = transaction.last_stream_version
+        if namespace_kind == "session":
+            frontier = backup_manifest.frontier
+            if (
+                not frames
+                or frames[-1].transaction.last_position != frontier.position
+                or frames[-1].transaction_hash != frontier.commitment
+            ):
+                raise JournalRecoveryError("Loop archive Journal differs from its frozen frontier")
         return tuple(frames)
 
     def _fault(self, boundary: str) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import secrets
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -218,14 +219,18 @@ class ConversationRuntime:
         return context
 
     def maybe_confirm_tty_review(self, result: Mapping[str, Any]) -> dict[str, Any]:
-        """Complete the real CLI TTY handoff when a run is review-pending.
+        """Complete the independent review handoff when a run is review-pending.
+
+        Named for the TTY path it used to drive; it now drives the headless
+        independent reviewer instead, so no controlling terminal is required.
 
         The execution result is only a set of locators emitted by the
         controller.  This method never builds a candidate, test receipt, or
         review request from scalar fields, and it never accepts a caller
-        supplied decision/summary/TTY path.  If the controller did not emit a
-        complete Review V2 handoff, or the controlling terminal is absent,
-        the safe result is ``REVIEW_PENDING`` with no success promotion.
+        supplied decision or summary.  The separate reviewer process still owns
+        the verdict and its signing key.  If the controller did not emit a
+        complete Review V2 handoff, or the reviewer host is unavailable, the
+        safe result is ``REVIEW_PENDING`` with no success promotion.
         """
         if not isinstance(result, Mapping):
             return {"code_mode_status": "CODE_MODE_REVIEW_PENDING", "review_status": "REVIEW_PENDING"}
@@ -239,7 +244,7 @@ class ConversationRuntime:
         updated.update({
             "code_mode_status": "CODE_MODE_REVIEW_PENDING",
             "review_status": "REVIEW_PENDING",
-            "review_authority": "TTY_REVIEW_AUTHORITY",
+            "review_authority": "INDEPENDENT_REVIEWER_AUTHORITY",
         })
         request = result.get("review_request") or result.get("code_mode_review_request")
         candidate_locator = result.get("candidate_locator")
@@ -257,7 +262,7 @@ class ConversationRuntime:
         if not all(isinstance(item, Mapping) for item in (request, candidate_locator, test_receipt)):
             updated["review_reason_type"] = "MISSING_CONTROLLER_REVIEW_HANDOFF"
             return updated
-        if reviewer is None or not callable(getattr(reviewer, "confirm_tty", None)):
+        if reviewer is None or not callable(getattr(reviewer, "bind", None)):
             updated["review_reason_type"] = "REVIEWER_HOST_UNAVAILABLE"
             return updated
 
@@ -266,13 +271,34 @@ class ConversationRuntime:
             candidate = context.reopen_candidate_manifest(
                 dict(candidate_locator), run_id=str(result.get("run_id") or "")
             )
-            receipt = context.confirm_tty(
-                review=request,
+            # Headless independent review.  The separate reviewer process still
+            # owns the verdict and its signing key; it decides from the
+            # controller-sealed objective facts instead of from a human typing
+            # at a terminal, and it labels its own verdict as a deterministic
+            # machine review.  A machine review that finds any bad fact returns
+            # REJECT, so this replaces the human keystroke without replacing
+            # the independence it was there to provide.
+            approval = context.review_headless(
                 candidate=dict(candidate),
+                review_request=request,
                 reviewer_session=reviewer,
             )
+            capability = reviewer.bind(
+                candidate_id=str(candidate.get("candidate_id") or ""),
+                tree_hash=str(candidate.get("tree_hash") or ""),
+                test_receipt_hash=str(test_receipt.get("content_hash") or ""),
+                run_id=str(test_receipt.get("run_id") or ""),
+                expires_at=int(time.time()) + 600,
+            )
+            receipt = context.seal_offline_reviewer_receipt(
+                candidate=dict(candidate),
+                test_receipt=dict(test_receipt),
+                reviewer_session=reviewer,
+                reviewer_capability=capability,
+                reviewer_approval=approval,
+            )
             if not isinstance(receipt, Mapping):
-                raise PermissionError("TTY reviewer returned no durable receipt locator")
+                raise PermissionError("independent reviewer returned no durable receipt locator")
             gate = CodeModeAcceptanceV1(self.workspace)
             gate_kwargs: dict[str, Any] = {
                 "candidate": dict(candidate),
@@ -658,7 +684,9 @@ class ConversationRuntime:
         # AUTO must not let a classifier/SLA downgrade an explicit code
         # mutation into FAST.  This is a route decision only; the selected
         # MULTI path still performs the normal tool authorization and review.
-        intent = classify_code_mode_intent(message)
+        # For MULTI mode, force mutation to let agents decide if modification is needed
+        force_mutation_for_multi = session.mode is ChatMode.MULTI
+        intent = classify_code_mode_intent(message, force_mutation=force_mutation_for_multi)
         if session.mode is ChatMode.AUTO and intent["explicit_mutation"] and initial.resolved_mode is ChatMode.FAST:
             initial = dataclasses.replace(
                 initial,

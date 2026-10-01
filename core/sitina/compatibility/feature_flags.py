@@ -48,6 +48,11 @@ class FeatureActivationRegistry:
         "SITINA_RUN_EVIDENCE_PUBLISHED_V2": "evidence_v2_write",
         "SITINA_AGENT_CONTEXT_MANIFEST_PUBLISHED_V2": "agent_context_v2_write",
         "SITINA_MEMORY_CANDIDATE_CREATED_V1": "memory_v1_write",
+        "SITINA_MEMORY_DECISION_V1": "memory_v1_write",
+        "SITINA_EPISODE_V1": "memory_v1_write",
+        "SITINA_EPISODE_CREATED_V2": "memory_v1_write",
+        "SITINA_EXPERIENCE_MANIFEST_V1": "memory_v1_write",
+        "SITINA_EXPERIENCE_DECISION_V1": "memory_v1_write",
         "SESSION_DELETION_PREPARED_V1": "trash_bundle_v1_write",
     }
 

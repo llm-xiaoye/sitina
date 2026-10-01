@@ -1,0 +1,96 @@
+{
+  "schema": "SITINA_IMPLEMENTATION_BATCH_REPORT_V1",
+  "batch": "1b",
+  "captured_at": "2026-09-06",
+  "target_spec_version": "sitina-loop-v1-r4",
+  "status": "BATCH_1B_PASS_SCOPED",
+  "objective": "Run short code-rework, readonly, and no-change tasks through the formal CLI on the Batch 1a durable skeleton, while ensuring corrections and pause/cancel input cannot be crossed by stale evidence or completion proposals.",
+  "development_only": true,
+  "production_cutover": false,
+  "merge_performed": false,
+  "push_performed": false,
+  "implementation": {
+    "formal_entry": "bin/sitina-r4-dev loop-task",
+    "commands": ["boundary", "run", "input", "status"],
+    "source_root": "/Users/moss/SitinaHub-r4-b0-1a",
+    "state_authority_root": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/state",
+    "business_workspace_root": "/Users/moss/SitinaHub-r4-b0-1a/runtime/r4-loop-dev/workspaces",
+    "runtime_module": "sitina.loop.task_runtime.LoopTaskRunner",
+    "shared_acceptance_module": "sitina.evals.loop_contract.LoopAcceptanceEvaluator",
+    "provider": "DeepSeek through BoundedToolTurnClient with retry_limit=2 and fallback_allowed=false",
+    "total_turn_or_cost_cap": null,
+    "business_attempt_exit": "Four consecutive settled attempts for the same stable blocker without relevant progress produce STALLED.",
+    "review_disagreement_exit": "Three complete independent-review disagreements for the same outcome produce WAITING_INPUT."
+  },
+  "implemented_rules": [
+    "The launcher, interpreter, configuration, runtime state, and business workspaces are physically rooted in the marked development checkout; forbidden source roots are never write targets.",
+    "The manifest declares one persistent state authority root, so changing --state-root cannot split live ownership or forget UNKNOWN responsibility for the same workspace.",
+    "One inter-process authority lease is acquired before provider-home, Backend, control socket, or business workspace initialization; live status/input route through the authority socket.",
+    "Provider calls, tool calls, program checks, and reviewer calls are persisted as Loop operations with request/result identity and effect status.",
+    "All evidence handoffs inherit an immutable task binding. Goal, acceptance, handled-input, artifact, execution, or run changes invalidate the old stage before the next effect or commit.",
+    "readonly/no_change mutation attempts are denied before actual tool dispatch regardless of the general write approval flag.",
+    "Code checks run only with the pinned Python interpreter against a read-only copied input in macOS Seatbelt and a dedicated writable output; unsupported execution is NOT_RUN and waits for input.",
+    "Code completion accepts either a verified change or an initially-correct zero diff. Both use the same fixed program check and a strict artifact-bound independent JSON review.",
+    "Runtime completion directly evaluates the same AcceptanceCase/CaseObservation contract through LoopAcceptanceEvaluator used by scoring; only CASE_PASS may be submitted as success.",
+    "CORRECTION/MESSAGE, PAUSE, and CANCEL are durable inputs accepted during long Provider/check/review work. Stale results remain traceable but cannot approve the newer binding.",
+    "Cancellation retains completed effects, captures the current workspace artifact, prevents success submission, and records a unique CANCELLED terminal. Repeated CANCEL rebinding is safe; UNKNOWN effects instead return bounded recovery_blocked with ownership retained.",
+    "Structured program progress is accepted only from the exact SITINA_LOOP_CHECK_PROGRESS_V1 schema with stable requirement identities and a true satisfied/remaining set reduction."
+  ],
+  "verified_rules": [
+    {
+      "id": "B1B-A",
+      "result": "PASS",
+      "evidence": "Boundary probe and authority tests verify the isolated marked checkout, pinned interpreter, unique state authority, read-only credential reference, and pre-initialization rejection."
+    },
+    {
+      "id": "B1B-B",
+      "result": "PASS",
+      "evidence": "Live DeepSeek formal CLI cases verify readonly facts (46, zero diff), fixed-check code rework (FAIL to PASS), and initially-correct code (PASS with zero diff)."
+    },
+    {
+      "id": "B1B-C",
+      "result": "PASS",
+      "evidence": "The formal correction case invalidates an in-flight old reviewer and succeeds in cycle 2 on goal_version 2. Formal PAUSE remains nonterminal and unchanged; formal CANCEL retains a completed write, cancels success, captures the current artifact, and creates one terminal event."
+    },
+    {
+      "id": "B1B-D",
+      "result": "PASS",
+      "evidence": "Race tests cover corrections after goal read, before check binding, during check/review, after review verdict, and in the acceptance commit gap. Repeated cancel in the terminal gap is rebound; UNKNOWN cancellation exits recovery_blocked without retrying terminalization."
+    },
+    {
+      "id": "B1B-E",
+      "result": "PASS_WITH_SCOPE",
+      "evidence": "A six-cycle runner test proves one structured requirement reduction resets only the consecutive no-progress count and four later irrelevant changes produce STALLED; a separate test preserves the three-review-disagreement WAITING_INPUT threshold. This is check-owned structured progress, not full semantic R11 review."
+    },
+    {
+      "id": "SHARED-CONTRACT-WIRING",
+      "result": "PASS",
+      "evidence": "Every successful formal case records SITINA_LOOP_CASE_EVALUATION_V1 with outcome CASE_PASS in both the acceptance details and terminal result."
+    }
+  ],
+  "formal_evidence": "formal-cli-evidence.json",
+  "test_and_independent_evidence": "isolation-and-unit-verification.json",
+  "frozen_batch_0_1a_evidence": {
+    "path": "../batch-0-1a/evidence-hashes.json",
+    "sha256": "ec44b858136742c267ffbb2c6915442e69ed9572afcc626f32311f56d59db024",
+    "modified_by_batch_1b": false
+  },
+  "implemented_but_not_fully_verified": [
+    "The control socket isolates disconnected/partial clients and uses a short Darwin-safe path; tests cover these cases, but prolonged hostile-client load is outside this batch.",
+    "Provider transport failure is persisted and docks WAITING_INPUT after bounded transport retries; a historical real Provider worker failure exercised it, while the final live Provider cases exercised successful transport.",
+    "Cancellation artifact capture is verified for known completed effects and UNKNOWN produces a bounded recovery report; actual effect reconciliation remains a later recovery feature."
+  ],
+  "unimplemented_items": [
+    "Batch 2 bounded long-context assembly, historical query, and continued long-input processing.",
+    "Batch 3 full background lifecycle, process restart/reconnect, execution identity continuation, and UNKNOWN effect reconciliation.",
+    "Batch 4 general Skill/dependency candidate testing, Journal publication, projection, and ordinary-new-session consumption.",
+    "Batch 5 publication interruption matrices, late projection cases, and cancellation-after-obligation handling.",
+    "Batch 6 complete experience candidate inventory, item-by-item disposition, parent-obligation rebuild, and new-task benefit.",
+    "Batch 7 long-running end-to-end tasks, mid-course correction across recovery, visual artifact verification, and full first-release acceptance.",
+    "General semantic progress adjudication, independent review of ambiguous progress claims, and complex multi-action attempt ownership. Batch 1b verifies only stable IDs emitted by the fixed program check.",
+    "Program-check executors other than the pinned Python interpreter. They return NOT_RUN rather than being executed unsafely.",
+    "Computer use and visual/TCC validation, which the current specification explicitly defers."
+  ],
+  "historical_evidence_policy": "Runs under runtime/r4-loop-dev/state/real-* and superseded canonical experiments remain as debugging history. They are not counted as final formal evidence after the unique state-authority rule; replacements are named in formal-cli-evidence.json.",
+  "conclusion": "Batch 1b meets its short-task formal-entry objective in the isolated development checkout. It does not claim the complete Sitina first release, full recovery, memory, Skills publication, long-task, or visual acceptance, and it performs no production cutover."
+}

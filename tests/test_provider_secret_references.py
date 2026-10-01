@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tempfile
+import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sitina import cli
+from sitina.authority.model import AuthorityResolution, AuthorityState
+from sitina.legacy.fence import issue_frozen_network_egress_capability
 from sitina.cas.crypto import encrypt_object
 from sitina.cas.local import LocalCAS
 from sitina.journal.local import LocalJournal
@@ -44,6 +47,23 @@ class ProviderSecretReferenceTests(unittest.TestCase):
         )
         path.chmod(0o600)
         return path
+
+    def _credential_capability(self, loader: ProfileLoader, profile_name: str):
+        moment = int(time.time())
+        metadata = loader._authorization_metadata(profile_name)
+        resolution = AuthorityResolution(
+            state=AuthorityState.JOURNAL_WRITER_AUTHORIZED,
+            resolution_id="provider-secret-reference-fixture",
+            input_frontier_hash="a" * 64, input_hash="b" * 64,
+            resolver_binary_hash="c" * 64, resolver_profile="unit-fixture",
+            issued_at=moment, expires_at=moment + 300, reason="existing positive credential fixture",
+        )
+        return issue_frozen_network_egress_capability(
+            resolution, manifest_hash="d" * 64, operation="model_text_generation",
+            allowed_hosts=(metadata["host"],), expires_at=moment + 300, now=moment,
+            provider_name=metadata["provider_name"],
+            credential_reference=metadata["credential_reference"],
+        )
 
     def test_restore_overlay_reads_existing_keys_but_never_mutates_source(self) -> None:
         source = MemoryKeychainBackend()
@@ -99,6 +119,7 @@ class ProviderSecretReferenceTests(unittest.TestCase):
         audit = loader.inspect_profile_security("safe")
         self.assertEqual(audit["status"], "ok")
         self.assertFalse(audit["secret_value_included"])
+        client.network_egress_capability = self._credential_capability(loader, "safe")
         profile = client.load_profile("safe")
         self.assertEqual(profile.auth_token, "runtime-only-provider-token")
         self.assertNotIn("runtime-only-provider-token", repr(profile))
@@ -112,6 +133,7 @@ class ProviderSecretReferenceTests(unittest.TestCase):
         backend.put("com.sitina.provider", "safe", secret.encode("utf-8"))
         client = AnthropicCompatibleClient(self.home)
         client.loader = ProfileLoader(self.home, keychain_backend=backend)
+        client.network_egress_capability = self._credential_capability(client.loader, "safe")
         profile = client.load_profile("safe")
 
         def controlled_request(_url, _body, headers, **_kwargs):
@@ -189,15 +211,17 @@ class ProviderSecretReferenceTests(unittest.TestCase):
             self.assertNotIn(secret_bytes, path.read_bytes(), path)
 
     def test_plaintext_provider_token_loads_from_mode_600_profile_but_audit_fails_without_echoing_value(self) -> None:
-        self.profile("unsafe", 'export ANTHROPIC_AUTH_TOKEN="literal-provider-token"')
+        self.profile("unsafe", 'export SITINA_PROVIDER_AUTH_TOKEN="literal-provider-token"')
         loader = ProfileLoader(self.home, keychain_backend=MemoryKeychainBackend())
         audit = loader.audit_profiles()
         self.assertEqual(audit["status"], "failed")
         self.assertEqual(audit["plaintext_secret_count"], 1)
         self.assertFalse(audit["secret_values_included"])
         self.assertNotIn("literal-provider-token", str(audit))
-        loaded = loader.load_env("unsafe")
-        self.assertEqual(loaded["ANTHROPIC_AUTH_TOKEN"], "literal-provider-token")
+        loaded = loader.load_env(
+            "unsafe", network_egress_capability=self._credential_capability(loader, "unsafe"),
+        )
+        self.assertEqual(loaded["SITINA_PROVIDER_AUTH_TOKEN"], "literal-provider-token")
         self.assertNotIn("literal-provider-token", str(loader.safe_summary("unsafe")))
 
     def test_doctor_fails_when_a_profile_contains_a_plaintext_secret(self) -> None:

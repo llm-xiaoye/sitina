@@ -42,7 +42,6 @@ from sitina.journal.model import (
     CODE_MODE_LIVE_CAPABILITY_PURPOSES,
     CODE_MODE_PROVIDER_TOKEN_TEST_PURPOSE,
 )
-from sitina.legacy.fence import issue_frozen_network_egress_capability
 from sitina.orchestrator.agent_context_v2 import AgentContextManifestRepository
 from sitina.orchestrator.output_contracts import (
     OutputContractError,
@@ -617,7 +616,9 @@ def activate_runtime(
     elif provider_profile is not None:
         profile = provider_profile
     else:
-        profile = AnthropicCompatibleClient(component_root).load_profile(str(policy["provider_profile"]))
+        raise TrueMultiAgentRuntimeError(
+            "offline activation requires an explicit non-network Provider profile"
+        )
     host = urlparse(profile.base_url).hostname
     if not offline and not _provider_endpoint_allowed(profile.base_url, profile):
         raise TrueMultiAgentRuntimeError("true multi-agent runtime permits only the HTTPS endpoint fixed by the provider profile")
@@ -1813,25 +1814,27 @@ class ProviderExecutor:
 
     def __post_init__(self) -> None:
         self.feature_activations = FeatureActivationRegistry.from_journal_events(self.context.events)
-        capability = issue_frozen_network_egress_capability(
-            self.context.authority.resolution,
-            manifest_hash=self.activation.manifest_hash,
-            operation="model_text_generation",
-            allowed_hosts=(str(self.activation.mapping["provider"]["base_url_host"]),),
-            expires_at=int(time.time()) + 1200,
-        )
-        client = self.client_override or CapturingDeepSeekClient(self.home, network_egress_capability=capability)
+        resolution = self.context.authority.resolution
+        resolution.assert_fresh(now=int(time.time()))
+        if not resolution.authorizes_journal or resolution.writer_count != 1:
+            raise TrueMultiAgentRuntimeError("Provider execution requires one current Production Journal authority")
+        profile_name = str(self.policy["provider_profile"])
+        client = self.client_override or CapturingDeepSeekClient(self.home)
         if self.client_override is None:
+            # The existing broker owns credentials and physical sends. Its
+            # token-free summaries must never become local credential reads.
             profile_getter = getattr(self.context, "authoritative_provider_profile", None)
             if not callable(profile_getter):
                 raise TrueMultiAgentRuntimeError(
                     "authoritative Provider execution requires the CLI-owned host profile"
                 )
-            profile = profile_getter(str(self.policy["provider_profile"]))
-        elif self.profile_override is not None:
-            profile = self.profile_override
+            profile = profile_getter(profile_name)
+            if profile.name != profile_name or urlparse(profile.base_url).hostname != str(self.activation.mapping["provider"]["base_url_host"]):
+                raise TrueMultiAgentRuntimeError("primary Provider identity differs from its activation")
         else:
-            profile = client.load_profile(str(self.policy["provider_profile"]))
+            # An injected real client retains its own issued scope; the
+            # worker does not manufacture authority for an unbound client.
+            profile = self.profile_override if self.profile_override is not None else client.load_profile(profile_name)
         fallback_profiles: list[Any] = []
         fallback_clients: dict[str, Any] = {}
         configured_fallbacks = self.policy.get("provider_fallback_profiles") or ()
@@ -1850,7 +1853,11 @@ class ProviderExecutor:
             name = str(fallback_name or "").strip()
             if not name or name == profile.name or name in {item.name for item in fallback_profiles}:
                 continue
-            fallback_profile = client.load_profile(name)
+            fallback_client = client
+            fallback_profile = (
+                profile_getter(name) if self.client_override is None
+                else fallback_client.load_profile(name)
+            )
             fallback_host = urlparse(fallback_profile.base_url).hostname
             # Fallbacks are still part of the signed provider execution
             # activation.  A profile cannot silently expand the endpoint or
@@ -1861,7 +1868,7 @@ class ProviderExecutor:
             if fallback_profile.model not in set(self.policy["provider_model_allowlist"]):
                 raise TrueMultiAgentRuntimeError("configured fallback model is outside the allowlist")
             fallback_profiles.append(fallback_profile)
-            fallback_clients[fallback_profile.name] = client
+            fallback_clients[fallback_profile.name] = fallback_client
         transport_ledger = None
         transport_ledger_capability = None
         if self.client_override is None:
@@ -3450,6 +3457,15 @@ class ProviderExecutor:
             if scan_json_for_secrets(scan_value, scope="true-multi-agent-provider-output"):
                 raise TrueMultiAgentRuntimeError("Provider output secret scan failed")
         except Exception as error:
+            # 添加调试信息
+            import sys
+            if hasattr(self, '_interactive_chat') and self._interactive_chat:
+                print(f"\n  DEBUG: 输出验证失败", file=sys.stderr, flush=True)
+                print(f"    错误: {type(error).__name__}: {str(error)[:200]}", file=sys.stderr, flush=True)
+                print(f"    agent_id: {agent.agent_id}, kind: {kind}", file=sys.stderr, flush=True)
+                if isinstance(error, OutputContractError):
+                    print(f"    这是 OutputContractError，可能是字段格式问题", file=sys.stderr, flush=True)
+
             task, failed_fact = task.fail_attempt(attempt.fencing_token, "PROVIDER_OUTPUT_CONTRACT_REJECTED")
             rejection = {
                 "schema": "AGENT_OUTPUT_CONTRACT_REJECTED_V1",

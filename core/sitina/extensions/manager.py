@@ -27,6 +27,11 @@ from sitina.extensions.spec import (
     read_json_object,
     validate_identifier,
 )
+from sitina.extensions.authority import (
+    CandidatePreparationError,
+    ExtensionAuthority,
+    PreparedCandidate,
+)
 from sitina.legacy.fence import authorized_extension_effect
 from sitina.utils import iso_now, write_json
 
@@ -70,6 +75,44 @@ class ExtensionManager:
         self.plugins_root = self.root / "plugins"
         self.skills_root = self.root / "skills"
         self.audit_path = self.root / "audit.jsonl"
+        self._shared_authority: ExtensionAuthority | None = None
+
+    @property
+    def authority_bound(self) -> bool:
+        return (self.root / ".sitina-extension-authority-v1.json").is_file()
+
+    def bind_shared_authority(self, *, state_root: Path, backend: Any, store: Any | None = None) -> ExtensionAuthority:
+        """Bind this extension root to the existing Loop Journal/CAS writer.
+
+        The binding is persisted on the extension root, so another process
+        cannot silently select the same root from a different state root and
+        form a second authority.  The manager's legacy mutation methods are
+        closed as soon as this succeeds.
+        """
+
+        if store is not None:
+            raise ExtensionInstallError(
+                "shared extension authority requires the LoopBackend bridge, not a raw Journal/CAS store"
+            )
+        self._shared_authority = ExtensionAuthority(
+            self.root,
+            state_root=Path(state_root),
+            backend=backend,
+            sitina_home=self.sitina_home,
+        )
+        return self._shared_authority
+
+    @property
+    def shared_authority(self) -> ExtensionAuthority:
+        if self._shared_authority is None:
+            raise ExtensionInstallError("extension root has no shared Journal/CAS authority client")
+        return self._shared_authority
+
+    def _assert_legacy_mutation_allowed(self) -> None:
+        if self.authority_bound:
+            raise ExtensionInstallError(
+                "r4-managed extension root rejects the legacy registry write path; use the shared authority candidate API"
+            )
 
     @staticmethod
     def empty_registry() -> dict[str, Any]:
@@ -83,15 +126,37 @@ class ExtensionManager:
         }
 
     def load_registry(self) -> dict[str, Any]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for registry reads"
+                )
+            # Validate/read the authoritative projection first.  A stale or
+            # old-schema registry.json is never allowed to become an active
+            # source; the legacy maps are intentionally empty compatibility
+            # fields and active readers use the branches in skills() and
+            # active_plugins() above.
+            projection = self.shared_authority.load_projection()
+            return {
+                **projection,
+                "plugins": {},
+                "skills": {},
+                "marketplaces": {},
+            }
         if not self.registry_path.exists():
             return self.empty_registry()
-        raw = read_json_object(self.registry_path, schema=REGISTRY_SCHEMA)
+        raw = read_json_object(self.registry_path)
+        if raw.get("schema") == "SITINA_EXTENSION_PROJECTION_V1":
+            raise ExtensionInstallError("extension projection requires a shared ExtensionAuthority client")
+        if raw.get("schema") != REGISTRY_SCHEMA:
+            raise ExtensionInstallError(f"extension registry must use schema {REGISTRY_SCHEMA}")
         for key in ("plugins", "skills", "marketplaces"):
             if not isinstance(raw.get(key), dict):
                 raise ExtensionInstallError(f"extension registry field {key} must be an object")
         return raw
 
     def _save_registry(self, registry: Mapping[str, Any]) -> None:
+        self._assert_legacy_mutation_allowed()
         value = dict(registry)
         value["generation"] = int(value.get("generation", 0)) + 1
         value["updated_at"] = iso_now()
@@ -113,6 +178,7 @@ class ExtensionManager:
         git_ref: str | None = None,
         update: bool = False,
     ) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         prepared = self._prepare_source(source, approve_network=approve_network, git_ref=git_ref)
         try:
             manifest = PluginManifest.load(prepared.root)
@@ -190,6 +256,7 @@ class ExtensionManager:
             prepared.close()
 
     def rollback_plugin(self, name: str, *, install_id: str | None = None) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="plugin name")
         registry = self.load_registry()
         state = dict(registry["plugins"].get(name) or {})
@@ -214,6 +281,7 @@ class ExtensionManager:
         return {"status": "ok", "plugin": name, "active": install_id, "previous": active}
 
     def disable_plugin(self, name: str) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="plugin name")
         registry = self.load_registry()
         state = dict(registry["plugins"].get(name) or {})
@@ -247,6 +315,50 @@ class ExtensionManager:
         return result
 
     def active_plugins(self) -> list[tuple[PluginManifest, dict[str, Any]]]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for active plugin reads"
+                )
+            authority = self.shared_authority
+            projection = authority.load_projection()
+            result: list[tuple[PluginManifest, dict[str, Any]]] = []
+            defaults = projection.get("defaults") if isinstance(projection.get("defaults"), Mapping) else {}
+            for slot_id, default in sorted(defaults.items()):
+                slot = dict(default.get("slot") or {}) if isinstance(default, Mapping) else {}
+                if str(slot.get("kind") or "") != "plugin" or str(default.get("state") or "ACTIVE") != "ACTIVE":
+                    continue
+                # Resolve through the authoritative fixed-position resolver;
+                # do not derive an active candidate from a cached registry
+                # projection or independently rebuild a second default path.
+                resolution = authority.resolve_default(slot_id)
+                publication_id = str(resolution.get("publication_id") or "")
+                candidate_id = str(resolution.get("candidate_id") or "")
+                if not candidate_id:
+                    continue
+                candidate = dict(authority.candidate(candidate_id))
+                snapshot = dict(resolution)
+                path = Path(str(candidate.get("candidate_path") or ""))
+                manifest = PluginManifest.load(path)
+                permissions = dict(candidate.get("permissions") or {})
+                declared_permissions = tuple(manifest.permissions)
+                granted_permissions = tuple(
+                    item for item in (permissions.get("granted") or declared_permissions)
+                    if item in declared_permissions
+                )
+                record = {
+                    "install_id": candidate.get("install_id"),
+                    "version": candidate.get("version"),
+                    "content_sha256": candidate.get("tree_hash"),
+                    "path": str(path),
+                    "declared_permissions": list(declared_permissions),
+                    "granted_permissions": list(granted_permissions),
+                    "candidate_id": candidate_id,
+                    "snapshot_id": snapshot.get("snapshot_id"),
+                    "publication_id": publication_id,
+                }
+                result.append((manifest, record))
+            return result
         registry = self.load_registry()
         result: list[tuple[PluginManifest, dict[str, Any]]] = []
         for name, raw_state in sorted(registry["plugins"].items()):
@@ -264,6 +376,7 @@ class ExtensionManager:
         return result
 
     def install_skill(self, source: str | Path) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         source_path = Path(source).expanduser().resolve(strict=True)
         skill_file = source_path / "SKILL.md" if source_path.is_dir() else source_path
         skill = load_skill(skill_file)
@@ -296,6 +409,7 @@ class ExtensionManager:
         return {"status": "ok", "skill": skill.name, "active": install_id, "record": record}
 
     def rollback_skill(self, name: str, *, install_id: str | None = None) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="skill name")
         registry = self.load_registry()
         state = dict(registry["skills"].get(name) or {})
@@ -320,6 +434,7 @@ class ExtensionManager:
         return {"status": "ok", "skill": name, "active": install_id, "previous": active}
 
     def disable_skill(self, name: str) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="skill name")
         registry = self.load_registry()
         state = dict(registry["skills"].get(name) or {})
@@ -332,6 +447,31 @@ class ExtensionManager:
         return {"status": "ok", "skill": name, "disabled": True, "retained_versions": len(state.get("versions", []))}
 
     def skills(self) -> list[SkillDefinition]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for active skill reads"
+                )
+            authority = self.shared_authority
+            projection = authority.load_projection()
+            result: list[SkillDefinition] = []
+            defaults = projection.get("defaults") if isinstance(projection.get("defaults"), Mapping) else {}
+            for _slot_id, default in sorted(defaults.items()):
+                slot = dict(default.get("slot") or {}) if isinstance(default, Mapping) else {}
+                if str(slot.get("kind") or "") != "skill" or str(default.get("state") or "ACTIVE") != "ACTIVE":
+                    continue
+                resolution = authority.resolve_default(str(_slot_id))
+                candidate_id = str(resolution.get("candidate_id") or "")
+                if not candidate_id:
+                    continue
+                candidate = dict(authority.candidate(candidate_id))
+                path = Path(str(candidate.get("candidate_path") or ""))
+                result.append(load_skill(path / "SKILL.md"))
+            for manifest, _record in self.active_plugins():
+                path = manifest.component_path("skills")
+                if path:
+                    result.extend(load_skill(item, plugin_name=manifest.name) for item in sorted(path.glob("*/SKILL.md")))
+            return result
         registry = self.load_registry()
         result: list[SkillDefinition] = []
         for name, raw_state in sorted(registry["skills"].items()):
@@ -375,6 +515,7 @@ class ExtensionManager:
         return [agent for agent in self.agents() if any(trigger and trigger in text for trigger in agent.triggers)]
 
     def add_marketplace(self, source: str, *, approve_network: bool = False) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         parsed = urlparse(source)
         if parsed.scheme in {"http", "https"}:
             if not approve_network:
@@ -419,6 +560,7 @@ class ExtensionManager:
         grants: Iterable[str] = (),
         approve_network: bool = False,
     ) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         marketplace = validate_identifier(marketplace, label="marketplace name")
         plugin = validate_identifier(plugin, label="plugin name")
         registry = self.load_registry()
@@ -439,6 +581,60 @@ class ExtensionManager:
             expected_sha256=str(entry.get("sha256") or "") or None,
             git_ref=str(entry.get("git_ref") or "") or None,
             update=False,
+        )
+
+    def prepare_plugin_candidate(
+        self,
+        source: str | Path,
+        *,
+        grants: Iterable[str] = (),
+        expected_sha256: str | None = None,
+        execution_context: Any | None = None,
+    ) -> PreparedCandidate:
+        """Prepare a complete immutable plugin candidate without changing default."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.prepare_plugin(
+            source,
+            grants=tuple(str(item) for item in grants),
+            expected_sha256=expected_sha256,
+            execution_context=execution_context,
+        )
+
+    def prepare_skill_candidate(
+        self,
+        source: str | Path,
+        *,
+        execution_context: Any | None = None,
+    ) -> PreparedCandidate:
+        """Prepare a complete immutable Skill candidate without changing default."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.prepare_skill(source, execution_context=execution_context)
+
+    def create_extension_preparation_context(
+        self,
+        task_id: str,
+        source: str | Path,
+        *,
+        operation_id: str | None = None,
+    ) -> Any:
+        """Create the Loop-issued context required by candidate preparation."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.create_preparation_context(
+            task_id,
+            source,
+            operation_id=operation_id,
         )
 
     @staticmethod

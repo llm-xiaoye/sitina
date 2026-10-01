@@ -397,7 +397,7 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         self.assertIn("generation=2", retry_prompt)
 
     @patch("sitina.cli.print_json")
-    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.orchestrator.true_multi_agent.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
     @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
     def test_default_auto_mode_routes_ordinary_production_goal_to_true_multi_agent_runtime(
@@ -422,7 +422,7 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
 
     @patch("sitina.cli.print_json")
     @patch("sitina.cli.AutonomousRuntime")
-    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.orchestrator.true_multi_agent.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
     @patch(
         "sitina.cli.ExtensionManager.load_registry",
@@ -451,7 +451,7 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         )
 
     @patch("sitina.cli.print_json")
-    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.orchestrator.true_multi_agent.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
     @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
     def test_explicit_live_mode_uses_same_production_path_and_failed_terminal_is_nonzero(
@@ -469,7 +469,7 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         runtime_type.return_value.execute.assert_called_once()
 
     @patch("sitina.cli.print_json")
-    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.orchestrator.true_multi_agent.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
     @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
     def test_checkpoint_plan_yields_to_external_cli_process_supervisor(
@@ -646,10 +646,12 @@ class TrueMultiAgentCliRoutingTests(unittest.TestCase):
         self.assertIn("Negotiation", constrained.rationale)
         self.assertIn("Handoff", constrained.rationale)
 
-    @patch("sitina.cli.TrueMultiAgentProductionRuntime")
+    @patch("sitina.orchestrator.true_multi_agent.TrueMultiAgentProductionRuntime")
     @patch("sitina.cli._bplus_installed", return_value=True)
+    @patch("sitina.cli.ExtensionManager.load_registry", return_value={"plugins": {}, "skills": {}})
     def test_explicit_mock_mode_does_not_claim_live_multi_agent_evidence(
         self,
+        _extension_registry: Mock,
         _installed: Mock,
         runtime_type: Mock,
     ) -> None:

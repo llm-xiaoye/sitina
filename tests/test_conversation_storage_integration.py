@@ -167,10 +167,15 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
             def contains(receipt):
                 return receipt.get("receipt_id") == "issuer-receipt-1"
 
+            @staticmethod
+            def snapshot(_capability):
+                return ()
+
         executor.transport = SimpleNamespace(
             physical_send_count=0,
             authoritative_physical=True,
             transport_ledger=IssuerBoundLedger(),
+            transport_ledger_capability=object(),
         )
         executor._transport_authorization_id = "auth-current"
         executor._transport_authorization_run_id = "run-1"
@@ -235,10 +240,17 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
 
     def test_authoritative_embedded_metadata_without_receipt_is_not_physical(self) -> None:
         executor = self._budget_only_executor()
+
+        class EmptyIssuerBoundLedger:
+            @staticmethod
+            def snapshot(_capability):
+                return ()
+
         executor.transport = SimpleNamespace(
             physical_send_count=0,
             authoritative_physical=True,
-            transport_ledger=object(),
+            transport_ledger=EmptyIssuerBoundLedger(),
+            transport_ledger_capability=object(),
         )
         executor._embedded_transport_receipts = []
         executor._settled_embedded_transport_receipt_count = 0
@@ -523,10 +535,14 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
             rolling_summary="",
         )
         decision = router.decide(ChatMode.FAST, "Prove restart storage closure.", snapshot)
+        def controlled_init(instance, *args, **kwargs):
+            configured = self._controlled_executor(*args, **kwargs)
+            instance.__dict__.update(configured.__dict__)
+
         with (
             patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
-            patch("sitina.conversation.fast_runtime.ProviderExecutor", side_effect=self._controlled_executor),
+            patch.object(ProviderExecutor, "__init__", new=controlled_init),
         ):
             result = fast.execute(
                 "Prove restart storage closure.",
@@ -642,10 +658,14 @@ class ConversationStorageIntegrationTests(unittest.TestCase):
             rolling_summary="",
         )
         decision = router.decide(ChatMode.FAST, message, snapshot)
+        def controlled_init(instance, *args, **kwargs):
+            configured = self._controlled_executor(*args, **kwargs)
+            instance.__dict__.update(configured.__dict__)
+
         with (
             patch("sitina.conversation.fast_runtime.SessionRuntimeContext.open", return_value=context),
             patch("sitina.conversation.fast_runtime.activate_runtime", return_value=activation),
-            patch("sitina.conversation.fast_runtime.ProviderExecutor", side_effect=self._controlled_executor),
+            patch.object(ProviderExecutor, "__init__", new=controlled_init),
             patch.object(
                 ConversationLifecycle,
                 "complete_turn",

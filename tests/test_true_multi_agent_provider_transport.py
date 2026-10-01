@@ -276,8 +276,13 @@ class ProviderTransportTests(unittest.TestCase):
         transport_type = Mock()
         context = Mock()
         context.events = []
+        context.authority.resolution = Mock(
+            spec=["assert_fresh", "authorizes_journal", "writer_count"],
+            authorizes_journal=True, writer_count=1,
+        )
+        context.authoritative_provider_profile.side_effect = [primary, fallback]
+        context._authoritative_transport_ledger.return_value = (Mock(), Mock())
         with (
-            patch("sitina.orchestrator.true_multi_agent_runtime.issue_frozen_network_egress_capability"),
             patch("sitina.orchestrator.true_multi_agent_runtime.CapturingDeepSeekClient", return_value=fake_client),
             patch("sitina.orchestrator.true_multi_agent_runtime.RoleProfileResolver") as resolver_type,
             patch("sitina.orchestrator.true_multi_agent_runtime.OneShotDeepSeekTransport", transport_type),

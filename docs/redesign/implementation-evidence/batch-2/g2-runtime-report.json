@@ -1,0 +1,109 @@
+{
+  "schema": "SITINA_R4_BATCH_2_G2_RUNTIME_REPORT_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "gate": "G2",
+  "claim": "RUNTIME_VERIFIED",
+  "production_cutover": false,
+  "provider_calls_performed": 0,
+  "external_network_provider_calls_performed": 0,
+  "implemented": [
+    "one LoopRequestAssembler path for every Provider-backed main and reviewer turn, with exact profile/normalized-endpoint/model/wire identity and final rendered-body admission",
+    "protected OpenAI Chat Completions and Anthropic Messages transport bodies whose physical serialized hash must equal the admitted hash; retries and fallback cannot rebuild or change that body",
+    "bounded runtime feedback for the single empty-final-response repair, bound to the current task version and included in the next exact request instead of the legacy message buffer",
+    "large Provider and tool outputs persisted first through Loop Journal/CAS operations, followed by bounded readable receipts carrying verified task-local source handles",
+    "complete assistant/tool protocol groups with soft residency compaction, exact before/after/removed residency receipts, and explicit latest-group oversized failure",
+    "read-only sitina_history_query registered in real main and reviewer ToolCatalog instances with task/session binding, exact-model page maximum, list/read operations, readable UTF-8 and lossless base64 pages",
+    "proof-backed artifact indexing for task creation and artifact updates; artifact, program-check and main-result handles are queryable by the reviewer",
+    "one exact event reducer shared by cold replay and process-local hot projection cache; returned TaskProjection objects are detached and hot reads do not decrypt old CAS bodies",
+    "current blockers, required outcomes, recent attempt settlements and explicitly unclassified eliminated-method state pinned in the bounded projection",
+    "correction, pause and cancel barriers that invalidate stale context/results; stale context errors cannot be rebound to a newer task version",
+    "formal CONTEXT_BLOCKED outcomes for unavailable/invalid capacity policy, missing exact identity, unavailable qualified counter and true required-context overflow, with zero sends for the rejected request and no no-progress or terminal fabrication",
+    "DeepSeek V4 Pro exact non-secret policy for https://api.deepseek.com, deepseek-v4-pro, OpenAI Chat Completions and 1000000-token hard capacity"
+  ],
+  "connected": [
+    "LoopTaskRunner main runtime to LoopContextIndex, LoopRequestAssembler and task-bound history query",
+    "LoopTaskRunner independent reviewer to the same bounded request path and read-only history surface",
+    "AutonomousRuntime per-turn prepare/admit/dispatch path to both supported Provider transports",
+    "LoopOperationAdapter Provider/tool result commits to model-visible bounded receipts",
+    "artifact creation/update Journal events to CAS hash and proof verification",
+    "control and task-binding checks to the incremental index instead of full historical projection replay",
+    "empty-final-response repair to bounded execution feedback and exact next-wire admission"
+  ],
+  "verified": [
+    "a requirement projection above the 128 KiB soft target is admitted when the exact request fits the 1M hard capacity",
+    "optional history rows/groups are removed before a valid small-capacity request is blocked, while genuinely oversized required context is rejected before send",
+    "the exact current model policy controls query/receipt maxima and is not reduced by unrelated registry entries",
+    "empty or repeated prepares do not invent compaction; each counted compaction removes an actual resident representation and leaves originals history-queryable",
+    "OpenAI and Anthropic transport methods send the exact protected admitted body",
+    "legacy non-Loop ToolTurnClient implementations retain their original call signature",
+    "a stale old-binding context error is discarded and rebuilt against a newly handled correction",
+    "missing/malformed policy, missing exact identity and unavailable qualified tokenizer persist non-terminal CONTEXT_BLOCKED with zero rejected-request sends",
+    "multi-megabyte Unicode tool output is persisted and recovered through consecutive readable/lossless history pages without returning the original body in the runtime result",
+    "the independent reviewer actively reads distinct artifact, program-check and main-result sources and remains read-only",
+    "a scripted program-loop fixture verifies 105 consecutive distinct evidence pages, byte/UTF-8 reversibility, continuous offsets, more than 100 numbered evidence records, two mid-run corrections, retained early/mid/latest requirements and at least three genuine compactions",
+    "PAUSE and CANCEL are accepted while a history body read is blocked; after release the stale read result cannot cause a second Provider request or an acceptance commit",
+    "hot and cold projection paths produce the same projection and callers cannot mutate cached authority"
+  ],
+  "verification": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_loop_batch_2_g2_runtime.py",
+      "result": "20 passed in 18.37s"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_extensions.py tests/test_loop_batch_1a.py tests/test_loop_batch_1b_runtime.py tests/test_loop_batch_1b_boundary.py tests/test_loop_batch_1b_launcher.py tests/test_loop_contract_r4.py tests/test_provider_tool_protocols.py tests/test_loop_batch_2_context_core.py tests/test_loop_batch_2_g2_runtime.py",
+      "result": "142 passed in 69.36s"
+    },
+    {
+      "command": "git diff --check and py_compile of all G2 implementation/test modules under the required environment",
+      "result": "passed"
+    }
+  ],
+  "supervisor_independent_evidence_observed": [
+    "g2-runtime-blocking-retest-01.json: stale-binding rebuild and unavailable/malformed policy blockers passed",
+    "g2-loopback-wire-04.json: 8 local-loopback HTTP requests across both protocols matched admission hashes and carried bounded empty-final repair text",
+    "independent C2-010/C2-013/C2-014 probes: large soft-target admission, optional-history removal, true overflow, no false empty compaction, no hot CAS replay/deepcopy leak and legacy client signature passed"
+  ],
+  "capacity_source": {
+    "observed_on": "2026-09-06",
+    "models_and_pricing": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "first_api_call": "https://api-docs.deepseek.com/",
+    "token_usage": "https://api-docs.deepseek.com/quick_start/token_usage/",
+    "documented_hard_context_tokens": 1000000,
+    "documented_openai_base_url": "https://api.deepseek.com",
+    "documented_model": "deepseek-v4-pro",
+    "wire_protocol": "openai_chat_completions",
+    "wire_protocol_basis": "official OpenAI-format endpoint plus sitina.runners.provider.infer_wire_protocol for the exact configured profile/endpoint",
+    "character_conversion_treatment": "provider character/token ratios are approximate only; they are not used as an exact admission tokenizer"
+  },
+  "capacity_policy_distinctions": {
+    "hard_capacity": "1000000 tokens for the exact configured model identity",
+    "soft_daily_residency_targets": {
+      "task_projection_bytes": 131072,
+      "recent_protocol_groups_bytes": 65536,
+      "per_receipt_bytes": 4096
+    },
+    "conservative_fallback": "one token per complete serialized UTF-8 wire byte plus 8192 protocol-margin tokens and 16384 reserved next-turn receipt tokens",
+    "cumulative_task_budget": "none"
+  },
+  "not_implemented": [
+    "real external Provider exercise (reserved for G3)",
+    "cross-process recovery beyond existing Journal replay",
+    "semantic dialogue summarization or eliminated-method inference",
+    "general UNKNOWN-effect reconciliation",
+    "experience publication or visual acceptance",
+    "production cutover, merge, push, Batch 3-7 work"
+  ],
+  "files": {
+    "core/sitina/loop/context_window.py": "653df42dbc51809c35dbb342637b76180849909afb2195270f882cf3d320965d",
+    "core/sitina/loop/coordinator.py": "12d9bde5161f2cfc8c5270bab221683b837d509927035e32e60f5f2bbec66a0c",
+    "core/sitina/loop/task_runtime.py": "745d6cfef714bed651bed902769079f0c731ff1091583c8ba0a9a3ba32bb364e",
+    "core/sitina/extensions/runtime.py": "6e56de243bb43c4d7da81c4cefa46809b6762c76fb418f7b160bec7bcffe3c6f",
+    "core/sitina/extensions/tools.py": "bfecebcdf635de0dea483f80f633c21df9234d9168a956a578c8684a7fdd3275",
+    "core/sitina/runners/provider.py": "fcd0a4f0219b957d44b594f7e670f34621b8db4dd613d38c097346819eff282e",
+    "config/loop_context_capacity.json": "e97d083df99277fce6086ae7c27e5f4bb06804a94fcb1a7081f3e6185a9f5bf4",
+    "config/loop_context_capacity.provenance.json": "d5c10113d056f1cfe3a4ebeff6998be6621b184dff06df634402f5049e8c1c41",
+    "tests/test_loop_batch_1b_runtime.py": "630d33812182c035e6f8b183078f4ae2d4578ccc0d507d636bb3c021e3f70c50",
+    "tests/test_loop_batch_2_g2_runtime.py": "b2126ab49ba03ec4abf1e46a181f1e0929d9f154981c32ee2da5a698afd003c7"
+  },
+  "gate_marker": "B2-G2-READY"
+}

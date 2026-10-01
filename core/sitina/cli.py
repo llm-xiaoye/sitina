@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import signal
 import socket
 import shutil
 import subprocess
@@ -18,17 +19,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sitina.config import ConfigValidator, export_json_schemas
-from sitina.conversation import (
-    ChatMode,
-    ChatSession,
-    ConversationRuntime,
-    FastConversationRuntime,
-    RouteDecision,
-    route_decision_from_mapping,
-    route_description,
-)
-from sitina.conversation.routing_policy import LatencyClass
-from sitina.conversation.suggestion import SuggestionEngine, SuggestionError
 from sitina.constants import REQUIRED_DIRS, SITINA_HOME
 from sitina.compatibility.feature_flags import FeatureActivationRegistry
 from sitina.evals import run_safety_eval
@@ -37,7 +27,7 @@ from sitina.extensions.runtime import AutonomousRuntime
 from sitina.extensions.tools import ApprovalRequest
 from sitina.guards.risk import RiskScanner
 from sitina.install_identity import canonical_journal_native_home
-from sitina.memory.native import MemoryAccessDenied, MemoryRepository, MemoryStateError
+from sitina.memory.native import EpisodeRepository, MemoryACL, MemoryAccessDenied, MemoryRepository, MemoryStateError
 from sitina.orchestrator.autonomy import AutonomyManager
 from sitina.orchestrator.arbitration import ArbitrationManager
 from sitina.orchestrator.acceptance_report import AcceptanceReportGenerator
@@ -47,10 +37,7 @@ from sitina.orchestrator.blackboard import Blackboard
 from sitina.orchestrator.checkpoint import CheckpointManager
 from sitina.orchestrator.context import ContextBuilder
 from sitina.orchestrator.code_mode_gate import CodeModeAcceptanceV1, build_candidate_manifest
-from sitina.orchestrator.code_mode_runtime import (
-    CodeModeScriptedProvider,
-    CodeModeRuntimeContext,
-)
+from sitina.orchestrator.code_mode_runtime import CodeModeRuntimeContext
 from sitina.orchestrator.code_mode_authority_broker import _connect_attested_host
 from sitina.orchestrator.code_mode_reviewer import (
     CodeModeReviewerProducerSession,
@@ -76,7 +63,6 @@ from sitina.orchestrator.schema_registry import SchemaRegistry
 from sitina.orchestrator.side_effects import SideEffectManager
 from sitina.orchestrator.task_graph import TaskGraphRuntime
 from sitina.orchestrator.team import DynamicTeamBuilder
-from sitina.orchestrator.true_multi_agent import TrueMultiAgentProductionRuntime
 from sitina.runners.mcp_adapter import McpAdapter
 from sitina.runners.profiles import ProfileLoader
 from sitina.security.profile_exception import evaluate_deepseek_direct_storage_exception
@@ -84,9 +70,12 @@ from sitina.runners.provider import AnthropicCompatibleClient, ScriptedMockToolC
 from sitina.security.key_provider import InMemoryKeyProvider
 from sitina.storage import LegacyRuntimePolicy, SitinaStore
 from sitina.utils import ensure_dir, iso_now, load_json_yaml, write_json
+from sitina.runners.provider import RoleProfileResolver
 
 
 _LAST_PRINTED_JSON: Any = None
+
+_SUGGEST_LATENCY_CLASS_CHOICES = ("interactive", "standard", "batch")
 
 
 def _is_production_home() -> bool:
@@ -656,6 +645,999 @@ def cmd_runtime_diagnostics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_loop_state(args: argparse.Namespace) -> int:
+    """Development-only batch-1a control plane for the persistent loop skeleton."""
+
+    from sitina.loop import LoopBackend, SPEC_VERSION
+    from sitina.loop.control import LoopAuthorityError, LoopAuthorityLease, send_control_request
+
+    state_root = Path(args.state_root).expanduser().resolve(strict=False)
+    if (SITINA_HOME / ".sitina-r4-development-root-v1.json").is_file():
+        from sitina.loop.development import DevelopmentBoundary, DevelopmentBoundaryError
+
+        diagnostic_workspace = SITINA_HOME / "runtime/r4-loop-dev/workspaces/loop-state-diagnostic"
+        try:
+            DevelopmentBoundary.validate(
+                state_root=state_root,
+                business_workspace=diagnostic_workspace,
+            )
+        except DevelopmentBoundaryError as error:
+            print_json({
+                "schema": "SITINA_LOOP_STATE_COMMAND_V1",
+                "spec_version": SPEC_VERSION,
+                "state_root": str(state_root),
+                "status": "blocked",
+                "reason": str(error),
+                "state_root_created": False,
+                "new_coordinator_opened": False,
+            })
+            return 3
+    try:
+        lease = LoopAuthorityLease(state_root).acquire()
+    except LoopAuthorityError:
+        if args.loop_state_cmd == "status" and not args.dock_restart:
+            try:
+                response = send_control_request(state_root, {"command": "status", "task_id": args.task_id})
+            except LoopAuthorityError:
+                pass
+            else:
+                print_json({
+                    "schema": "SITINA_LOOP_STATE_COMMAND_V1",
+                    "spec_version": SPEC_VERSION,
+                    "state_root": str(state_root),
+                    "status": "ok",
+                    "routed_to_live_authority": True,
+                    "task": response["task"],
+                })
+                return 0
+        print_json({
+            "schema": "SITINA_LOOP_STATE_COMMAND_V1",
+            "spec_version": SPEC_VERSION,
+            "state_root": str(state_root),
+            "status": "blocked",
+            "reason": "a live Loop authority owns this state root",
+            "new_coordinator_opened": False,
+        })
+        return 3
+    try:
+        with LoopBackend.open(state_root) as backend:
+            common = {
+                "schema": "SITINA_LOOP_STATE_COMMAND_V1",
+                "spec_version": SPEC_VERSION,
+                "state_root": str(state_root),
+                "run_instance_id": backend.run_instance_id,
+                "key_readback": backend.context.key_readback.as_dict(),
+                "production_cutover": False,
+                "full_recovery_connected": False,
+            }
+            if args.loop_state_cmd == "initialize":
+                print_json({**common, "status": "initialized", "task_ids": list(backend.task_ids())})
+                return 0
+            if args.loop_state_cmd == "create":
+                outcomes = tuple(sorted(set(args.required_outcome)))
+                task = backend.create_task(
+                    task_id=args.task_id,
+                    session_id=args.session_id,
+                    task_kind=args.task_kind,
+                    goal=args.goal,
+                    required_outcome_ids=outcomes,
+                    artifact_ref=args.artifact_ref,
+                    environment_ref=args.environment_ref,
+                    capability_snapshot_id=args.capability_snapshot_id,
+                )
+                print_json({**common, "status": "task_created", "task": task.as_dict()})
+                return 0
+            if args.loop_state_cmd == "status":
+                task = backend.dock_after_restart(args.task_id) if args.dock_restart else backend.get_task(args.task_id)
+                print_json({**common, "status": "ok", "task": task.as_dict()})
+                return 0
+    finally:
+        lease.close()
+    raise SystemExit("unknown loop-state command")
+
+
+_LOOP_HOST_DRAIN_TIMEOUT_SECONDS = 30.0
+_LOOP_HOST_GRACEFUL_EXIT_CODES = frozenset({0, 130})
+
+
+def _owned_loop_host_exit_failure(returncode: int | None) -> str | None:
+    if returncode in _LOOP_HOST_GRACEFUL_EXIT_CODES:
+        return None
+    if returncode is None:
+        return "owned Host exit could not be confirmed"
+    return f"owned Host exited without a graceful drain (return code {returncode})"
+
+
+def _drain_owned_loop_host_processes(
+    processes: list[subprocess.Popen[Any]],
+    *,
+    timeout: float = _LOOP_HOST_DRAIN_TIMEOUT_SECONDS,
+) -> tuple[str, ...]:
+    """Gracefully stop only Host processes created by this controller."""
+
+    failures: list[str] = []
+    seen: set[int] = set()
+    for process in reversed(processes):
+        identity = id(process)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        returncode = process.poll()
+        if returncode is None:
+            try:
+                process.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                failures.append(f"could not request owned Host drain: {error}")
+                continue
+            try:
+                returncode = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                failures.append(
+                    "owned Host is still draining; no force termination was attempted"
+                )
+                continue
+            except OSError as error:
+                failures.append(f"could not confirm owned Host exit: {error}")
+                continue
+        failure = _owned_loop_host_exit_failure(returncode)
+        if failure is not None:
+            failures.append(failure)
+    return tuple(failures)
+
+
+def _submit_loop_task(
+    boundary: Any,
+    submit_payload: Mapping[str, Any],
+    *,
+    provider_profile: str,
+    approve_writes: bool,
+    owned_host_processes: list[subprocess.Popen[Any]] | None = None,
+) -> Mapping[str, Any]:
+    """Submit through the sole Loop host, starting that same host if absent."""
+
+    from sitina.loop.control import LoopAuthorityError, send_control_request
+    from sitina.loop.development import (
+        boundary_interpreter_entry,
+        runtime_subprocess_environment,
+    )
+
+    try:
+        return send_control_request(boundary.state_root, submit_payload)
+    except LoopAuthorityError as first_error:
+        try:
+            environment = runtime_subprocess_environment(boundary)
+            host_process = subprocess.Popen(
+                [
+                    str(boundary_interpreter_entry(boundary)),
+                    "-B",
+                    "-m",
+                    "sitina.cli",
+                    "loop-host",
+                    "serve",
+                    "--state-root",
+                    str(boundary.state_root),
+                    "--workspace",
+                    str(boundary.business_workspace),
+                    "--provider-profile",
+                    provider_profile,
+                    *(["--approve-writes"] if approve_writes else []),
+                ],
+                cwd=str(boundary.source_root),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                # Startup failures must remain visible on the controller's
+                # real stderr.  Do not use an unread PIPE here: a noisy child
+                # could otherwise block before the authority becomes live.
+                stderr=None,
+                start_new_session=True,
+            )
+            if owned_host_processes is not None:
+                owned_host_processes.append(host_process)
+            deadline = time.monotonic() + 8.0
+            while True:
+                try:
+                    return send_control_request(boundary.state_root, submit_payload)
+                except LoopAuthorityError:
+                    returncode = host_process.poll()
+                    if returncode is not None:
+                        # Keep the terminal child in the owned set so the
+                        # session's final drain preserves its abnormal exit.
+                        # The missing authority means submission was not
+                        # confirmed; it does not prove the Host performed no
+                        # durable action before exiting.
+                        raise LoopAuthorityError(
+                            "Loop Host exited during startup "
+                            f"(return code {returncode}); task submission was not confirmed"
+                        ) from first_error
+                    if time.monotonic() >= deadline:
+                        raise first_error
+                    time.sleep(0.05)
+        except (OSError, LoopAuthorityError):
+            raise
+
+
+def _run_loop_session(
+    args: argparse.Namespace,
+    owned_host_processes: list[subprocess.Popen[Any]],
+) -> int:
+    """AUTO-only controller with read-only attachment to existing Loop tasks."""
+
+    from sitina.conversation.context import ConversationContextSnapshot
+    from sitina.conversation.models import ChatMode
+    from sitina.conversation.router import ConversationRouter, ConversationRouterError
+    from sitina.loop.control import LoopAuthorityError, send_control_request
+    from sitina.loop.development import DevelopmentBoundaryError, validate_runtime_boundary
+    from sitina.loop.status_reader import StatusReadUnavailable, read_task_status
+
+    try:
+        boundary = validate_runtime_boundary(
+            state_root=args.state_root,
+            business_workspace=args.workspace,
+        )
+        router = ConversationRouter.load(boundary.source_root)
+    except (DevelopmentBoundaryError, ConversationRouterError, OSError, ValueError) as error:
+        print(f"Sitina Loop is unavailable: {error}", file=sys.stderr)
+        return 3
+
+    print("Sitina Loop — AUTO routing is always on. Type /help for commands.")
+    last_route: Mapping[str, Any] | None = None
+    empty_context = ConversationContextSnapshot(
+        transcript="",
+        turn_count=0,
+        char_count=0,
+        context_hash=hashlib.sha256(b"").hexdigest(),
+        token_count=0,
+    )
+    while True:
+        try:
+            message = input("sitina> ").strip()
+        except EOFError:
+            print()
+            return 0
+        except KeyboardInterrupt:
+            print()
+            return 130
+        if not message:
+            continue
+        command = message.casefold()
+        if command in {"/exit", "/quit"}:
+            return 0
+        if command == "/help":
+            print("/mode  show the latest automatic route")
+            print("/attach TASK_ID  watch an existing task without starting or resuming it")
+            print("/exit  leave Sitina Loop")
+            print("Routing is automatic; manual route selection is unavailable.")
+            continue
+        if command == "/mode":
+            if last_route is None:
+                print("AUTO · no task has been routed yet.")
+            else:
+                reasons = "；".join(str(item) for item in last_route["reasons"])
+                print(f"AUTO · {last_route['strategy']} · {reasons}")
+            continue
+        if command in {"/fast", "/multi", "/auto"}:
+            print("Routing is always automatic; manual route commands do not change it.")
+            continue
+
+        parts = message.split(maxsplit=1)
+        attaching = parts[0].casefold() == "/attach"
+        if attaching:
+            if len(parts) != 2 or not parts[1].strip():
+                print("Usage: /attach TASK_ID")
+                continue
+            task_id = parts[1].strip()
+        else:
+            if message.startswith("/"):
+                print("Unknown command. Type /help for available commands.")
+                continue
+            try:
+                decision = router.decide(ChatMode.AUTO, message, empty_context)
+            except (ConversationRouterError, ValueError) as error:
+                print(f"Automatic routing failed closed: {error}", file=sys.stderr)
+                continue
+            reviewed = decision.resolved_mode is ChatMode.MULTI
+            task_kind = "reviewed_readonly" if reviewed else "readonly"
+            strategy = "main Agent + independent reviewer" if reviewed else "single main Agent"
+            last_route = {"strategy": strategy, "reasons": decision.reasons}
+            print(f"AUTO · {strategy}")
+            task_id = "loop-" + secrets.token_hex(12)
+            submit_payload = {
+                "command": "submit",
+                "task_id": task_id,
+                "submission_id": task_id,
+                "task_kind": task_kind,
+                "goal": message,
+                "workspace": str(boundary.business_workspace),
+                "check_command": [],
+                "provider_profile": args.provider_profile,
+                "reviewer_request_timeout_seconds": RoleProfileResolver(boundary.config_root.parent).provider_config().get("reviewer_request_timeout_seconds"),
+                "approve_writes": False,
+                "authorization": "cli",
+                "provider_identity": None,
+                "environment_ref": None,
+                "capability_snapshot_id": None,
+                "software_identity": None,
+                "config_identity": None,
+                "capability_selection": "",
+            }
+            try:
+                submitted = _submit_loop_task(
+                    boundary,
+                    submit_payload,
+                    provider_profile=args.provider_profile,
+                    approve_writes=False,
+                    owned_host_processes=owned_host_processes,
+                )
+            except (OSError, LoopAuthorityError) as error:
+                print(f"Loop submission failed closed: {error}", file=sys.stderr)
+                continue
+            if submitted.get("status") != "accepted":
+                print(
+                    f"Loop submission was not accepted: {submitted.get('reason') or submitted.get('status')}",
+                    file=sys.stderr,
+                )
+                continue
+
+        previous_display: str | None = None
+        first_read = True
+        while True:
+            read_source = "live authority"
+            try:
+                status_response = send_control_request(
+                    boundary.state_root,
+                    {"command": "attach" if attaching and first_read else "status", "task_id": task_id},
+                )
+            except LoopAuthorityError:
+                read_source = "read-only Journal"
+                try:
+                    status_response = read_task_status(boundary.state_root, task_id)
+                except KeyError:
+                    print(f"Task {task_id} was not found in the authenticated Journal.", file=sys.stderr)
+                    break
+                except (StatusReadUnavailable, OSError, ValueError) as error:
+                    print(f"Loop status is unavailable: {error}", file=sys.stderr)
+                    break
+            first_read = False
+            if status_response.get("status") != "ok":
+                detail = status_response.get("reason") or status_response.get("status")
+                print(f"Loop status is unavailable for {task_id}: {detail}", file=sys.stderr)
+                break
+            task = status_response.get("task")
+            if not isinstance(task, Mapping) or task.get("task_id") != task_id:
+                print("Loop returned an invalid task identity.", file=sys.stderr)
+                break
+            status = task.get("status")
+            revision = task.get("task_revision")
+            waiting = task.get("waiting_reason")
+            active = task.get("active_operation_ids")
+            terminal = task.get("terminal_result")
+            if (
+                not isinstance(status, str) or not status
+                or type(revision) is not int
+                or (waiting is not None and not isinstance(waiting, Mapping))
+                or not isinstance(active, (list, tuple))
+                or any(not isinstance(item, str) for item in active)
+                or (terminal is not None and not isinstance(terminal, Mapping))
+            ):
+                print("Loop returned an invalid task status.", file=sys.stderr)
+                break
+            final_status = terminal.get("terminal_status") if terminal is not None else None
+            final_result = terminal.get("final_result") if terminal is not None else None
+            response = (
+                str(final_result.get("response") or "")
+                if isinstance(final_result, Mapping)
+                else ""
+            )
+            waiting_text = json.dumps(dict(waiting or {}), ensure_ascii=False, sort_keys=True)
+            active_text = json.dumps(list(active), ensure_ascii=False)
+            display = json.dumps(
+                [task_id, revision, read_source, status, waiting_text, active_text, final_status, response],
+                ensure_ascii=False,
+            )
+            if display != previous_display:
+                print(f"Task: {json.dumps(task_id, ensure_ascii=False)}")
+                print(f"Revision: {revision}")
+                print(f"Source: {read_source}")
+                print(f"Phase: {status}")
+                print(f"Waiting reason: {waiting_text}")
+                print(f"Active operations: {active_text}")
+                print(f"Final status: {json.dumps(final_status, ensure_ascii=False)}")
+                if response:
+                    print(response)
+                previous_display = display
+            if read_source == "read-only Journal":
+                break
+            if status in {
+                "SUCCEEDED", "FAILED", "CANCELLED", "WAITING_INPUT", "STALLED",
+                "RECOVERY_BLOCKED", "CONTEXT_BLOCKED", "PAUSED",
+            }:
+                break
+            time.sleep(0.1)
+
+
+def cmd_loop(args: argparse.Namespace) -> int:
+    """Run one AUTO-only session and close only the Host it created."""
+
+    owned_host_processes: list[subprocess.Popen[Any]] = []
+    exit_code = 0
+    shutdown_failures: tuple[str, ...] = ()
+    try:
+        exit_code = _run_loop_session(args, owned_host_processes)
+    except KeyboardInterrupt:
+        print()
+        exit_code = 130
+    finally:
+        shutdown_failures = _drain_owned_loop_host_processes(owned_host_processes)
+    if shutdown_failures:
+        print(
+            "Sitina Loop exit is incomplete: " + "; ".join(shutdown_failures),
+            file=sys.stderr,
+        )
+        return 3
+    return exit_code
+
+
+def cmd_loop_task(args: argparse.Namespace) -> int:
+    """Guarded batch-1b command surface for one executable Loop authority."""
+
+    from sitina.loop.control import LoopAuthorityError, send_control_request
+    from sitina.loop.development import validate_runtime_boundary
+    from sitina.loop.status_reader import StatusReadUnavailable, read_task_status
+
+    boundary = validate_runtime_boundary(
+        state_root=args.state_root,
+        business_workspace=args.workspace,
+    )
+    common = {
+        "schema": "SITINA_LOOP_TASK_COMMAND_V1",
+        "boundary": boundary.as_dict(),
+        "production_cutover": False,
+    }
+    if args.loop_task_cmd == "boundary":
+        print_json({**common, "status": "ok"})
+        return 0
+    if args.loop_task_cmd == "retention":
+        payload = {
+            "command": "retention", "task_id": args.task_id,
+            "action": args.action, "operation_id": args.operation_id,
+        }
+        if args.memory_id is not None:
+            payload["memory_id"] = args.memory_id
+        if args.action == "schedule":
+            payload["approval_seconds"] = args.approval_seconds
+        response = send_control_request(boundary.state_root, payload)
+        print_json({**common, **response, "routed_to_live_authority": True})
+        state = response.get("retention", {}).get("state")
+        return 0 if response.get("status") == "ok" and state != "UNKNOWN" else 3
+    if args.loop_task_cmd == "input":
+        response = send_control_request(boundary.state_root, {
+            "command": "input",
+            "task_id": args.task_id,
+            "input_id": args.input_id or ("input-" + secrets.token_hex(12)),
+            "kind": args.kind,
+            "body": args.body,
+        })
+        print_json({**common, **response, "routed_to_live_authority": True})
+        return 0 if response.get("status") == "accepted" else 3
+    if args.loop_task_cmd == "status":
+        try:
+            response = send_control_request(
+                boundary.state_root,
+                {"command": "status", "task_id": args.task_id},
+            )
+            print_json({**common, **response, "routed_to_live_authority": True})
+            return 0
+        except LoopAuthorityError:
+            try:
+                response = read_task_status(boundary.state_root, args.task_id)
+            except KeyError:
+                print_json({
+                    **common,
+                    "status": "not_found",
+                    "reason": "task is absent from the authenticated read-only state snapshot",
+                    "new_coordinator_opened": False,
+                })
+                return 3
+            except StatusReadUnavailable as error:
+                print_json({
+                    **common,
+                    "status": "unavailable",
+                    "reason": str(error),
+                    "new_coordinator_opened": False,
+                })
+                return 3
+            print_json({**common, **response})
+            return 0
+    if args.loop_task_cmd == "attach":
+        try:
+            response = send_control_request(
+                boundary.state_root,
+                {"command": "attach", "task_id": args.task_id},
+            )
+        except LoopAuthorityError as error:
+            try:
+                response = read_task_status(boundary.state_root, args.task_id)
+            except (KeyError, StatusReadUnavailable):
+                print_json({**common, "status": "unavailable", "reason": str(error), "read_only": True})
+                return 3
+            print_json({**common, **response, "read_only": True, "routed_to_live_authority": False})
+            return 0
+        print_json({**common, **response, "read_only": True})
+        return 0 if response.get("status") == "ok" else 3
+    if args.loop_task_cmd == "resume":
+        try:
+            response = send_control_request(
+                boundary.state_root,
+                {
+                    "command": "resume",
+                    "task_id": args.task_id,
+                    "resume_request_id": args.resume_request_id or ("resume-" + secrets.token_hex(12)),
+                },
+            )
+        except LoopAuthorityError as error:
+            print_json({**common, "status": "unavailable", "reason": str(error)})
+            return 3
+        print_json({**common, **response})
+        return 0 if response.get("status") == "accepted" else 3
+    if args.loop_task_cmd == "run":
+        try:
+            parsed = json.loads(args.check_command_json) if args.check_command_json else []
+        except json.JSONDecodeError as error:
+            raise SystemExit(f"--check-command-json is invalid JSON: {error}") from error
+        if not isinstance(parsed, list) or any(not isinstance(item, str) or not item for item in parsed):
+            raise SystemExit("--check-command-json must be a JSON array of non-empty strings")
+        submit_payload = {
+                "command": "submit",
+                "task_id": args.task_id,
+                "submission_id": args.submission_id,
+                "task_kind": args.task_kind,
+                "goal": args.goal,
+                "workspace": str(boundary.business_workspace),
+                "check_command": parsed,
+                "provider_profile": args.provider_profile,
+                "reviewer_request_timeout_seconds": RoleProfileResolver(boundary.config_root.parent).provider_config().get("reviewer_request_timeout_seconds"),
+                "approve_writes": args.approve_writes,
+                "network_read_urls": list(getattr(args, "network_read_urls", ()) or ()),
+                "authorization": "cli",
+                "provider_identity": args.provider_identity,
+                "environment_ref": args.environment_ref,
+                "capability_snapshot_id": args.capability_snapshot_id,
+                "software_identity": args.software_identity,
+                "config_identity": args.config_identity,
+                "capability_selection": getattr(args, "capability_selection", "") or "",
+        }
+        try:
+            result = _submit_loop_task(
+                boundary,
+                submit_payload,
+                provider_profile=args.provider_profile,
+                approve_writes=args.approve_writes,
+            )
+        except (OSError, LoopAuthorityError) as error:
+            print_json({**common, "status": "unavailable", "reason": str(error), "host_delegated": True})
+            return 3
+        print_json({**common, **result, "host_delegated": True})
+        return 0 if result.get("status") == "accepted" else 3
+    raise SystemExit("unknown loop-task command")
+
+
+def cmd_loop_host(args: argparse.Namespace) -> int:
+    """Run the isolated host and delegate admitted work to LoopTaskRunner."""
+
+    from sitina.loop.host import LoopHost, NativeExperienceProviderFactory
+    from sitina.loop.child_model import ReadonlyChildModelRunner
+    from sitina.loop.development import (
+        boundary_environment_prefix,
+        boundary_interpreter_entry,
+        validate_runtime_boundary,
+    )
+    from sitina.loop.task_runtime import LoopTaskRunner
+    from sitina.extensions.manager import ExtensionManager
+    from sitina.extensions.runtime import BoundedToolTurnClient
+    from sitina.loop.context_window import ModelCapacityRegistry
+
+    boundary = validate_runtime_boundary(
+        state_root=args.state_root,
+        business_workspace=args.workspace,
+    )
+
+    capacity_path = boundary.config_root / "loop_context_capacity.json"
+    try:
+        capacity_document = json.loads(capacity_path.read_text(encoding="utf-8"))
+        capacity_entry = next(
+            item for item in capacity_document.get("entries", ())
+            if isinstance(item, Mapping) and item.get("profile") == args.provider_profile
+        )
+    except (OSError, ValueError, StopIteration) as error:
+        raise SystemExit("host provider capacity policy is unavailable for the selected profile") from error
+    provider_identity = json.dumps(
+        {
+            "profile": args.provider_profile,
+            "endpoint": capacity_entry.get("endpoint"),
+            "model": capacity_entry.get("model"),
+            "wire_protocol": capacity_entry.get("wire_protocol"),
+            "context_capacity_tokens": capacity_entry.get("context_capacity_tokens"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    def _digest_tree(root: Path) -> str:
+        digest = hashlib.sha256()
+        if not root.exists():
+            raise RuntimeError(f"host identity input is unavailable: {root}")
+        if root.is_file():
+            digest.update(root.name.encode("utf-8"))
+            try:
+                digest.update(root.read_bytes())
+            except OSError as error:
+                raise RuntimeError(f"host identity input is unreadable: {root}") from error
+        elif root.is_dir():
+            for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+                if (
+                    not path.is_file()
+                    or path.is_symlink()
+                    or path.suffix in {".pyc", ".pyo"}
+                    or "__pycache__" in path.parts
+                ):
+                    continue
+                digest.update(str(path.relative_to(root)).encode("utf-8"))
+                try:
+                    digest.update(path.read_bytes())
+                except OSError as error:
+                    raise RuntimeError(f"host identity input is unreadable: {path}") from error
+        return digest.hexdigest()
+
+    def _runner_executor(backend, task_id: str, task: Mapping[str, Any]) -> None:
+        projection = backend.get_task(task_id)
+        descriptor = backend.context_memory.read(
+            str(projection.descriptor_ref), expected_hash=str(projection.descriptor_hash)
+        )
+        descriptor_workspace = str(descriptor.get("workspace", {}).get("path") or "")
+        task_boundary = type(boundary).validate(
+            state_root=boundary.state_root,
+            business_workspace=descriptor_workspace,
+            source_root=boundary.source_root,
+            interpreter=boundary_interpreter_entry(boundary),
+        )
+        capability_binding = descriptor.get("capability_binding")
+        execution_snapshot = None
+        if isinstance(capability_binding, Mapping):
+            manager = ExtensionManager(boundary.source_root, global_root=extension_root)
+            authority = manager.bind_shared_authority(state_root=boundary.state_root, backend=backend)
+            execution_snapshot = authority.verify_capability_binding(capability_binding)
+        runner_kwargs = {
+            "provider_profile": str(descriptor.get("provider_profile") or args.provider_profile),
+            "approve_writes": bool((descriptor.get("authorization") or {}).get("approve_writes", False)),
+        }
+        # Preserve the legacy unselected runner-construction contract.  A
+        # selected capability receives the authenticated snapshot explicitly;
+        # an unselected task does not get a new keyword with a meaningless
+        # None value (older strict test/runtime factories reject it).
+        if execution_snapshot is not None:
+            runner_kwargs["execution_snapshot"] = execution_snapshot
+        if descriptor.get("reviewer_request_timeout_seconds") is not None:
+            runner_kwargs["reviewer_request_timeout_seconds"] = descriptor["reviewer_request_timeout_seconds"]
+        task_runner = LoopTaskRunner(task_boundary, **runner_kwargs)
+        task_runner.run_existing(
+            backend,
+            task_id=task_id,
+            task_kind=projection.task_kind,
+            check_command=tuple(str(item) for item in descriptor.get("acceptance", {}).get("check_command", ())),
+            baseline_snapshot=(descriptor.get("workspace", {}).get("content_snapshot") or {}),
+        )
+
+    def _validate_submission(payload: Mapping[str, Any]) -> None:
+        type(boundary).validate(
+            state_root=boundary.state_root,
+            business_workspace=str(payload.get("workspace") or ""),
+            source_root=boundary.source_root,
+            interpreter=boundary_interpreter_entry(boundary),
+        )
+
+    extension_root = Path(
+        os.environ.get("SITINA_EXTENSIONS_HOME") or (boundary.state_root / "extensions")
+    ).expanduser().resolve(strict=False)
+
+    # Native experience repositories are reconstructed from this Backend's
+    # already-open Journal/CAS/key provider.  No fresh feature activation or
+    # per-task store is synthesized; an unactivated memory writer therefore
+    # fails closed when the first durable candidate/episode is attempted.
+    memory_actor = "loop-memory-reviewer"
+    memory_materializer_actor = "loop-memory-materializer"
+    project_identity = hashlib.sha256(str(boundary.business_workspace).encode("utf-8")).hexdigest()[:32]
+    memory_owner = "project/" + project_identity
+    memory_namespace = memory_owner + "/memory"
+    memory_acl = MemoryACL(
+        readers=tuple(sorted({memory_actor, memory_materializer_actor})),
+        writers=(memory_materializer_actor,),
+        reviewers=(memory_actor,),
+    )
+    repository_cache: dict[str, Any] = {}
+
+    def _memory_repository_for_backend(backend):
+        cached = repository_cache.get("bundle")
+        if cached is None:
+            activations = FeatureActivationRegistry.from_journal_events(
+                backend.store.journal.iter_events(0)
+            )
+            memory = MemoryRepository(
+                backend.store.journal,
+                backend.store.cas,
+                backend.context.provider,
+                feature_activations=activations,
+            )
+            episode = EpisodeRepository(
+                backend.store.journal,
+                backend.store.cas,
+                backend.context.provider,
+                feature_activations=activations,
+            )
+            cached = (memory, episode)
+            repository_cache["bundle"] = cached
+        return cached[0]
+
+    def _episode_repository_for_backend(backend):
+        _memory_repository_for_backend(backend)
+        return repository_cache["bundle"][1]
+
+    def _select_project_memory(backend, _payload):
+        repository = _memory_repository_for_backend(backend)
+        return tuple(
+            document.memory_id
+            for document in repository.retrieve(
+                actor=memory_actor,
+                owner_id=memory_owner,
+                namespace_prefix=memory_namespace,
+                tier="episodic",
+                include_noncurrent=False,
+            )[:8]
+        )
+
+    # The formal extraction/review callbacks are lazy: host startup resolves
+    # no credential and makes no network request.  On a real dispatch they use
+    # the same configured DeepSeek profile/capacity policy as the readonly
+    # child runner, wrapped by the bounded tool-turn transport.
+    # Experience turns need enough room for a bounded manifest/tool result,
+    # while remaining below the selected provider's declared capacity.  This
+    # is a fixed ceiling, not an adaptive retry budget.
+    experience_output_budget_tokens = 8192
+
+    def _native_experience_factory(request: Mapping[str, Any]):
+        child_runner = ReadonlyChildModelRunner.from_boundary(
+            boundary,
+            args.provider_profile,
+            backend=host.backend,
+            obligation_id=request["obligation_id"],
+            request_id=request["request_id"],
+            attempt_count=request["attempt_count"],
+            candidate_id=request.get("candidate_id"),
+            max_tokens=experience_output_budget_tokens,
+            max_turns=1,
+        )
+        policy = child_runner.capacity_registry.resolve(child_runner.capacity_identity)
+        if policy is None:
+            raise RuntimeError("selected provider has no exact experience capacity policy")
+        experience_max_tokens = min(
+            experience_output_budget_tokens,
+            int(getattr(policy, "max_output_tokens", experience_output_budget_tokens)),
+        )
+        if experience_max_tokens < 1:
+            raise RuntimeError("selected provider has no usable bounded experience output budget")
+        bounded_client = child_runner.client
+        if not isinstance(bounded_client, BoundedToolTurnClient):
+            raise RuntimeError("selected provider is not using the bounded tool-turn transport")
+        # The readonly child transport has its own retry policy.  Experience
+        # obligations cannot inherit it: an uncertain physical result must
+        # stop at one logical send and remain UNKNOWN for reconciliation.
+        bounded_client = BoundedToolTurnClient(
+            bounded_client.client,
+            child_runner.profile,
+            run_id="experience-" + request["request_id"],
+            retry_limit=0,
+            fallback_allowed=False,
+        )
+        factory = NativeExperienceProviderFactory.from_anthropic_profile(
+            bounded_client,
+            child_runner.profile,
+            policy,
+            capacity_registry=child_runner.capacity_registry,
+            capacity_identity=child_runner.capacity_identity,
+            max_tokens=experience_max_tokens,
+            timeout_seconds=540.0,
+        )
+        return factory
+
+    def _experience_dispatch(request):
+        return _native_experience_factory(request)(request)
+
+    def _review_dispatch(request):
+        return _native_experience_factory(request)(request)
+
+    def _resolve_capability(backend, capability_slot: str) -> Mapping[str, Any]:
+        manager = ExtensionManager(boundary.source_root, global_root=extension_root)
+        authority = manager.bind_shared_authority(state_root=boundary.state_root, backend=backend)
+        resolution = authority.resolve_default(capability_slot)
+        projection_ref = str(resolution.get("projection_ref") or "")
+        projection_hash = str(resolution.get("projection_hash") or "")
+        if not projection_ref or not projection_hash:
+            raise LoopAuthorityError("capability default lacks a durable resolution projection")
+        proof = backend.extension_existing_object_proof(projection_ref)
+        proof_view = {
+            "schema": "SITINA_EXISTING_DURABLE_OBJECT_ROOT_PROOF_V1",
+            "object_ref": proof.object_ref.reference_id,
+            "journal_id": proof.journal_id,
+            "rooted_transaction_hash": proof.rooted_transaction_hash,
+            "rooted_position": proof.rooted_position,
+            "verified_frontier_position": proof.verified_frontier_position,
+            "verified_frontier_transaction_hash": str(
+                backend.store.journal._position_hash.get(proof.verified_frontier_position) or ""
+            ),
+            "object_reference_manifest_hash": proof.object_reference_manifest_hash,
+        }
+        if not proof_view["verified_frontier_transaction_hash"]:
+            raise LoopAuthorityError("capability default lacks a canonical Journal frontier commitment")
+        return {
+            "schema": "SITINA_LOOP_CAPABILITY_BINDING_V1",
+            "slot_id": str(resolution["slot"]["slot_id"]),
+            "publication_id": str(resolution["publication_id"]),
+            "candidate_id": str(resolution["candidate_id"]),
+            "snapshot_id": str(resolution["snapshot_id"]),
+            "snapshot_hash": str(resolution["snapshot_hash"]),
+            "location_binding": str(resolution["location_binding"]),
+            "resolution_stream_id": str(resolution["stream_id"]),
+            "read_position": dict(resolution["read_position"]),
+            "resolution_ref": projection_ref,
+            "resolution_hash": projection_hash,
+            "resolution_cas_proof": proof_view,
+        }
+
+    resource_path = Path(args.resource_policy).expanduser().resolve(strict=True) if getattr(args, "resource_policy", None) else boundary.config_root / "orchestration_policy.json"
+    observability_path = Path(args.observability_policy).expanduser().resolve(strict=True) if getattr(args, "observability_policy", None) else boundary.config_root / "observability_policy.json"
+    policy_bytes = []
+    for policy_path in (resource_path, observability_path):
+        with policy_path.open("rb") as policy_file:
+            policy_bytes.append(policy_file.read(65537))
+    if any(len(raw) > 65536 for raw in policy_bytes):
+        raise SystemExit("host resource or observability policy exceeds its input bound")
+    resource_policy = json.loads(policy_bytes[0].decode("utf-8"))
+    observability_policy = json.loads(policy_bytes[1].decode("utf-8"))
+    if (not isinstance(resource_policy, Mapping) or not isinstance(resource_policy.get("resource_limits"), Mapping)
+            or not isinstance(observability_policy, Mapping)):
+        raise SystemExit("host resource and observability policies must contain the existing policy mappings")
+    resource_identity = {
+        "resource_policy": {"path": str(resource_path), "sha256": hashlib.sha256(policy_bytes[0]).hexdigest()},
+        "observability_policy": {"path": str(observability_path), "sha256": hashlib.sha256(policy_bytes[1]).hexdigest()},
+    }
+    effective_policy_digest = hashlib.sha256(json.dumps(resource_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    environment_identity = {
+        "source_root": str(boundary.source_root),
+        "state_root": str(boundary.state_root),
+        "runtime_root": str(boundary.runtime_root),
+        "interpreter": str(boundary.interpreter),
+        "config_root": str(boundary.config_root),
+        "extension_root": str(extension_root),
+        "resource_policy_identity": resource_identity,
+    }
+    host_descriptor_context = {
+        "provider_identity": provider_identity,
+        "environment_ref": boundary_environment_prefix(boundary) + ":" + hashlib.sha256(
+            json.dumps(environment_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "capability_snapshot_id": f"loop-cli-capabilities:{_digest_tree(boundary.config_root)}",
+        "software_identity": f"source:{_digest_tree(boundary.source_root / 'core' / 'sitina')}",
+        "config_identity": f"config:{_digest_tree(boundary.config_root)}:resources:{effective_policy_digest}",
+    }
+
+    def _validate_recovery_descriptor(descriptor: Mapping[str, Any]) -> None:
+        descriptor_workspace = str(descriptor.get("workspace", {}).get("path") or "")
+        type(boundary).validate(
+            state_root=boundary.state_root,
+            business_workspace=descriptor_workspace,
+            source_root=boundary.source_root,
+            interpreter=boundary_interpreter_entry(boundary),
+        )
+        for key in ("provider_identity", "environment_ref", "capability_snapshot_id", "software_identity", "config_identity"):
+            if key == "capability_snapshot_id" and isinstance(descriptor.get("capability_binding"), Mapping):
+                binding = descriptor["capability_binding"]
+                if descriptor.get(key) != binding.get("snapshot_id"):
+                    raise ValueError("task descriptor capability snapshot differs from its binding")
+                continue
+            if descriptor.get(key) != host_descriptor_context[key]:
+                raise ValueError(f"task descriptor {key} is incompatible with this host")
+
+    def _recover_publication_checks(backend) -> None:
+        """Reconcile only existing consumer evidence during Host startup.
+
+        An explicit extension root is taken over only when its r4 authority
+        binding already exists.  Empty/legacy roots are not migrated and no
+        default or consumer task is created merely because the host starts.
+        """
+
+        binding_path = extension_root / ".sitina-extension-authority-v1.json"
+        if not binding_path.is_file():
+            return
+        manager = ExtensionManager(boundary.source_root, global_root=extension_root)
+        manager.bind_shared_authority(state_root=boundary.state_root, backend=backend)
+        for task_id in backend.task_ids():
+            try:
+                backend.record_extension_publication_check_from_task(task_id)
+            except Exception as error:
+                # C3a leaves missing/mismatched/failed evidence PENDING for
+                # C3b; startup must not dispatch a replacement consumer.  Do
+                # not hide an integrity/persistence failure: expose it on the
+                # existing Host health surface while continuing other tasks.
+                backend._publication_check_recovery_errors.append(
+                    f"publication-check:{type(error).__name__}: {error}"
+                )
+            try:
+                backend.record_extension_publication_failure_from_task(task_id)
+            except Exception as error:
+                # Failure reconstruction is independent of the C3a success
+                # check.  A check validation error must not prevent a real
+                # failed-consumer source from being classified on restart.
+                backend._publication_check_recovery_errors.append(
+                    f"publication-failure:{type(error).__name__}: {error}"
+                )
+
+    host_kwargs: dict[str, Any] = {
+        "resource_limits": resource_policy["resource_limits"],
+        "observability_policy": observability_policy,
+        "runner_executor": _runner_executor,
+        "admission_validator": _validate_submission,
+        "capability_resolver": _resolve_capability,
+        "authorized_workspace_root": boundary.runtime_root,
+        "recovery_validator": _validate_recovery_descriptor,
+        "publication_check_recovery": _recover_publication_checks,
+        "descriptor_context": host_descriptor_context,
+        "experience_provider_factory": _experience_dispatch,
+        "experience_provider_profile": args.provider_profile,
+        "experience_review_factory": _review_dispatch,
+        "memory_repository_factory": _memory_repository_for_backend,
+        "episode_repository_factory": _episode_repository_for_backend,
+        "memory_actor": memory_actor,
+        "memory_materializer_actor": memory_materializer_actor,
+        "memory_selector": _select_project_memory,
+        "memory_candidate_acl": memory_acl,
+        "memory_candidate_owner_id": memory_owner,
+        "memory_candidate_namespace": memory_namespace,
+    }
+    # Bind the real Provider-backed child-model factory at the formal CLI
+    # boundary. Construction is lazy until a child is dispatched; missing
+    # credentials/configuration therefore fail explicitly and never fall back
+    # to a deterministic scripted result.
+    host_kwargs["child_model_factory"] = lambda task_id: ReadonlyChildModelRunner.from_boundary(
+        boundary,
+        args.provider_profile,
+        backend=host.backend,
+        task_id=task_id,
+    )
+    host = LoopHost(boundary.state_root, **host_kwargs)
+    try:
+        host.start()
+        print_json({
+            "schema": "SITINA_LOOP_HOST_COMMAND_V1",
+            "status": "listening",
+            "state_root": str(Path(args.state_root).expanduser().resolve(strict=False)),
+            "provider_started": False,
+            "boundary": boundary.as_dict(),
+        })
+        host.serve_forever()
+    except KeyboardInterrupt:
+        host.begin_drain()
+        host.wait_for_quiescence()
+        return 130
+    finally:
+        host.begin_drain()
+        host.wait_for_quiescence()
+        host.close()
+    return 0
+
+
 def cmd_legacy(args: argparse.Namespace) -> int:
     from sitina.legacy.fence import LegacyWriteGate
 
@@ -847,6 +1829,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                     "fallback_attempted": False,
                 })
                 return 3
+            from sitina.orchestrator.true_multi_agent import TrueMultiAgentProductionRuntime
+
             result = TrueMultiAgentProductionRuntime(SITINA_HOME).execute(
                 " ".join(args.goal),
                 label="cli-production-ordinary-goal",
@@ -879,53 +1863,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 3
 
 
-def _chat_failure_text(error_type: str | None, error_text: str = "") -> str:
-    normalized = f"{error_type or ''} {error_text}".casefold()
-    if any(marker in normalized for marker in ("authentication", "unauthorized", "forbidden", "401", "403")):
-        return "Provider 认证失败。请检查当前配置 profile 的凭据。"
-    if "keychain" in normalized or "credential handle" in normalized:
-        return "无法访问 Production Keychain。请解锁 macOS 登录 Keychain 后输入 /retry。"
-    if any(marker in normalized for marker in ("rate limit", "quota", "429", "额度", "限流")):
-        return "当前 Provider 限流或额度不足。本轮未自动切换 Provider。\n稍后输入 /retry，或检查 Provider 配额。"
-    if any(marker in normalized for marker in ("network", "timeout", "connection", "dns", "http")):
-        return "Provider 网络请求失败。本轮未自动重发。\n请检查网络后输入 /retry。"
-    if any(marker in normalized for marker in ("schema", "contract", "json", "output pipeline")):
-        return "Provider 返回格式未通过安全校验，本轮已失败关闭。"
-    return "本轮未形成可交付回答，已失败关闭。"
-
-
-def _print_chat_route(event: str, payload: Mapping[str, Any]) -> None:
-    if event == "autonomous":
-        print("→ AUTONOMOUS · 全局 Skills/Plugins")
-        print("Sitina 正在按任务选择 Skills，并可多轮调用工具……")
-        return
-    decision = route_decision_from_mapping(payload)
-    if event == "escalation":
-        print("→ 自动升级 MULTI")
-        print("  原因：" + "、".join(decision.reasons))
-        print("Sitina 正在生成候选并独立审阅……")
-        return
-    line, reasons = route_description(decision)
-    print(line)
-    if reasons:
-        print("  原因：" + "、".join(reasons))
-    if decision.resolved_mode is ChatMode.FAST:
-        print("Sitina 正在生成回答……")
-    else:
-        print("Sitina 正在生成候选并独立审阅……")
-
-
-def _print_chat_help() -> None:
-    print("/fast   固定使用单 Agent；复杂问题也不会自动升级")
-    print("/multi  固定使用多 Agent 候选与独立审阅")
-    print("/auto   恢复自动路由：简单问题 FAST，复杂问题 MULTI")
-    print("/mode   显示当前模式、上一轮实际路由和原因")
-    print("/new    清空本终端会话上下文，但保留当前模式")
-    print("/retry  重新执行上一条失败或取消的消息；不会重复成功消息")
-    print("/help   显示本帮助")
-    print("/exit   退出 Sitina（/quit 同义）")
-
-
 def _interactive_tool_approval(request: ApprovalRequest) -> bool:
     print(
         f"\n需要审批：{request.tool_name} · 权限 {request.permission} · 风险 {request.risk}\n"
@@ -951,14 +1888,16 @@ def _build_code_mode_runtime(
     provider: Any | None = None,
     session_instance_id: str | None = None,
     provider_profile_name: str | None = None,
-) -> tuple[Path, Any, TrueMultiAgentProductionRuntime]:
-    """Construct the independent Code Mode runtime used by the public chat.
+) -> tuple[Path, Any, Any]:
+    """Construct the retained independent Code Mode test/bootstrap runtime.
 
     This is intentionally a small runtime bootstrap, not an acceptance gate:
     it creates only local Code Mode Journal/CAS state and copies non-secret
     project configuration.  It never reads Legacy B+ genesis/foundation or
     asks the old ProductionRuntimeContext to authorize the session.
     """
+
+    from sitina.orchestrator.true_multi_agent import TrueMultiAgentProductionRuntime
 
     session_instance_id = str(
         session_instance_id or ("session-instance-" + secrets.token_hex(16))
@@ -1216,190 +2155,34 @@ def _launch_code_mode_reviewer(source_root: Path) -> CodeModeReviewerSession:
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
-    selected_workspace = (
-        Path(args.workspace).expanduser().resolve(strict=True)
-        if getattr(args, "workspace", None)
-        else SITINA_HOME
-    )
-    runtime_home = SITINA_HOME
-    runtime_context_factory = getattr(args, "runtime_context_factory", None)
-    multi_runtime = getattr(args, "multi_runtime", None)
-    autonomous_runtime = getattr(args, "autonomous_runtime", None)
-    provider = None
-    close_broker = None
-    session_instance_id = "session-instance-" + secrets.token_hex(16)
-    # The public CLI always constructs Code Mode dependencies unless a caller
-    # explicitly supplies an already-constructed runtime (used by embedding
-    # applications and tests).  There is no implicit Production/B+ fallback.
-    if runtime_context_factory is None and multi_runtime is None:
-        state_value = getattr(args, "code_mode_state", None)
-        if getattr(args, "offline_scripted", False) and (not state_value or not getattr(args, "workspace", None)):
-            print_json({
-                "status": "blocked",
-                "code_mode_status": "CODE_MODE_BLOCKED",
-                "reason": "--offline-scripted requires explicit --code-mode-state and --workspace",
-                "physical_requests": 0,
-            })
-            return 3
-        provider = CodeModeScriptedProvider(selected_workspace) if getattr(args, "offline_scripted", False) else None
-        runtime_home, runtime_context_factory, multi_runtime = _build_code_mode_runtime(
-            selected_workspace,
-            state_root=state_value,
-            provider=provider,
-            session_instance_id=session_instance_id,
-            provider_profile_name=getattr(args, "profile", None),
-        )
-        autonomous_runtime = None
-        close_broker = getattr(runtime_context_factory, "close", None)
+    """Reject the retired legacy chat entry without inspecting arguments."""
 
-    def finish(exit_code: int) -> int:
-        if callable(close_broker):
-            close_broker()
-        return exit_code
-    try:
-        runtime = ConversationRuntime(
-            runtime_home,
-            approval_callback=_interactive_tool_approval,
-            autonomous_runtime=autonomous_runtime,
-            multi_runtime=multi_runtime,
-            workspace=selected_workspace,
-            live_opt_in=bool(getattr(args, "live", False)),
-            access_mode=getattr(args, "access_mode", "workspace"),
-            runtime_context_factory=runtime_context_factory,
-            fast_runtime=FastConversationRuntime(
-                runtime_home,
-                runtime_context_factory=runtime_context_factory,
-                session_runtime_provider=provider,
-                provider_client=provider,
-                provider_profile=getattr(provider, "profile", None),
+    del args
+    print_json(
+        {
+            "schema": "SITINA_RETIRED_CHAT_ENTRY_V1",
+            "status": "blocked",
+            "reason": (
+                "The legacy chat entry is retired; "
+                "use sitina with no arguments or run sitina loop"
             ),
-            session_runtime_provider=provider,
-            # Ordinary Code Mode review is not a Provider canary.  A canary
-            # authorization is issued only by the later accepted Gate path.
-            canary_authorization=None,
-            session_instance_id=session_instance_id,
-        )
-        recovered = runtime.resume_or_create_session()
-    except BaseException as error:
-        finish(3)
-        print(_chat_failure_text(type(error).__name__, str(error)), file=sys.stderr)
-        return 3
-    session = recovered if isinstance(recovered, ChatSession) else ChatSession()
-    print("Sitina 交互对话（configured Provider）")
-    print("Code Mode：/multi 可写；/fast 只读；Legacy B+：独立状态，不作为 Code Mode 前置条件。")
-    print(f"当前模式：{session.mode.value}")
-    if session.turn_index or session.history:
-        print(f"已恢复会话：{session.session_id}（{len(session.history)} 个成功上下文轮次）")
-    if runtime.extension_tool_capabilities:
-        print("可用工具能力：" + "、".join(runtime.extension_tool_capabilities))
-    print("输入 /help 查看命令，/exit 退出。\n")
-    while True:
-        try:
-            message = input(f"你 [{session.mode.prompt_label}] > ").strip()
-        except EOFError:
-            print()
-            return finish(0)
-        except KeyboardInterrupt:
-            print("\n已取消当前输入；输入 /exit 退出。")
-            continue
-
-        if not message:
-            continue
-        command = message.casefold()
-        if command in {"/exit", "/quit", "exit", "quit"}:
-            print("再见。")
-            return finish(0)
-        if command == "/help":
-            _print_chat_help()
-            continue
-        if command == "/fast":
-            runtime.persist_mode(session, ChatMode.FAST)
-            session.mode = ChatMode.FAST
-            print("已切换到 FAST：后续消息固定使用单 Agent。")
-            continue
-        if command == "/multi":
-            runtime.persist_mode(session, ChatMode.MULTI)
-            session.mode = ChatMode.MULTI
-            print("已切换到 MULTI：后续消息固定使用多 Agent。")
-            continue
-        if command == "/auto":
-            runtime.persist_mode(session, ChatMode.AUTO)
-            session.mode = ChatMode.AUTO
-            print("已恢复 AUTO：简单问题使用 FAST，复杂问题自动升级为 MULTI。")
-            continue
-        if command == "/mode":
-            print(f"当前模式：{session.mode.value}")
-            if session.last_route_decision is None:
-                print("上一轮实际路由：无")
-            else:
-                prior = session.last_route_decision
-                print(f"上一轮实际路由：{prior.resolved_mode.value}")
-                print("路由原因：" + "、".join(prior.reasons))
-                observation = dict(prior.observability or {})
-                if observation:
-                    scores = dict(observation.get("scores") or {})
-                    print(
-                        "路由解释："
-                        f"策略 {observation.get('policy_version')}；"
-                        f"复杂度 {scores.get('complexity_total')}；"
-                        f"路径 {observation.get('decision_path')}；"
-                        f"领域 {observation.get('domain_profile')}"
-                    )
-            continue
-        if command == "/new":
-            mode = session.mode
-            session = ChatSession(mode=mode)
-            print(f"已开始新会话；当前模式仍为 {session.mode.value}。")
-            continue
-        if command == "/retry":
-            if not session.last_failed_message:
-                print("没有可重试的失败或取消消息。")
-                continue
-            message = session.last_failed_message
-            print("正在重试上一条失败或取消的消息。")
-        elif command.startswith("/"):
-            print("未知命令。输入 /help 查看可用命令。")
-            continue
-
-        try:
-            result = runtime.execute_turn(
-                session,
-                message,
-                status_callback=_print_chat_route,
-            )
-            # Keep the handoff on the real ConversationRuntime implementation.
-            # Embedding callers may provide a deliberately minimal compatible
-            # runtime object; its absence of this method is not a permission
-            # grant and must not be replaced by a mocked review result.
-            if getattr(type(runtime), "__module__", "") == "sitina.conversation.runtime":
-                result = runtime.maybe_confirm_tty_review(result)
-        except KeyboardInterrupt:
-            session.record_failure(message, run_id=session.active_run_id)
-            print("\n本轮已取消，未自动重发；可输入 /retry 重试。")
-            continue
-        except Exception as error:  # noqa: BLE001
-            session.record_failure(message, run_id=session.active_run_id)
-            print(_chat_failure_text(type(error).__name__, str(error)), file=sys.stderr)
-            print("本轮未加入对话上下文，可输入 /retry 重试。", file=sys.stderr)
-            continue
-
-        if result.get("code_mode_status") == "CODE_MODE_REVIEW_PENDING":
-            run_id = str(result.get("run_id") or "unknown")
-            reason = str(result.get("review_reason_type") or "REVIEW_PENDING")
-            print(f"本轮等待独立审阅（{reason}；run_id: {run_id}），未加入对话上下文。", file=sys.stderr)
-            continue
-        response = str(result.get("response") or "").strip()
-        if result.get("terminal_state") != "SUCCEEDED" or not response:
-            run_id = str(result.get("run_id") or "unknown")
-            print(_chat_failure_text(str(result.get("error_type") or "")), file=sys.stderr)
-            print(f"本轮未加入对话上下文（run_id: {run_id}），可输入 /retry 重试。", file=sys.stderr)
-            continue
-        print(f"\nSitina > {response}\n")
-        if session.mode is ChatMode.FAST:
-            print("提示：FAST 模式回答未经过独立审阅。")
-            if result.get("forced_fast_low_confidence"):
-                print("FAST 模式回答置信度较低。")
-                print("如需独立审阅，请输入 /multi 后重试。")
+            "command": "chat",
+            "retired_modes": ["FAST", "MULTI"],
+            "automatic_reinterpretation": False,
+            "replacement_dispatched": False,
+            "task_created": False,
+            "host_started": False,
+            "provider_call_count": 0,
+            "physical_requests": 0,
+            "workspace_inspected": False,
+            "workspace_created": False,
+            "journal_mutated": False,
+            "cas_mutated": False,
+            "user_state_read": False,
+            "user_state_migrated": False,
+        }
+    )
+    return 3
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -1736,15 +2519,17 @@ def cmd_cost_status(args: argparse.Namespace) -> int:
 
 
 def cmd_suggest(args: argparse.Namespace) -> int:
+    from sitina.conversation.suggestion import SuggestionEngine, SuggestionError
+
     try:
         result = SuggestionEngine(SITINA_HOME).suggest(
             " ".join(args.description),
-            mode=args.mode,
+            mode="AUTO",
             budget_tokens=args.budget_tokens,
             sla_class=args.sla_class,
             sla_remaining_ms=args.sla_remaining_ms,
             context=args.context or "",
-            prior_mode=args.prior_mode,
+            prior_mode=None,
             prior_complexity=args.prior_complexity,
             unfinished_goal=bool(args.unfinished_goal),
             task_type_override=args.task_type,
@@ -2377,6 +3162,109 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_compatibility = runtime_sub.add_parser("compatibility")
     runtime_compatibility.set_defaults(func=cmd_runtime_diagnostics)
 
+    p = sub.add_parser("loop", help="open the current Loop with automatic routing")
+    p.add_argument("--state-root")
+    p.add_argument("--workspace")
+    p.add_argument("--provider-profile", default="deepseek")
+    p.set_defaults(func=cmd_loop)
+
+    p = sub.add_parser("loop-state", help="inspect the isolated r4 batch-1a persistent task skeleton")
+    loop_state_sub = p.add_subparsers(dest="loop_state_cmd", required=True)
+    loop_initialize = loop_state_sub.add_parser("initialize")
+    loop_initialize.add_argument("--state-root", required=True)
+    loop_initialize.set_defaults(func=cmd_loop_state)
+    loop_create = loop_state_sub.add_parser("create")
+    loop_create.add_argument("--state-root", required=True)
+    loop_create.add_argument("--task-id", required=True)
+    loop_create.add_argument("--session-id", required=True)
+    loop_create.add_argument("--task-kind", required=True)
+    loop_create.add_argument("--goal", required=True)
+    loop_create.add_argument("--required-outcome", action="append", default=[])
+    loop_create.add_argument("--artifact-ref", required=True)
+    loop_create.add_argument("--environment-ref", required=True)
+    loop_create.add_argument("--capability-snapshot-id", required=True)
+    loop_create.set_defaults(func=cmd_loop_state)
+    loop_status = loop_state_sub.add_parser("status")
+    loop_status.add_argument("--state-root", required=True)
+    loop_status.add_argument("--task-id", required=True)
+    loop_status.add_argument("--dock-restart", action="store_true")
+    loop_status.set_defaults(func=cmd_loop_state)
+
+    p = sub.add_parser("loop-task", help="run one guarded sitina-loop-v1-r4 batch-1b task")
+    loop_task_sub = p.add_subparsers(dest="loop_task_cmd", required=True)
+    loop_retention = loop_task_sub.add_parser(
+        "retention", help="explicitly schedule or execute expiry of task-private native memory",
+    )
+    loop_retention.add_argument("--state-root", required=True)
+    loop_retention.add_argument("--workspace", required=True)
+    loop_retention.add_argument("--task-id", required=True)
+    loop_retention.add_argument("--operation-id", required=True)
+    loop_retention.add_argument("--action", choices=["status", "schedule", "execute"], default="status")
+    loop_retention.add_argument("--memory-id")
+    loop_retention.add_argument("--approval-seconds", type=int, default=3600)
+    loop_retention.set_defaults(func=cmd_loop_task)
+    loop_boundary = loop_task_sub.add_parser("boundary")
+    loop_boundary.add_argument("--state-root", required=True)
+    loop_boundary.add_argument("--workspace", required=True)
+    loop_boundary.set_defaults(func=cmd_loop_task)
+    loop_run = loop_task_sub.add_parser("run")
+    loop_run.add_argument("--state-root", required=True)
+    loop_run.add_argument("--workspace", required=True)
+    loop_run.add_argument("--task-id", required=True)
+    loop_run.add_argument(
+        "--task-kind",
+        choices=["code_change", "readonly", "reviewed_readonly", "no_change"],
+        required=True,
+    )
+    loop_run.add_argument("--goal", required=True)
+    loop_run.add_argument("--submission-id")
+    loop_run.add_argument("--provider-profile", default="deepseek")
+    loop_run.add_argument("--provider-identity")
+    loop_run.add_argument("--environment-ref")
+    loop_run.add_argument("--capability-snapshot-id")
+    loop_run.add_argument("--software-identity")
+    loop_run.add_argument("--config-identity")
+    loop_run.add_argument("--capability-slot", dest="capability_selection", default="")
+    loop_run.add_argument("--check-command-json")
+    loop_run.add_argument("--approve-writes", action="store_true")
+    loop_run.add_argument("--network-read-url", dest="network_read_urls", action="append", default=[], help="Allow anonymous GET/HEAD for this exact URL in this task; repeat for each endpoint")
+    loop_run.set_defaults(func=cmd_loop_task)
+    loop_input = loop_task_sub.add_parser("input")
+    loop_input.add_argument("--state-root", required=True)
+    loop_input.add_argument("--workspace", required=True)
+    loop_input.add_argument("--task-id", required=True)
+    loop_input.add_argument("--kind", choices=["MESSAGE", "CORRECTION", "CLARIFICATION", "PAUSE", "CANCEL"], required=True)
+    loop_input.add_argument("--body", default="")
+    loop_input.add_argument("--input-id")
+    loop_input.set_defaults(func=cmd_loop_task)
+    loop_task_status = loop_task_sub.add_parser("status")
+    loop_task_status.add_argument("--state-root", required=True)
+    loop_task_status.add_argument("--workspace", required=True)
+    loop_task_status.add_argument("--task-id", required=True)
+    loop_task_status.set_defaults(func=cmd_loop_task)
+    loop_attach = loop_task_sub.add_parser("attach")
+    loop_attach.add_argument("--state-root", required=True)
+    loop_attach.add_argument("--workspace", required=True)
+    loop_attach.add_argument("--task-id", required=True)
+    loop_attach.set_defaults(func=cmd_loop_task)
+    loop_resume = loop_task_sub.add_parser("resume")
+    loop_resume.add_argument("--state-root", required=True)
+    loop_resume.add_argument("--workspace", required=True)
+    loop_resume.add_argument("--task-id", required=True)
+    loop_resume.add_argument("--resume-request-id")
+    loop_resume.set_defaults(func=cmd_loop_task)
+
+    p = sub.add_parser("loop-host", help="serve the isolated 3A Loop host")
+    host_sub = p.add_subparsers(dest="loop_host_cmd", required=True)
+    host_serve = host_sub.add_parser("serve")
+    host_serve.add_argument("--state-root", required=True)
+    host_serve.add_argument("--workspace", required=True)
+    host_serve.add_argument("--provider-profile", default="deepseek")
+    host_serve.add_argument("--approve-writes", action="store_true")
+    host_serve.add_argument("--resource-policy", help="explicit orchestration policy for this host; bound into task recovery identity")
+    host_serve.add_argument("--observability-policy", help="explicit alert policy for this host; bound into task recovery identity")
+    host_serve.set_defaults(func=cmd_loop_host)
+
     p = sub.add_parser("eval")
     p.set_defaults(func=cmd_eval)
 
@@ -2406,13 +3294,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("goal", nargs="+")
     p.set_defaults(func=cmd_run)
 
-    p = sub.add_parser("chat", help="enter Journal-native interactive conversation mode")
-    p.add_argument("--workspace", help="workspace that MULTI may modify")
-    p.add_argument("--code-mode-state", help="independent Code Mode state root (required for offline scripted runs)")
-    p.add_argument("--offline-scripted", action="store_true", help="use the explicit zero-network Code Mode scripted provider")
-    p.add_argument("--access-mode", choices=["workspace", "full"], default="workspace")
-    p.add_argument("--profile", help="configured provider profile for this chat session")
-    p.add_argument("--live", action="store_true", help="explicitly opt this chat session into the configured Provider live canary")
+    p = sub.add_parser("chat", help="retired legacy interactive entry (always blocked)")
+    p.add_argument("--workspace", help=argparse.SUPPRESS)
+    p.add_argument("--code-mode-state", help=argparse.SUPPRESS)
+    p.add_argument("--offline-scripted", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--access-mode", choices=["workspace", "full"], default="workspace", help=argparse.SUPPRESS)
+    p.add_argument("--profile", help=argparse.SUPPRESS)
+    # Retain old spellings only so stale invocations reach the safe refusal.
+    live_group = p.add_mutually_exclusive_group()
+    live_group.add_argument("--live", action="store_true", default=True, dest="live", help=argparse.SUPPRESS)
+    live_group.add_argument("--no-live", action="store_false", dest="live", help=argparse.SUPPRESS)
+    p.add_argument("--allow-self-modify", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_chat)
 
     p = sub.add_parser("agent", help="run the Sitina autonomous multi-turn tool loop")
@@ -2543,14 +3435,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--forecast-additional-tokens", type=int, default=0)
     p.set_defaults(func=cmd_cost_status)
 
-    p = sub.add_parser("suggest", help="preview routing and team policy without Provider calls or side effects")
+    p = sub.add_parser("suggest", help="preview automatic routing without Provider calls or side effects")
     p.add_argument("description", nargs="+")
-    p.add_argument("--mode", choices=[item.value for item in ChatMode], default=ChatMode.AUTO.value)
     p.add_argument("--budget-tokens", type=int)
-    p.add_argument("--sla-class", choices=[item.value for item in LatencyClass], default=LatencyClass.STANDARD.value)
+    p.add_argument("--sla-class", choices=_SUGGEST_LATENCY_CLASS_CHOICES, default="standard")
     p.add_argument("--sla-remaining-ms", type=int)
     p.add_argument("--context")
-    p.add_argument("--prior-mode", choices=[ChatMode.FAST.value, ChatMode.MULTI.value])
     p.add_argument("--prior-complexity", type=int, default=0)
     p.add_argument("--unfinished-goal", action="store_true")
     p.add_argument("--task-type", choices=sorted(TASK_TYPES))
@@ -2850,6 +3740,14 @@ def main(argv: list[str] | None = None) -> int:
     _LAST_PRINTED_JSON = None
     parser = build_parser()
     args = parser.parse_args(argv)
+    # The retired chat boundary is intentionally earlier than every runtime,
+    # policy, state, workspace, Provider, and evidence lookup.
+    if args.func is cmd_chat:
+        return int(cmd_chat(args))
+    # The current Loop owns its Journal/CAS state and must not consult the
+    # retired Legacy policy before establishing that authority.
+    if args.func is cmd_loop:
+        return int(cmd_loop(args))
     policy = LegacyRuntimePolicy.load(SITINA_HOME)
     # NOTE: cmd_agent was removed from this set. It was grouped here because the
     # OLD agent depended on retired Legacy state files; the current cmd_agent
@@ -2878,11 +3776,8 @@ def main(argv: list[str] | None = None) -> int:
         and args.goal[0] == "graph"
     )
     legacy_mcp_invoke = args.func is cmd_mcp and getattr(args, "mcp_cmd", None) == "invoke"
-    if args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke:
-        _install_legacy_fence_for_explicit_command(SITINA_HOME)
-    if policy.protected_environment and policy.fully_disabled and (
-        args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke
-    ):
+    legacy_boundary = args.func in legacy_only_handlers or legacy_run_graph or legacy_mcp_invoke
+    if policy.protected_environment and policy.fully_disabled and legacy_boundary:
         print_json({
             "status": "blocked",
             "reason": "command belongs to the retired Legacy runtime and has no Journal-native implementation",
@@ -2891,6 +3786,8 @@ def main(argv: list[str] | None = None) -> int:
             "fallback_attempted": False,
         })
         return 3
+    if legacy_boundary:
+        _install_legacy_fence_for_explicit_command(SITINA_HOME)
     exit_code = int(args.func(args))
     evidence_target = CliEvidenceRecorder.command_for_args(args)
     if evidence_target and not _bplus_installed() and not getattr(args, "_cli_evidence_recorded", False):

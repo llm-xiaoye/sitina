@@ -1,0 +1,68 @@
+{
+  "schema": "SITINA_R4_BATCH_2_G1_CORE_REPORT_V1",
+  "spec_version": "sitina-loop-v1-r4",
+  "gate": "G1",
+  "claim": "CORE_VERIFIED",
+  "production_cutover": false,
+  "provider_calls_performed": 0,
+  "default_loop_path_changed": false,
+  "implemented": [
+    "exact OpenAI/Anthropic wire-body renderer with protected send bytes and identity/hash recheck seam",
+    "exact profile/normalized-endpoint/model/wire capacity registry and per-call admission receipt",
+    "qualified-counter or explicitly scoped conservative UTF-8 counter policy with protocol margin",
+    "atomic assistant/tool-result protocol group validation and bounded recent-group selection",
+    "incremental Journal metadata index that does not decrypt historical CAS during refresh",
+    "task/session-scoped history list/read with fixed list frontier, byte-bounded envelopes and lossless base64 canonical-JSON pages",
+    "committed operation-result receipt lookup; raw or cross-task CAS refs are not readable",
+    "verbatim current-user requirement coverage manifest with post-read binding and blocker-evidence rechecks",
+    "bounded task projection with pinned blocker, outcome, recent-attempt and unclassified eliminated-method fields",
+    "non-terminal, version-bound CONTEXT_BLOCKED state commit that does not settle no-progress or create a Provider effect"
+  ],
+  "coverage_rules": {
+    "current_user_text": "Every original goal and handled MESSAGE/CORRECTION is read from its event-bound CAS object, included verbatim, and bound by content/text hashes plus the current task/input/control frontier.",
+    "summary_claim": "No semantic requirement compression is implemented or claimed in G1.",
+    "overflow": "Projection sizing is checked after each required body; once overflow is proven, later requirement bodies are not decrypted and all affected source handles are returned for CONTEXT_BLOCKED.",
+    "blocker_evidence": "Index resolution and content verification are distinct. Current blocker evidence is VERIFIED, STALE, MISSING_REFERENCE, or NOT_REQUIRED; stale/missing evidence makes the projection not ready for a request.",
+    "eliminated_methods": "No failure is inferred to be an eliminated method. The field remains NOT_CLASSIFIED until an explicit later semantic rule is connected."
+  },
+  "verification": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_loop_batch_2_context_core.py",
+      "result": "17 passed in 10.64s"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 SITINA_HOME=/Users/moss/SitinaHub-r4-b0-1a SITINA_R4_DEV_ROOT=/Users/moss/SitinaHub-r4-b0-1a .venv-r4/bin/python -m pytest -q -p no:cacheprovider tests/test_loop_batch_1a.py tests/test_loop_batch_1b_runtime.py tests/test_loop_batch_1b_boundary.py tests/test_loop_batch_1b_launcher.py tests/test_loop_contract_r4.py tests/test_provider_tool_protocols.py tests/test_loop_batch_2_context_core.py",
+      "result": "95 passed in 23.87s"
+    }
+  ],
+  "non_authoritative_test_attempt": {
+    "condition": "The first combined regression command omitted the required SITINA_HOME/SITINA_R4_DEV_ROOT development-boundary environment.",
+    "result": "91 passed, 1 expected boundary-sensitive test failed because the command was outside the formal environment.",
+    "disposition": "Not used as pass evidence; the exact suite passed after rerun under the declared development boundary."
+  },
+  "files": {
+    "core/sitina/loop/context_window.py": "318c1d5d11e93eeb97912f43e95078c53d82a6b6ac41ddc432f4d02e6e9300e0",
+    "core/sitina/loop/model.py": "a0b4386772f297d7054ff9d4f5eb9d96e141090cef4f506a7a90c499a486753d",
+    "core/sitina/loop/coordinator.py": "ee3c694a8e344207db2b9d988d622f27de3744fd318906548d9ab88fa721001f",
+    "core/sitina/loop/storage.py": "a8890d7bd9456601d56b67bf462e0468518d45635e161b0e8177b9c5560ca316",
+    "tests/test_loop_batch_2_context_core.py": "1ada3b2d852f9c2a747253029fab23c96d0c8c972c015102ecf391770efb89f3"
+  },
+  "not_connected_until_g2": [
+    "LoopTaskRunner main request assembly and replacement of _effective_goal",
+    "AutonomousRuntime per-turn selection and pre-send admission",
+    "reviewer request assembly and artifact/program/main-result retrieval",
+    "sitina_history_query registration in the real main/reviewer tool catalogs and its configured JSON schema maximum",
+    "human-readable prompt preview for bounded query/tool receipts; G1 read pages are lossless base64 canonical bytes",
+    "Journal-proof-backed artifact indexing; current artifact update events do not yet attach a CAS proof/hash",
+    "reuse of the incremental context projection/index in control and binding hot paths instead of LoopBackend.get_task full replay",
+    "formal main/reviewer final-wire request tests, 100+ turn run, and any real Provider exercise"
+  ],
+  "known_later_batch_limits_unchanged": [
+    "cross-process full recovery",
+    "general UNKNOWN-effect reconciliation",
+    "general semantic progress and eliminated-method classification",
+    "experience publication",
+    "visual acceptance"
+  ],
+  "gate_marker": "B2-G1-READY"
+}

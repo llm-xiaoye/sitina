@@ -1,0 +1,611 @@
+{
+  "cases": [
+    {
+      "case_id": "case-001",
+      "isolated_workspaces": [
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-1/packet",
+          "source_case_id": "case-001",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-1",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-1/reproduction-output"
+        },
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-2/packet",
+          "source_case_id": "case-001",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-2",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-001-reviewer-2/reproduction-output"
+        }
+      ],
+      "program": {
+        "missing": [],
+        "presentation_attributes_scored": false,
+        "program_status": "PASS",
+        "reason_codes": []
+      },
+      "reviewers": [
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [],
+            "direct_evidence": [
+              "source.csv 的 0/25/50/75 mg/L 经 /1000 得到 plot-data.csv 的 0/0.025/0.05/0.075 g/L，换算正确。",
+              "render_plot.py 直接读取 source.csv 并除以 1000，xlabel=Time (s)、ylabel=Concentration (g/L)，保留全部 4 个数据点。",
+              "provenance.json 记录源/绘图文件、SHA256 与换算公式，可追溯；chart.png 存在，现有工具无法安全读图故未做像素核对（非阻断）。"
+            ],
+            "missing_materials": [],
+            "verdict": "PASS"
+          },
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-001-reviewer-1-attempt-1.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-1",
+          "run_id": "agent-run-f20ec614b6544da09aba4bb54e6a75fe",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "898242ba0133de590c4d2fa440cfcfdd2064ce7945dd858e53436f5e1d2cc673",
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 15,
+          "tool_paths_within_workspace": true,
+          "verdict": "PASS",
+          "workspace_unchanged": true
+        },
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [],
+            "direct_evidence": [
+              "source.csv 提供四组原始数据点(time_s, concentration_mg_L):(0,0),(10,25),(20,50),(30,75)",
+              "plot-data.csv 按 mg/L÷1000 换算为 g/L:0.0/0.025/0.05/0.075,与源数据一致",
+              "render_plot.py 与 provenance.json 完整记录换算、Time(s)/Concentration(g/L) 坐标与标题;chart.png 存在(二进制图,现有工具无法安全像素级读图)"
+            ],
+            "missing_materials": [],
+            "verdict": "PASS"
+          },
+          "prior_attempts": [
+            {
+              "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+              "exit_code": 2,
+              "packet_input_unchanged": true,
+              "parsed_response": {},
+              "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-001-reviewer-2-attempt-1.json",
+              "reproduction_output": {},
+              "reviewer_id": "reviewer-2",
+              "run_id": "agent-run-f70fa085763148c09f85c963ecba293c",
+              "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+              "spec_version": "sitina-loop-v1-r4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stdout_sha256": "7be4f8fd44c76b79c35277b9302aee1fe9d3ed91aab42dcbd3f0141a73d35ec3",
+              "terminal_state": "FAILED",
+              "tool_call_count": 18,
+              "tool_paths_within_workspace": true,
+              "verdict": "NOT_RUN",
+              "workspace_unchanged": true
+            }
+          ],
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-001-reviewer-2-attempt-2.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-2",
+          "run_id": "agent-run-e701370dc56142e1aedefe8f2b11bf1e",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "9187bba7709a2ba6a763170354410c485cba513374a252b78854d433ec6e4a80",
+          "terminal_detail": null,
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 13,
+          "tool_paths_within_workspace": true,
+          "verdict": "PASS",
+          "workspace_unchanged": true
+        }
+      ]
+    },
+    {
+      "case_id": "case-002",
+      "isolated_workspaces": [
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-1/packet",
+          "source_case_id": "case-002",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-1",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-1/reproduction-output"
+        },
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-2/packet",
+          "source_case_id": "case-002",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-2",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-002-reviewer-2/reproduction-output"
+        }
+      ],
+      "program": {
+        "missing": [],
+        "presentation_attributes_scored": false,
+        "program_status": "FAIL",
+        "reason_codes": [
+          "MG_L_TO_G_L_CONVERSION_MISMATCH",
+          "TRANSFORMATION_DECLARATION_MISMATCH"
+        ]
+      },
+      "reviewers": [
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [
+              "单位换算错误：25/50/75 mg/L 应绘为 0.025/0.05/0.075 g/L，交付却按 25/50/75 g/L 绘制，数值被夸大 1000 倍，违反“正确换算单位”要求"
+            ],
+            "direct_evidence": [
+              "source.csv 为 0/25/50/75 mg/L；plot-data.csv 记为 0.0/25.0/50.0/75.0 g/L，未按 1/1000 换算",
+              "provenance.json 记录转换 concentration_g_L = concentration_mg_L / 1，除数错误",
+              "render_plot.py 中 DIVISOR=1.0，按该错误数值绘制 chart.png（纵轴标为 g/L）"
+            ],
+            "missing_materials": [],
+            "verdict": "BLOCK"
+          },
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-002-reviewer-1-attempt-1.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-1",
+          "run_id": "agent-run-eb86f39edf3441e1b53c354f3315fc9b",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "225b1173bd979894bf3d5337ea3b4b46e4ea62fc73bc6d2db9cc9fee6e4e74c1",
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 9,
+          "tool_paths_within_workspace": true,
+          "verdict": "BLOCK",
+          "workspace_unchanged": true
+        },
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [
+              "单位换算错误:mg/L→g/L 应除以 1000,包内脚本与数据均按 /1 处理,纵轴标注 g/L 却显示 mg/L 数值",
+              "chart.png 无法安全读取图像内容,但其关联的 render_plot.py 与 plot-data.csv 已确定性记录错误的 g/L 值,数值与单位不符"
+            ],
+            "direct_evidence": [
+              "render_plot.py 定义 DIVISOR=1.0,实际执行 g/L = mg/L,未除以 1000",
+              "plot-data.csv 输出 0/25/50/75 g/L,而源 25/50/75 mg/L 应为 0.025/0.05/0.075",
+              "provenance.json 记录的换算为 concentration_g_L = concentration_mg_L / 1"
+            ],
+            "missing_materials": [],
+            "verdict": "BLOCK"
+          },
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-002-reviewer-2-attempt-1.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-2",
+          "run_id": "agent-run-4dcb76a6b86847b9843e9d848acf662e",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "68293126285311e9639f79cabf7bcc34b52b296ad2cf5f73857d2c82d0d3993e",
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 13,
+          "tool_paths_within_workspace": true,
+          "verdict": "BLOCK",
+          "workspace_unchanged": true
+        }
+      ]
+    },
+    {
+      "case_id": "case-003",
+      "isolated_workspaces": [
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-1/packet",
+          "source_case_id": "case-003",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-1",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-1/reproduction-output"
+        },
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-2/packet",
+          "source_case_id": "case-003",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-2",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-003-reviewer-2/reproduction-output"
+        }
+      ],
+      "program": {
+        "missing": [],
+        "presentation_attributes_scored": false,
+        "program_status": "PASS",
+        "reason_codes": []
+      },
+      "reviewers": [
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [],
+            "direct_evidence": [
+              "source.csv 给出4组 (time_s, concentration_mg_L): (0,0),(10,25),(20,50),(30,75)",
+              "render_plot.py 与 provenance.json 记录换算 concentration_g_L = concentration_mg_L / 1000",
+              "plot-data.csv 为 0/0.025/0.05/0.075 g/L，与源数据换算一致，且脚本设置 Time (s)/Concentration (g/L) 标签"
+            ],
+            "missing_materials": [],
+            "verdict": "PASS"
+          },
+          "prior_attempts": [
+            {
+              "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+              "exit_code": 2,
+              "packet_input_unchanged": true,
+              "parsed_response": {},
+              "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-003-reviewer-1-attempt-1.json",
+              "reproduction_output": {},
+              "reviewer_id": "reviewer-1",
+              "run_id": "agent-run-74b4d9fd70b846e2b642232df5a3bc9f",
+              "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+              "spec_version": "sitina-loop-v1-r4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stdout_sha256": "a36f8b1fbdfcf8c631c38a48417cb07ddd10b1d44c7813468fdd45ed8bb8c3ec",
+              "terminal_state": "FAILED",
+              "tool_call_count": 14,
+              "tool_paths_within_workspace": true,
+              "verdict": "NOT_RUN",
+              "workspace_unchanged": true
+            }
+          ],
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-003-reviewer-1-attempt-2.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-1",
+          "run_id": "agent-run-c9081fd2c1e04ab1ba128a831acff2fc",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "ce37f3d58b22d273a6223fd3f2322a1e0b6c5971c424a1098fc6601799e7e526",
+          "terminal_detail": null,
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 13,
+          "tool_paths_within_workspace": true,
+          "verdict": "PASS",
+          "workspace_unchanged": true
+        },
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [],
+            "direct_evidence": [
+              "source.csv(0/25/50/75 mg/L)经/1000换算为 plot-data.csv(0/0.025/0.05/0.075 g/L)，时间0/10/20/30 s完整保留，换算正确。",
+              "render_plot.py 确定性读取 source.csv 并除以1000，设置标题、Time (s) 与 Concentration (g/L) 轴标签、数据点标记与数值标注。",
+              "chart.png 为有效 PNG（含 Matplotlib 元数据）；provenance.json 记录源/绘图数据哈希及换算关系，追溯链完整。"
+            ],
+            "missing_materials": [],
+            "verdict": "PASS"
+          },
+          "prior_attempts": [
+            {
+              "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+              "exit_code": 2,
+              "packet_input_unchanged": true,
+              "parsed_response": {},
+              "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-003-reviewer-2-attempt-1.json",
+              "reproduction_output": {},
+              "reviewer_id": "reviewer-2",
+              "run_id": "agent-run-771a8600492f4c26a029d4521dfa1571",
+              "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+              "spec_version": "sitina-loop-v1-r4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stdout_sha256": "b21b14aa3a0cb7211b3cda7ec209372b235f249ec76cac1ff0c0c4e10bff9bd8",
+              "terminal_state": "FAILED",
+              "tool_call_count": 16,
+              "tool_paths_within_workspace": true,
+              "verdict": "NOT_RUN",
+              "workspace_unchanged": true
+            }
+          ],
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-003-reviewer-2-attempt-2.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-2",
+          "run_id": "agent-run-648de9e4703848ffb2b65aae4414db79",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "8513d2f83ce0bb1092b703c90a1727745814e049790db94ebd908b0a7b6fbcf8",
+          "terminal_detail": null,
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 12,
+          "tool_paths_within_workspace": true,
+          "verdict": "PASS",
+          "workspace_unchanged": true
+        }
+      ]
+    },
+    {
+      "case_id": "case-004",
+      "isolated_workspaces": [
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-1/packet",
+          "source_case_id": "case-004",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-1",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-1/reproduction-output"
+        },
+        {
+          "allowlist": [
+            "requirements.md",
+            "packet.md",
+            "chart.png",
+            "source.csv",
+            "plot-data.csv",
+            "provenance.json",
+            "render_plot.py"
+          ],
+          "copied": [
+            "requirements.md",
+            "packet.md",
+            "chart.png"
+          ],
+          "excluded": [
+            "generate_fixtures.py",
+            "evaluator-only",
+            "sibling-cases",
+            "top-level-QA"
+          ],
+          "read_only_packet": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-2/packet",
+          "source_case_id": "case-004",
+          "workspace": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-2",
+          "writable_reproduction_output": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/review-workspaces/case-004-reviewer-2/reproduction-output"
+        }
+      ],
+      "program": {
+        "missing": [
+          "source.csv",
+          "plot-data.csv",
+          "provenance.json"
+        ],
+        "program_status": "NEEDS_EVIDENCE",
+        "reason_codes": [
+          "TRACEABILITY_MATERIAL_MISSING"
+        ]
+      },
+      "reviewers": [
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [
+              "包内无任何源数据与换算步骤，无法核对 mg/L→g/L 换算、时间单位 s 及实际绘图数据。",
+              "现有工具无法安全读取 chart.png 像素内容，无法确认标题、坐标轴与数据可读性。"
+            ],
+            "direct_evidence": [
+              "packet 目录仅含 requirements.md、packet.md、chart.png 三个文件，无 render_plot.py、无源数据文件。",
+              "packet.md 明确列出包内交付物为 requirements.md、packet.md、chart.png。",
+              "requirements.md 要求交付足以追溯源数据、数值换算与绘图数据的材料。"
+            ],
+            "missing_materials": [
+              "实验时间与浓度的源数据文件（含原始 mg/L 数值）。",
+              "换算与绘图脚本或绘图数据表（如 render_plot.py 等）。"
+            ],
+            "verdict": "NEEDS_EVIDENCE"
+          },
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-004-reviewer-1-attempt-1.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-1",
+          "run_id": "agent-run-a00a0c1a9c4643dd815bd5ebd0bee9ba",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "6ec0f1bfac3c8250574fbe0c9bf27db9cc2d990941e6f473c29803f31bd5627b",
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 9,
+          "tool_paths_within_workspace": true,
+          "verdict": "NEEDS_EVIDENCE",
+          "workspace_unchanged": true
+        },
+        {
+          "baseline_condition": "review used the pre-r4 formal agent CLI with an explicit max_turns=8 containment bound; this is an old-path calibration condition and is not an r4 loop completion rule",
+          "exit_code": 0,
+          "packet_input_unchanged": true,
+          "parsed_response": {
+            "blocking_issues": [
+              "包内无源数据与 mg/L→g/L 换算记录，无法追溯时间(s)/浓度(g/L)及是否保留给定数据点"
+            ],
+            "direct_evidence": [
+              "packet/ 内存在 chart.png（可见图像交付），但无 render_plot.py、源数据或换算说明文件",
+              "packet.md 仅声明三项交付：requirements.md、packet.md、chart.png",
+              "现有工具无法安全读取 PNG 内容（shell/桌面调用被拒，未按文本读取），图内数值与单位未能直接核对"
+            ],
+            "missing_materials": [
+              "源数据（实验时间与浓度）",
+              "单位换算步骤或说明",
+              "render_plot.py 或实际绘图数据"
+            ],
+            "verdict": "NEEDS_EVIDENCE"
+          },
+          "raw_result": "/Users/moss/SitinaHub-r4-b0-1a/docs/redesign/implementation-evidence/batch-0-1a/calibration-full/raw-results/case-004-reviewer-2-attempt-1.json",
+          "reproduction_output": {},
+          "reviewer_id": "reviewer-2",
+          "run_id": "agent-run-1e7c7cd10c0648a39a7151c934a10879",
+          "schema": "SITINA_R4_ISOLATED_REVIEW_RESULT_V1",
+          "spec_version": "sitina-loop-v1-r4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "29e9a7eca2e5c1c64f2b04d2d564ea3a99844803e410c2ff05493e70b436cd28",
+          "terminal_state": "SUCCEEDED",
+          "tool_call_count": 8,
+          "tool_paths_within_workspace": true,
+          "verdict": "NEEDS_EVIDENCE",
+          "workspace_unchanged": true
+        }
+      ]
+    }
+  ],
+  "evaluator_only_labels_visible_to_reviewers": false,
+  "mode": "benchmark",
+  "not_run_retry_performed": true,
+  "not_run_retry_rounds": 2,
+  "required_independent_reviewers_per_case": 2,
+  "reviewers_received_one_neutral_packet_only": true,
+  "schema": "SITINA_R4_REVIEW_CALIBRATION_V1",
+  "spec_version": "sitina-loop-v1-r4"
+}

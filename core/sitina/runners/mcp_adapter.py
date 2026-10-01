@@ -544,6 +544,11 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
     expected_type = schema.get("type")
     if expected_type:
         _validate_type(value, expected_type, path)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            raise McpSchemaError(f"{path} must be at least {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise McpSchemaError(f"{path} must be at most {schema['maximum']}")
     if expected_type == "object" or "properties" in schema:
         if not isinstance(value, dict):
             raise McpSchemaError(f"{path} must be an object")
