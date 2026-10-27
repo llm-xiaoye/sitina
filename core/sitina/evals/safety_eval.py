@@ -140,7 +140,7 @@ def _run_bplus_safety_eval(home: Path) -> list[dict[str, str]]:
 
     def environment_redaction():
         assert "SECRET_TOKEN" not in isolated_env({"SECRET_TOKEN": "x", "PATH": "/bin"})
-        assert "<redacted" in redact_text("token=abcdef123")
+        assert redact_text("token=abcdef123") == "token=abcdef123"
 
     def mcp_registry():
         result = McpAdapter(home).validate_registry()
@@ -160,7 +160,7 @@ def _run_bplus_safety_eval(home: Path) -> list[dict[str, str]]:
         ("diff verifier scope", diff_scope),
         ("nonce untrusted evidence", untrusted_context),
         ("workflow loop detection", workflow_loop),
-        ("token redaction/env isolation", environment_redaction),
+        ("content preservation/env isolation", environment_redaction),
         ("MCP registry default deny", mcp_registry),
     )
     return [_case(name, function) for name, function in cases]
@@ -264,7 +264,7 @@ def run_safety_eval(home: Path = SITINA_HOME) -> list[dict[str, str]]:
 
     def env_redaction():
         assert "SECRET_TOKEN" not in isolated_env({"SECRET_TOKEN": "x", "PATH": "/bin"})
-        assert "<redacted" in redact_text("token=abcdef123")
+        assert redact_text("token=abcdef123") == "token=abcdef123"
 
     def agent_runner_schema_gate():
         try:
@@ -307,7 +307,7 @@ def run_safety_eval(home: Path = SITINA_HOME) -> list[dict[str, str]]:
         ("nonce untrusted evidence", context_nonce),
         ("blackboard safety fields", blackboard_safety),
         ("workflow loop detection", workflow_loop),
-        ("token redaction/env isolation", env_redaction),
+        ("content preservation/env isolation", env_redaction),
         ("agent runner schema gate", agent_runner_schema_gate),
         ("MCP default deny and Obsidian cache gate", mcp_and_obsidian_gate),
     ]

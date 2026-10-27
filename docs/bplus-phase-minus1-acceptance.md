@@ -25,7 +25,7 @@ The gate passes only when all of the following are true:
    and regression-tested. No Legacy record or existing Artifact was changed.
 
 Authoritative machine evidence is written to
-`/Users/moss/Desktop/sitina/output/sitina-bplus-phase-minus1-acceptance.json`.
+`~/Desktop/sitina/output/sitina-bplus-phase-minus1-acceptance.json`.
 That report must bind the exact suite results, content manifest, baselines,
 sink inventory, sentinel reports, incident record, and source-file hashes.
 

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import dataclasses
 import hashlib
 import json
@@ -18,7 +23,7 @@ class HandoffContractTests(unittest.TestCase):
         import scripts._deepseek_token_canary_harness as canary_harness
 
         self.assertEqual(canary_harness.SOURCE, Path(__file__).resolve().parents[1])
-        self.assertNotEqual(canary_harness.SOURCE, Path("/Users/moss/Desktop/sitina/source-worktree"))
+        self.assertNotEqual(canary_harness.SOURCE, Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/source-worktree')))
         for protected in (canary_harness.SOURCE, canary_harness.PRODUCTION):
             self.assertNotEqual(canary_harness.CANARY_ROOT, protected)
             self.assertNotIn(protected, canary_harness.CANARY_ROOT.parents)

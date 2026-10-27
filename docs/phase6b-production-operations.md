@@ -27,7 +27,7 @@ The deployed reader merges:
 
 Every Legacy row is labeled with the snapshot-manifest hash. The reader refuses
 symlinks, invalid manifests, a mismatched snapshot intent, missing database, or
-WAL/SHM sidecars. It never opens live `/Users/moss/SitinaHub/data/sitina.db`.
+WAL/SHM sidecars. It never opens live `~/SitinaHub/data/sitina.db`.
 
 ## Operational invariants
 

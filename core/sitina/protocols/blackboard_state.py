@@ -136,21 +136,6 @@ _PROTECTED_NORMALIZED = frozenset(
         "verificationstatus",
     }
 )
-_SENSITIVE_NORMALIZED = frozenset(
-    {
-        "accesstoken",
-        "apikey",
-        "authtoken",
-        "authorization",
-        "cookie",
-        "credential",
-        "credentials",
-        "password",
-        "privatekey",
-        "refreshtoken",
-        "secret",
-    }
-)
 
 
 def _normalized_field(value: str) -> str:
@@ -172,7 +157,8 @@ def protected_paths(value: Any, *, path: str = "$") -> tuple[str, ...]:
 
 
 def _is_sensitive_path(path: str) -> bool:
-    return any(_normalized_field(piece) in _SENSITIVE_NORMALIZED for piece in path.split("."))
+    """Legacy field-diff hook; field names no longer trigger content masking."""
+    return False
 
 
 def field_level_changes(before: Mapping[str, Any] | None, after: Mapping[str, Any] | None) -> tuple[dict[str, Any], ...]:

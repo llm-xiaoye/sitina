@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 import shlex
+import stat
 import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -34,6 +38,7 @@ class DirectMutationCapability:
     purpose: str
     issued_at: int
     expires_at: int
+    allowed_targets: tuple[str, ...] = ()
 
 
 class ToolExecutor:
@@ -82,6 +87,7 @@ class ToolExecutor:
         allowed_roots: list[str] | None = None,
         precomputed_risk_scan: dict[str, Any] | RiskScanResult | None = None,
         expected_before_hash: str | None = _UNSET,
+        verified_source_paths: tuple[str, ...] = (),
         capability: DirectMutationCapability | None = None,
     ) -> dict[str, Any]:
         if self.effect_shadow.enabled:
@@ -142,7 +148,11 @@ class ToolExecutor:
             if operation == "read":
                 result = self._read(target)
             elif operation in {"write", "overwrite"}:
-                result = self._write(target, content or "", run_id, expected_before_hash=expected_before_hash)
+                result = self._write(
+                    target, content or "", run_id,
+                    expected_before_hash=expected_before_hash,
+                    verified_source_paths=verified_source_paths,
+                )
             elif operation == "delete":
                 result = self._delete(target, run_id, expected_before_hash=expected_before_hash)
             elif operation == "move":
@@ -171,10 +181,11 @@ class ToolExecutor:
         self,
         *,
         target: str,
-        content: str,
+        content: str | bytes,
         run_id: str,
         expected_before_hash: object = _UNSET,
         capability: DirectMutationCapability | None = None,
+        verified_source_paths: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         """Strong write primitive for an already-authorized execution scope.
 
@@ -214,6 +225,7 @@ class ToolExecutor:
             return result
         result = self._write(
             target, content, run_id, expected_before_hash=expected_before_hash,
+            verified_source_paths=verified_source_paths,
         )
         result = {"risk_scan": scan.model_dump(), **result}
         self._record_direct_audit(
@@ -260,6 +272,7 @@ class ToolExecutor:
         target_repo: str,
         allowed_roots: list[str],
         purpose: str,
+        allowed_targets: list[str] | None = None,
     ) -> DirectMutationCapability:
         """Mint an opaque capability after the caller's authorization gate."""
         if not all(str(value).strip() for value in (run_id, authorization_ref, target_repo, purpose)):
@@ -283,6 +296,8 @@ class ToolExecutor:
         if not any(repo == Path(value) or Path(value) in repo.parents for value in roots):
             raise ValueError("direct mutation capability repository is outside its roots")
         binding = self.authorization_binding
+        if allowed_targets and binding:
+            raise ValueError("exact-target grants cannot widen a separately bound execution authorization")
         if binding:
             if is_execution_ref and str(binding.get("schema") or "") != "SITINA_EXECUTION_CHILD_AUTHORIZATION_V1":
                 raise ValueError("direct mutation execution authorization is not a Code Mode child")
@@ -329,6 +344,7 @@ class ToolExecutor:
             purpose=str(purpose),
             issued_at=issued_at,
             expires_at=min(issued_at + 900, binding_expiry) if binding_expiry else issued_at + 900,
+            allowed_targets=tuple(sorted({str(Path(item).expanduser().resolve(strict=False)) for item in (allowed_targets or ())})),
         )
         self._direct_capabilities[capability.token] = capability
         return capability
@@ -392,13 +408,17 @@ class ToolExecutor:
                 return "direct mutation capability approval record is unavailable"
         path = Path(target).expanduser().resolve(strict=False)
         repo = Path(capability.target_repo)
-        if not (path == repo or repo in path.parents):
+        if capability.allowed_targets and str(path) not in capability.allowed_targets:
+            return "direct mutation target is not an authorized exact target"
+        if not capability.allowed_targets and not (path == repo or repo in path.parents):
             return "direct mutation target does not match target_repo binding"
         if not any(path == Path(root) or Path(root) in path.parents for root in capability.allowed_roots):
             return f"direct {operation} target escapes capability scope"
         if destination is not None:
             destination_path = Path(destination).expanduser().resolve(strict=False)
-            if not (destination_path == repo or repo in destination_path.parents):
+            if capability.allowed_targets and str(destination_path) not in capability.allowed_targets:
+                return "direct mutation destination is not an authorized exact target"
+            if not capability.allowed_targets and not (destination_path == repo or repo in destination_path.parents):
                 return "direct mutation destination does not match target_repo binding"
             if not any(destination_path == Path(root) or Path(root) in destination_path.parents for root in capability.allowed_roots):
                 return f"direct {operation} destination escapes capability scope"
@@ -410,34 +430,54 @@ class ToolExecutor:
         path = Path(target).expanduser()
         return {"status": "ok", "content": path.read_text(encoding="utf-8")}
 
-    def _write(self, target: str | None, content: str, run_id: str, *, expected_before_hash: object = _UNSET) -> dict[str, Any]:
+    def _write(
+        self, target: str | None, content: str | bytes, run_id: str, *,
+        expected_before_hash: object = _UNSET, verified_source_paths: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         if not target:
-            return {"status": "blocked", "reason": "write target required"}
+            return {"status": "blocked", "reason": "write target required", "effect_dispatched": False}
+        if not isinstance(content, (str, bytes)):
+            return {"status": "blocked", "reason": "write content is invalid", "effect_dispatched": False}
+        binary = isinstance(content, bytes)
+        content_bytes = content if binary else content.encode("utf-8")
         # SL1 pre-write hard gate: reject sensitive content BEFORE it reaches
         # disk. Fail-closed, no mutation of content, no write-then-scan.
         if self.enforce_write_boundary:
             from sitina.security.redaction import redact_boundary_value
-            boundary = redact_boundary_value(content, boundary="write")
+            boundary = redact_boundary_value(
+                content.decode("utf-8", errors="surrogateescape") if binary else content,
+                boundary="write", verified_source_paths=verified_source_paths,
+            )
             if boundary.redacted_paths:
                 return {
                     "status": "blocked",
                     "reason": "write blocked: sensitive content at persistence boundary",
+                    "effect_dispatched": False,
                     "redacted_paths": list(boundary.redacted_paths),
                 }
         path = Path(target).expanduser()
         ensure_dir(path.parent)
         before = self.diff.before_hash(path)
         if expected_before_hash is not _UNSET and before != expected_before_hash:
-            return {"status": "blocked", "reason": "before_hash mismatch", "expected_before_hash": expected_before_hash, "actual_before_hash": before}
+            return {"status": "blocked", "reason": "before_hash mismatch", "effect_dispatched": False, "expected_before_hash": expected_before_hash, "actual_before_hash": before}
         patch_id = sha256_text(f"{run_id}\n{path}\n{before}\n{content}")
         patch_path = self.home / "artifacts" / "patches" / f"{patch_id.split(':', 1)[1]}.json"
         ensure_dir(patch_path.parent)
         with PathLease(path, run_id, self.home):
             if before != self.diff.before_hash(path):
-                return {"status": "blocked", "reason": "before_hash changed before write"}
-            tmp = path.with_suffix(path.suffix + ".sitina-tmp")
+                return {"status": "blocked", "reason": "before_hash changed before write", "effect_dispatched": False}
+            fd, temporary = tempfile.mkstemp(prefix=".sitina-write-", dir=path.parent)
+            tmp = Path(temporary)
             try:
-                tmp.write_text(content, encoding="utf-8")
+                with os.fdopen(fd, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as handle:
+                    handle.write(content)
+                    if path.exists():
+                        os.fchmod(handle.fileno(), stat.S_IMODE(path.stat().st_mode))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if before != self.diff.before_hash(path):
+                    tmp.unlink()
+                    return {"status": "blocked", "reason": "before_hash changed before replacement", "effect_dispatched": False}
                 tmp.replace(path)
             except Exception:
                 if tmp.exists():
@@ -453,8 +493,8 @@ class ToolExecutor:
                     "path": str(path),
                     "before_hash": before,
                     "after_hash": after,
-                    "content_sha256": sha256_text(content),
-                    "content_bytes": len(content.encode("utf-8")),
+                    "content_sha256": "sha256:" + hashlib.sha256(content_bytes).hexdigest(),
+                    "content_bytes": len(content_bytes),
                 },
                 ensure_ascii=False,
                 sort_keys=True,

@@ -2,14 +2,14 @@
 
 **Goal:** 在不改变 Sitina 现有 Runtime、Legacy Authority、数据和外部行为的前提下，通过受限 Bootstrap V0 建立可复现解释器与依赖，再生成正式 Execution Manifest V1、隔离测试 Home、变更审计、执行授权契约和计划完整性工具，使后续 Phase 可以被 Codex 安全、分段、可验证地执行。
 
-**Architecture:** Phase -1 只建立施工控制面。Production Home `/Users/moss/SitinaHub` 始终只读；所有测试、Crash Injection、Fixture Run、Shadow Journal 和临时数据库必须位于一次性 Test Home。现有 Legacy 功能作为兼容性 Oracle 保留，不在本阶段重构。
+**Architecture:** Phase -1 只建立施工控制面。Production Home `~/SitinaHub` 始终只读；所有测试、Crash Injection、Fixture Run、Shadow Journal 和临时数据库必须位于一次性 Test Home。现有 Legacy 功能作为兼容性 Oracle 保留，不在本阶段重构。
 
 **Tech Stack:** 固定 Python 3.12 Profile、Pydantic v2、经批准并锁定的密码库、标准依赖锁、`unittest` 分层 Runner、Git 或等价内容寻址变更审计、Canonical JSON Execution Manifest。
 
 ## Global Constraints
 
 - Phase -1 不创建 Canonical Journal、CAS、Projection 或 Shadow Business Event。
-- 不运行会把 `SITINA_HOME` 解析为 `/Users/moss/SitinaHub` 的测试。
+- 不运行会把 `SITINA_HOME` 解析为 `~/SitinaHub` 的测试。
 - 不修改、重建、Checkpoint、Vacuum 或扫描写入 Production SQLite。
 - 不写 Production `logs/`、`state/`、`artifacts/`、`outputs/`、`memory/` 或 `backups/`。
 - 不调用真实 Provider、MCP、Tool、Git Push、Publication 或外部 Mutation。

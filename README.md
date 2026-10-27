@@ -8,7 +8,7 @@ SQLite conversation path.
 The active entrypoint is:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina
+~/SitinaHub/bin/sitina
 ```
 
 When the entrypoint is on `PATH`, running it without arguments opens the

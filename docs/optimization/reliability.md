@@ -24,7 +24,7 @@ Run from the repository root:
 
 ```sh
 scripts/reliability-drill \
-  --output /Users/moss/Desktop/sitina/output/optimization-bootstrap/phase-05-dr-drill.json
+  --output ~/Desktop/sitina/output/optimization-bootstrap/phase-05-dr-drill.json
 ```
 
 The command creates a marked disposable home, disables live Provider/network access, runs canonical backup plus cold-copy restore, replays restored event records, and verifies that no writer was activated. The drill refuses the production home as a restore target. A successful report must show:
@@ -35,7 +35,7 @@ The command creates a marked disposable home, disables live Provider/network acc
 - the reliability, canonical-backup, and restore-drill test selectors;
 - `writer_activated: false` in the DR acceptance evidence.
 
-Never point the drill at `/Users/moss/SitinaHub`; the executable gate creates and removes its own marked isolated copy.
+Never point the drill at `~/SitinaHub`; the executable gate creates and removes its own marked isolated copy.
 
 ## Health semantics
 

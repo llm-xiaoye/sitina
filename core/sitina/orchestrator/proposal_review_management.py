@@ -299,7 +299,7 @@ class RejectionRecord(StrictModel):
     repair_suggestions: list[str]
     model_version: str
     policy_version: str
-    redacted: Literal[True] = True
+    redacted: bool = False
 
     @classmethod
     def create(cls, evaluation: ScoredEvaluation, *, reason_code: str, suggestions: Sequence[str]) -> "RejectionRecord":
@@ -571,8 +571,7 @@ class ProposalCache:
     def put(self, key: ProposalCacheKey, candidate: ProposalCandidate) -> bool:
         for name in ("normalized_input_hash", "policy_hash", "prompt_hash", "permission_hash"):
             _digest(getattr(key, name), name)
-        contains_sensitive_text = redact_text(candidate.content) != candidate.content
-        if candidate.tenant_id != key.tenant_id or not candidate.side_effect_free or candidate.sensitive or contains_sensitive_text:
+        if candidate.tenant_id != key.tenant_id or not candidate.side_effect_free:
             return False
         if (candidate.policy_hash, candidate.model_id, candidate.prompt_hash, candidate.permission_hash) != (key.policy_hash, key.model_id, key.prompt_hash, key.permission_hash):
             return False

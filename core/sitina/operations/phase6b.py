@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from sitina.install_identity import LEGACY_PRODUCTION_HOME
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -181,9 +182,9 @@ class Phase6BManifestVerifier:
         if any(_inside(production, roots[name]) or _inside(roots[name], production) for name in required_roots[1:]):
             raise Phase6BManifestError("Production and operational roots must be physically disjoint")
         if environment == "CONTROLLED_PRODUCTION_SIMULATION":
-            if not (production / ".sitina-bplus-disposable-v1").is_file() or production == Path("/Users/moss/SitinaHub"):
+            if not (production / ".sitina-bplus-disposable-v1").is_file() or production == LEGACY_PRODUCTION_HOME:
                 raise Phase6BManifestError("controlled Production simulation requires a disposable marker")
-        elif production != Path("/Users/moss/SitinaHub").resolve(strict=False):
+        elif production != LEGACY_PRODUCTION_HOME:
             raise Phase6BManifestError("Production manifest names an unexpected installation")
 
         window = raw.get("window")

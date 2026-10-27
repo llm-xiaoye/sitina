@@ -52,6 +52,10 @@ class MemoryKeychainBackend:
                 raise KeyProviderError("Keychain item already exists")
             self._items[key] = bytes(value)
 
+    def delete(self, service: str, account: str) -> None:
+        with self._lock:
+            self._items.pop((service, account), None)
+
     def public_inventory(self) -> dict[str, object]:
         with self._lock:
             return {
@@ -242,6 +246,8 @@ class SecurityFrameworkKeychainBackend:
         sec.SecKeychainItemFreeContent.restype = ctypes.c_int32
         sec.SecKeychainDelete.argtypes = [ctypes.c_void_p]
         sec.SecKeychainDelete.restype = ctypes.c_int32
+        sec.SecKeychainItemDelete.argtypes = [ctypes.c_void_p]
+        sec.SecKeychainItemDelete.restype = ctypes.c_int32
         self._core.CFRelease.argtypes = [ctypes.c_void_p]
         self._core.CFRelease.restype = None
 
@@ -331,6 +337,18 @@ class SecurityFrameworkKeychainBackend:
             "secret_argv_transport": False,
         }
 
+    def delete(self, service: str, account: str) -> None:
+        """Remove one exact item, never the default Keychain itself."""
+        with self._lock:
+            value, item = self._find(service, account)
+            del value
+            if item:
+                try:
+                    self._check(self._security.SecKeychainItemDelete(item), "item delete")
+                finally:
+                    self._core.CFRelease(item)
+            self._known.discard((service, account))
+
     def delete_private_keychain(self) -> None:
         with self._lock:
             if not self._private_path:
@@ -388,6 +406,33 @@ class MacOSKeychainProvider:
                 self._current = {purpose: int(value[purpose.value]) for purpose in KeyPurpose}
             except Exception as error:
                 raise KeyProviderError("macOS Keychain version registry is malformed") from error
+
+    def destroy_namespace(self) -> dict[str, object]:
+        """Delete this exact provider namespace after its writer is closed.
+
+        Callers must hold the native authority lease. Provider credentials
+        belong to different services and are never enumerated or touched.
+        """
+        delete = getattr(self.backend, "delete", None)
+        if not callable(delete):
+            raise KeyProviderError("Keychain backend cannot delete exact namespace items")
+        accounts = [self._account(purpose, version)
+                    for purpose in KeyPurpose
+                    for version in range(1, self._current[purpose] + 1)]
+        removed = 0
+        for account in accounts:
+            if self.backend.get(self.service, account) is not None:
+                delete(self.service, account)
+                removed += 1
+            if self.backend.get(self.service, account) is not None:
+                raise KeyProviderError("namespace key deletion did not verify absent")
+        delete(self.service, "registry")
+        if self.backend.get(self.service, "registry") is not None:
+            raise KeyProviderError("namespace registry deletion did not verify absent")
+        self._material_cache.clear()
+        self._references.clear()
+        return {"namespace": self.namespace, "removed_key_count": removed,
+                "verified_absent": True, "provider_credentials_touched": False}
 
     def _persist_registry(self) -> None:
         value = canonical_json_bytes({purpose.value: version for purpose, version in self._current.items()})
@@ -464,6 +509,64 @@ class MacOSKeychainProvider:
         self._material(purpose, version)
         descriptor = self._descriptor(purpose, version)
         self._references[descriptor.key_id] = OpaqueKeychainReference(descriptor.key_id, self.service, self._account(purpose, version), purpose)
+        return descriptor
+
+    def initialize_persistent_descriptors(
+        self,
+        purposes: tuple[KeyPurpose, ...],
+    ) -> tuple[KeyDescriptor, ...]:
+        """Create the requested immutable key versions and persist their registry.
+
+        Ordinary provider calls retain their lazy behaviour.  Runtime bootstrap
+        uses this explicit method so a fresh Journal/CAS namespace has a durable
+        version registry before it can record any business state.
+        """
+
+        if not purposes or len(set(purposes)) != len(purposes):
+            raise KeyProviderError("persistent key bootstrap requires unique purposes")
+        with self._lock:
+            descriptors = tuple(self.current_descriptor(purpose) for purpose in purposes)
+            self._persist_registry()
+            return descriptors
+
+    def require_existing_descriptor(
+        self,
+        purpose: KeyPurpose,
+        *,
+        key_id: str | None = None,
+    ) -> KeyDescriptor:
+        """Load an existing Keychain item without creating replacement material.
+
+        Recovery callers must never use the lazy ``current_descriptor`` path:
+        that path intentionally creates a missing key for a new namespace.  A
+        missing registry or item here is therefore a hard recovery error.
+        """
+
+        registry = self.backend.get(self.service, "registry")
+        if registry is None:
+            raise KeyProviderError("persistent Keychain version registry is unavailable")
+        try:
+            versions = json.loads(registry)
+            version = int(versions[purpose.value])
+        except Exception as error:
+            raise KeyProviderError("persistent Keychain version registry is malformed") from error
+        descriptor = self._descriptor(purpose, version)
+        if key_id is not None and descriptor.key_id != key_id:
+            raise KeyProviderError("persistent Keychain descriptor differs from the recorded key ID")
+        account = self._account(purpose, version)
+        material = self.backend.get(self.service, account)
+        if material is None:
+            raise KeyProviderError("persistent Keychain key material is unavailable")
+        if len(material) != 32:
+            raise KeyProviderError("persistent Keychain key material has an invalid length")
+        with self._lock:
+            self._material_cache[(purpose, version)] = bytes(material)
+            self._references[descriptor.key_id] = OpaqueKeychainReference(
+                descriptor.key_id,
+                self.service,
+                account,
+                purpose,
+            )
         return descriptor
 
     def _parse_id(self, key_id: str, expected: KeyPurpose) -> int:

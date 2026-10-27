@@ -1,6 +1,6 @@
 # Sitina B+ source-only change audit policy
 
-This installation uses `CONTENT_MANIFEST_V1` because `/Users/moss/SitinaHub`
+This installation uses `CONTENT_MANIFEST_V1` because `~/SitinaHub`
 is not a Git repository. The audit records sorted relative paths, POSIX modes,
 sizes, and SHA-256 hashes for source, tests, scripts, schemas, documentation,
 and non-secret YAML/JSON configuration. Each new manifest links to the prior

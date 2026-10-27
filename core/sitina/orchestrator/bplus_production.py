@@ -8,6 +8,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
+from sitina.install_identity import LEGACY_PRODUCTION_HOME
 
 from sitina.authority.model import AuthorityResolution
 from sitina.commands.model import CommandEnvelope
@@ -153,7 +154,7 @@ class ProductionRuntimeContext:
         moment = int(time.time()) if now is None else int(now)
         genesis = ProductionGenesisBuilder(root).load_persisted()
         if genesis.environment_kind == "PRODUCTION":
-            if root != Path("/Users/moss/SitinaHub"):
+            if root != LEGACY_PRODUCTION_HOME:
                 raise BPlusProductionRuntimeError("Production Genesis is installed under an unexpected root")
         elif not allow_simulation or not (root / ".sitina-bplus-disposable-v1").is_file():
             raise BPlusProductionRuntimeError("controlled Production simulation was not explicitly enabled")
@@ -238,7 +239,7 @@ class ProductionRuntimeContext:
     def _storage_namespace_kind(self) -> str:
         if self._restored_simulation_namespace:
             if (
-                self.home == Path("/Users/moss/SitinaHub")
+                self.home == LEGACY_PRODUCTION_HOME
                 or not (self.home / ".sitina-bplus-disposable-v1").is_file()
                 or self.genesis.environment_kind != "PRODUCTION"
                 or not isinstance(self._rollback_anchor_backend, MemoryKeychainBackend)

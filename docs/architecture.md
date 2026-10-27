@@ -4,7 +4,7 @@ SitinaHub owns Sitina's harness state, schemas, prompts, provider profile
 mapping, risk controls, audit logs, artifacts, and memory surfaces under:
 
 ```text
-/Users/moss/SitinaHub
+~/SitinaHub
 ```
 
 Claude Code may remain an external execution surface, but the Sitina CLI and

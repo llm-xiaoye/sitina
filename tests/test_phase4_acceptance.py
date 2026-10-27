@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 MANIFEST_HASH = "bcb0849c9730b2dec990ff77c245a7abcc97b1f61645413952d47bc282cc8aa1"
 PHASE3_ACCEPTANCE = "9db0721ad687d4c0aba2bcbd0f9e1ee994a02219d3825919bd45133c3a723912"
 PHASE3_CONTENT = "b544cda1b3059218dcf95c71525548f00299df1688e6a9f731801e679ea3d5b1"
@@ -130,7 +135,7 @@ class Phase4AcceptanceTests(unittest.TestCase):
         self.assertEqual(post["legacy_mutable_file_write_count"], 0)
         self.assertEqual(post["live_external_effect_count"], 0)
         self.assertEqual(post["production_writer"], "legacy")
-        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
 
 
 if __name__ == "__main__":

@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -17,11 +22,10 @@ from pathlib import Path
 from typing import Any
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
-DEFAULT_TEST_ROOT = Path("/Users/moss/Desktop/sitina/bplus-test-homes")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
+DEFAULT_TEST_ROOT = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/bplus-test-homes'))
 DEFAULT_OUTPUT = Path(
-    "/Users/moss/Desktop/sitina/output/storage-production-closure/"
-    "storage-production-full-suite.json"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/storage-production-closure/storage-production-full-suite.json')
 )
 PRODUCTION_STORAGE_ROOTS = (
     "journal",

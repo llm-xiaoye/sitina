@@ -158,7 +158,7 @@ class FailureContract(VersionedRecord):
     retryable: bool
     message: str = Field(min_length=1, max_length=2_000)
     details_ref: CASReference | None = None
-    redacted: Literal[True]
+    redacted: bool
 
 
 class SpanEventContract(VersionedRecord):
@@ -168,7 +168,7 @@ class SpanEventContract(VersionedRecord):
     span_id: Identifier
     name: Identifier
     attributes_ref: CASReference | None = None
-    redacted: Literal[True]
+    redacted: bool
 
 
 class SpanContract(VersionedRecord):
@@ -354,7 +354,7 @@ class EvaluationResult(VersionedRecord):
     decision: Literal["PASS", "FAIL", "NEEDS_REVISION", "BLOCK"]
     status: Literal["DRAFT", "FINAL", "INVALIDATED"]
     finding_refs: tuple[CASReference, ...] = ()
-    redacted: Literal[True]
+    redacted: bool
 
     @model_validator(mode="after")
     def _bounded_score(self) -> "EvaluationResult":

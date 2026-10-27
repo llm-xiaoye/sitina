@@ -3,13 +3,13 @@
 Sitina role mapping lives in:
 
 ```text
-/Users/moss/SitinaHub/config/roles.env
+~/SitinaHub/config/roles.env
 ```
 
 Provider credentials and model IDs live in:
 
 ```text
-/Users/moss/SitinaHub/profiles/*.env
+~/SitinaHub/profiles/*.env
 ```
 
 Each profile is loaded by role name. For example:
@@ -21,7 +21,7 @@ export SITINA_ROLE_CONTROLLER_PROFILE="gpt"
 loads:
 
 ```text
-/Users/moss/SitinaHub/profiles/gpt.env
+~/SitinaHub/profiles/gpt.env
 ```
 
 Profile files must be mode `600` and should export:

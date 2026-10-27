@@ -6,7 +6,7 @@
       "transport": "stdio",
       "permission": "shell",
       "command": [
-        "/Users/moss/.local/node-v24.18.0-darwin-arm64/bin/open-computer-use",
+        "~/.local/node-v24.18.0-darwin-arm64/bin/open-computer-use",
         "mcp"
       ],
       "timeout_seconds": 60

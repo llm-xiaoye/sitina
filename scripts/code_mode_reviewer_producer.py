@@ -70,12 +70,91 @@ class ProducerService:
         method = request.get("method")
         if method != "review":
             raise ProducerError("reviewer producer method is not allowed")
-        # This process has no independently supplied semantic verdict source.
-        # A machine receipt, even when complete and correctly hashed, is not
-        # a Reviewer decision.  Until a real headless Reviewer role is wired
-        # in, production headless review is intentionally pending; callers
-        # must use the controller's real /dev/tty path.
-        raise ProducerError("headless semantic review is unavailable; TTY confirmation is required")
+        return self.review(request)
+
+    def review(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        """Decide a verdict from the controller-sealed objective facts.
+
+        This is a deterministic machine review, and it says so in the verdict
+        it signs: ``review_class`` is ``DETERMINISTIC_MACHINE_REVIEW_V1`` and
+        ``human_confirmed`` is false, so nothing downstream can mistake this
+        for a human reading the diff.  The rules below only ever read facts the
+        controller already sealed and hash-bound -- return code, test counts,
+        the before/after worktree hashes, and the evidence linkage.  A fact that
+        is missing, malformed, or bad produces REJECT; there is no branch that
+        turns an incomplete receipt into an ACCEPT.
+        """
+        binding = {
+            key: str(request.get(key) or "")
+            for key in ("candidate_id", "tree_hash", "test_receipt_hash", "run_id")
+        }
+        if not all(binding.values()):
+            raise ProducerError("headless review requires a complete evidence binding")
+        evidence = request.get("evidence")
+        if not isinstance(evidence, Mapping):
+            raise ProducerError("headless review requires the controller evidence projection")
+        binding_key = hashlib.sha256(canonical(binding)).hexdigest()
+        if binding_key in self._used:
+            raise ProducerError("headless review was already issued for this binding")
+
+        findings: list[str] = []
+
+        def integer_fact(name: str) -> int | None:
+            value = evidence.get(name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                return None
+            return value
+
+        return_code = integer_fact("return_code")
+        if return_code is None:
+            findings.append("machine receipt carries no integer return_code")
+        elif return_code != 0:
+            findings.append(f"verification runner exited {return_code}")
+        for name in ("failures", "errors", "unexpected_successes"):
+            count = integer_fact(name)
+            if count is None:
+                findings.append(f"machine receipt carries no integer {name}")
+            elif count != 0:
+                findings.append(f"verification reported {count} {name}")
+
+        before = str(evidence.get("worktree_before_hash") or "")
+        after = str(evidence.get("worktree_after_hash") or "")
+        if len(before) != 64 or len(after) != 64:
+            findings.append("worktree before/after hashes are not both sealed digests")
+        elif before != after:
+            findings.append("verification mutated the worktree it was verifying")
+
+        if len(str(evidence.get("diff_hash") or "")) != 64:
+            findings.append("evidence carries no sealed diff hash")
+        machine_check = str(evidence.get("machine_check_hash") or "")
+        package = str(evidence.get("evidence_package_hash") or "")
+        if len(machine_check) != 64 or len(package) != 64:
+            findings.append("machine check and evidence package hashes are not both sealed")
+        elif machine_check == package:
+            findings.append("machine check is not distinct from its evidence package")
+        if len(str(evidence.get("command_hash") or "")) != 64:
+            findings.append("verification command is not hash-bound")
+
+        decision = "ACCEPT" if not findings else "REJECT"
+        severity = "NONE" if not findings else "HIGH"
+        body = {
+            "schema": "CODE_MODE_REVIEW_VERDICT_V2",
+            "reviewer_session_id": self.producer_id,
+            "candidate_id": binding["candidate_id"],
+            "tree_hash": binding["tree_hash"],
+            "test_receipt_hash": binding["test_receipt_hash"],
+            "run_id": binding["run_id"],
+            "review_evidence": dict(evidence),
+            "review_evidence_hash": hashlib.sha256(canonical(dict(evidence))).hexdigest(),
+            "findings": findings,
+            "severity": severity,
+            "decision": decision,
+            "review_class": "DETERMINISTIC_MACHINE_REVIEW_V1",
+            "human_confirmed": "false",
+            "reviewed_at": str(int(time.time())),
+        }
+        self._used.add(binding_key)
+        return {"verdict": self.sign(body)}
 
 
 def main() -> int:

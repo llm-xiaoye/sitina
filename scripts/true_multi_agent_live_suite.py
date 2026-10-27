@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import json
 import os
 import sys
@@ -9,7 +14,7 @@ from pathlib import Path
 from sitina.orchestrator.true_multi_agent import TrueMultiAgentProductionRuntime
 
 
-HOME = Path("/Users/moss/SitinaHub")
+HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 
 
 CONTROL_GOAL = (

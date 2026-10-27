@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import json
@@ -25,7 +30,7 @@ from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvide
 from sitina.security.macos_keychain import MemoryKeychainBackend
 
 
-PRODUCTION = Path("/Users/moss/SitinaHub")
+PRODUCTION = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 
 
 def allocated(path: Path) -> int:

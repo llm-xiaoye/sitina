@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import json
@@ -122,7 +127,7 @@ def build(root: Path, *, previous_manifest_hash: str | None) -> dict[str, object
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Capture an exact nonsecret Sitina source/config manifest.")
-    parser.add_argument("--root", type=Path, default=Path("/Users/moss/SitinaHub"))
+    parser.add_argument("--root", type=Path, default=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--previous-manifest-hash")
     args = parser.parse_args()

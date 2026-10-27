@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Sitina · 本地对话</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/activity.css">
+  <script src="/assets/work-plan.js" defer></script>
+  <script src="/assets/memory-ui.js" defer></script>
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#composer">跳到输入框</a>
+  <header class="app-header">
+    <button id="toggle-sessions" class="icon-button mobile-toggle" aria-label="打开会话列表" aria-controls="sessions-panel" aria-expanded="false"></button>
+    <a class="brand" href="/" aria-label="Sitina 主页"><sitina-logo aria-hidden="true"></sitina-logo><span>Sitina</span></a>
+    <span class="header-tag">你的想法，正在发生。</span>
+    <button id="open-memory" class="control-button" aria-haspopup="dialog">记忆</button>
+    <div class="connection" id="connection" role="status"><span class="status-dot"></span><span>连接本机服务…</span></div>
+    <button id="show-skills" class="control-button" aria-controls="skills-panel" aria-pressed="false">Skills</button>
+    <button id="toggle-team" class="icon-button" aria-label="打开 Agent 动态" aria-controls="team-panel" aria-expanded="true"></button>
+  </header>
+  <div class="app-shell">
+    <aside id="sessions-panel" class="sessions-panel" aria-label="会话">
+      <div class="sidebar-top">
+        <button id="new-session" class="new-session"><span class="plus">+</span>新建会话<span class="key-hint">⌘ N</span></button>
+        <label class="search-field"><span id="search-icon"></span><input id="search" type="search" placeholder="搜索会话名称" aria-label="搜索会话名称" autocomplete="off"></label>
+        <div class="session-batch-toolbar"><button id="manage-sessions" class="text-button" type="button">批量管理</button><button id="collapse-dates" class="text-button" type="button">收起全部日期</button></div>
+        <div id="session-selection" class="session-selection" hidden><label><input id="select-all-sessions" type="checkbox">全选</label><label id="select-filtered-label" hidden><input id="select-visible-sessions" type="checkbox">全选搜索结果</label><button id="delete-selected" class="danger-text text-button" type="button" disabled>删除已选（0）</button></div>
+        <section id="deletion-progress" class="deletion-progress" aria-label="永久删除进度" hidden>
+          <div class="deletion-heading"><strong id="deletion-status"></strong><button id="deletion-toggle" type="button">暂停</button><button id="deletion-dismiss" type="button" aria-label="收起删除结果" hidden>×</button></div>
+          <span id="deletion-count"></span><progress id="deletion-bar" aria-label="会话处理进度" max="1" value="0"></progress>
+          <p id="deletion-current"></p><details id="deletion-errors" hidden><summary id="deletion-error-label"></summary><ul id="deletion-error-list"></ul></details>
+        </section>
+      </div>
+      <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
+      <div class="sidebar-bottom"><span class="local-symbol"></span><div>本机私密会话<small>数据保存在你的电脑上</small></div><button id="refresh-sessions" class="icon-button" aria-label="刷新会话列表"></button></div>
+    </aside>
+    <main class="chat-panel" aria-label="对话">
+      <header class="chat-header">
+        <div class="chat-heading"><h1 id="chat-title">新会话</h1><span id="task-status" class="task-status">准备就绪</span></div>
+        <div class="chat-controls">
+          <button id="task-skills" class="control-button" type="button" aria-haspopup="dialog">Skills —</button>
+          <details id="context-indicator" class="context-indicator"><summary aria-label="查看上下文余量"><span id="context-ring" class="context-ring" aria-hidden="true"></span><span id="context-label">上下文 —</span></summary><div class="context-popover"><strong>上下文余量</strong><p id="context-description">首次模型请求完成后显示。</p></div></details>
+          <label class="sr-only" for="model">模型选择</label>
+          <select id="model" aria-describedby="model-hint"><option value="flash">DeepSeek Flash</option><option value="pro">DeepSeek Pro</option></select>
+          <button id="pause" class="control-button" hidden></button>
+          <button id="cancel-task" class="icon-button" aria-label="取消当前任务" title="取消当前任务" hidden></button>
+        </div>
+      </header>
+      <details id="execution-dock" class="execution-dock" hidden aria-hidden="true">
+        <summary><span>命令与终端 <span id="execution-count" class="count-label">0</span></span><span id="execution-connection" class="muted">选择会话后读取</span></summary>
+        <div class="execution-workspace"><nav id="execution-list" class="execution-list" aria-label="本会话的进程"></nav><div id="execution-detail" class="execution-detail"><p class="capability-empty">任务启动的命令会显示在这里。查看输出与重连不会重新执行命令。</p></div></div>
+      </details>
+      <section id="messages" class="messages" aria-label="消息记录">
+        <div class="welcome"><sitina-logo aria-hidden="true"></sitina-logo><p class="eyebrow">从一个想法开始</p><h2>今天，想完成什么？</h2><p>告诉 Sitina 你的目标。对话、成果与团队进展<br>会在这里自然展开。</p></div>
+        <div id="notice" class="notice" role="status" aria-atomic="true" hidden></div>
+      </section>
+      <div class="composer-area">
+        <div id="context-progress" class="context-progress" role="status" aria-live="polite" hidden></div>
+        <p class="file-release-note">成果通过任务验收后可下载；来源附件保持可读。</p>
+        <div id="file-list" class="file-list" aria-label="成果与来源文件" role="region" tabindex="0"></div>
+        <div id="attachments" class="attachments" aria-label="已选择附件"></div>
+        <form id="composer-form" class="composer">
+          <button type="button" id="attach" class="icon-button" aria-label="添加附件"></button>
+          <input type="file" id="file-input" hidden multiple>
+          <label for="composer" class="sr-only">发送给 Sitina</label>
+          <textarea id="composer" rows="1" placeholder="给 Sitina 一个目标，或补充当前任务…" aria-describedby="input-hint"></textarea>
+          <button type="submit" id="send" class="send-button" aria-label="发送消息"></button>
+        </form>
+        <div class="composer-footer"><span id="input-hint">Enter 发送 · Shift + Enter 换行</span><span id="usage"></span></div>
+        <span id="model-hint" class="sr-only">模型选择在下一个请求边界生效。不会自动回退。</span>
+      </div>
+    </main>
+    <section id="skills-panel" class="skills-panel" role="main" aria-labelledby="skills-title" hidden>
+      <header class="skills-header"><div><h1 id="skills-title" tabindex="-1">Skills</h1><p>管理本机的全局技能。版本切换与停用默认对新任务生效。</p></div><button id="back-to-chat" class="secondary-button">返回对话</button></header>
+      <div class="skills-content">
+        <form id="skill-install-form" class="skill-install-form" aria-describedby="skill-source-hint">
+          <h2>安装技能</h2><div class="skill-source-fields"><label for="skill-source-type">来源类型<select id="skill-source-type"><option value="install_local">本地目录或 ZIP 技能包</option><option value="install_public">匿名公开 URL 或 Git 仓库</option></select></label><label class="skill-source-label" for="skill-source">来源<input id="skill-source" type="text" autocomplete="off" required placeholder="包含 SKILL.md 的绝对路径"></label></div>
+          <p id="skill-source-hint" class="muted">使用本机路径；安装保留完整版本，不执行技能脚本。</p><div class="skill-install-actions"><label class="checkbox-label"><input id="skill-enable" type="checkbox" checked>安装后同时启用</label><button id="skill-install" class="primary-button" type="submit">安装技能</button></div>
+        </form>
+        <div id="skills-notice" class="capability-notice" role="status" aria-live="polite" hidden></div>
+        <div id="skill-source-choices" class="skills-list" aria-label="可安装技能"></div>
+        <p id="skill-install-location" class="muted"></p>
+        <div class="skills-list-heading"><h2>已安装技能</h2><button id="refresh-skills" class="secondary-button">刷新列表</button></div>
+        <div id="skills-list" class="skills-list" aria-busy="false"></div>
+      </div>
+    </section>
+    <aside id="team-panel" class="team-panel" aria-label="Agent 动态" tabindex="-1">
+      <header><div><p class="eyebrow">与你一起推进</p><h2>Agent 动态</h2></div><span class="live-label" id="team-live">未开始</span></header>
+      <div id="team-counts" class="team-counts"></div>
+      <div id="agent-tree" class="agent-tree"><div class="team-empty"><span id="team-empty-icon"></span><p>按任务需要组成团队</p><small>开始对话后，这里显示实际分工<br>和每个 Agent 的当前状态。</small></div></div>
+      <section id="team-changes" class="team-changes" hidden><h3>分工与评审记录</h3><div id="changes-list"></div></section>
+      <div class="team-footnote">评审批次是累计记录，不代表并发 Agent 数。编号仅用于区分身份，交互轮数单独显示。</div>
+    </aside>
+  </div>
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <div id="session-menu" class="context-menu" role="menu" aria-label="会话操作" hidden>
+    <button data-action="directory" role="menuitem">显示会话目录</button>
+    <button data-action="copy" role="menuitem">复制目录路径</button>
+    <button data-action="open" role="menuitem">在 Finder 中打开</button>
+    <div class="menu-separator"></div>
+    <button data-action="delete" role="menuitem" class="danger-text">删除会话</button>
+  </div>
+  <dialog id="directory-dialog" aria-labelledby="directory-title">
+    <div class="dialog-heading"><h2 id="directory-title">会话实际目录</h2><button class="icon-button dialog-close" aria-label="关闭"></button></div>
+    <p id="directory-session"></p><label for="directory-path" class="sr-only">目录路径</label><textarea id="directory-path" readonly rows="3"></textarea>
+    <p class="muted">此目录由本地后端根据会话身份核实。</p>
+    <div class="dialog-actions"><button id="directory-open" class="secondary-button">在 Finder 中打开</button><button id="directory-copy" class="primary-button">复制路径</button></div>
+  </dialog>
+  <dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
+    <div class="dialog-heading"><div class="delete-symbol"></div><button class="icon-button dialog-close" aria-label="关闭"></button></div>
+    <h2 id="delete-title">彻底删除此会话？</h2><p id="delete-session" class="delete-session"></p>
+    <p id="delete-description">聊天记录、上传附件、会话自有成果、日志、检查点和子 Agent 记录将从本机删除。正在运行的任务会先安全停止。</p>
+    <p class="delete-warning">此操作无法撤销。仅引用的外部原文件会保留。</p>
+    <div id="delete-result" class="delete-result" role="status" hidden></div>
+    <div class="dialog-actions"><button id="delete-cancel" class="secondary-button">保留会话</button><button id="delete-confirm" class="danger-button">彻底删除</button></div>
+  </dialog>
+  <dialog id="task-skills-dialog" aria-labelledby="task-skills-title">
+    <div class="dialog-heading"><h2 id="task-skills-title">本任务的 Skills 使用记录</h2><button class="icon-button dialog-close" aria-label="关闭"></button></div>
+    <p class="muted">按真实工具回执统计。安装或列出技能不算加载；加载成功也不等于成果已经通过验收。</p>
+    <div id="task-skills-records"></div>
+  </dialog>
+  <dialog id="software-update-dialog" aria-labelledby="software-update-title" aria-describedby="software-update-description">
+    <div class="dialog-heading"><h2 id="software-update-title">更新后接着做原任务？</h2><button class="icon-button dialog-close" aria-label="关闭"></button></div>
+    <p id="software-update-description">Sitina 已更新。将保留原任务的记录、文件和进度，使用当前版本接着做。还有未核对清楚的操作时，任务会继续停住。</p>
+    <div class="dialog-actions"><button id="software-update-cancel" class="secondary-button">先保留现状</button><button id="software-update-confirm" class="primary-button">确认并继续</button></div>
+  </dialog>
+  <dialog id="memory-dialog" aria-labelledby="memory-title">
+    <div class="dialog-heading"><h2 id="memory-title">用户记忆</h2><button id="close-memory" class="icon-button" aria-label="关闭记忆">×</button></div>
+    <p>明确说“记住”时直接保存；其他自动提炼的内容先进入候选，经你确认才生效。记忆是参考，当前明确要求优先。</p>
+    <form id="memory-project-form" class="memory-project-form"><label>当前会话的项目<input id="memory-project" maxlength="120" placeholder="例如：Sitina；留空时仅使用用户偏好"></label><button class="secondary-button">应用项目</button></form>
+    <p class="muted">项目名称只限定记忆范围，不改变工作目录。相同名称的会话共享项目事实。</p>
+    <p id="memory-notice" role="status" aria-live="polite"></p>
+    <div id="memory-list"></div>
+    <form id="memory-form"><h3 id="memory-form-title">添加记忆</h3><label>类别<select id="memory-kind"><option value="preference">用户偏好 · 所有会话</option><option value="project_fact">项目事实 · 当前项目</option></select></label><label>内容<textarea id="memory-content" required maxlength="1000" rows="3" placeholder="只保存你希望长期保留的偏好或事实"></textarea></label><div class="memory-actions"><button id="memory-edit-cancel" type="button" class="secondary-button" hidden>取消修改</button><button class="primary-button">保存并生效</button></div></form>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

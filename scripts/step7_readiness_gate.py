@@ -9,6 +9,11 @@ promotes, or enables anything.
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import ctypes
 import datetime as dt
@@ -43,8 +48,7 @@ STEP7_CHANGED_FILES = (
     "tests/test_suites.json",
 )
 APPROVED_PYTHON_PATH = (
-    "/Users/moss/Desktop/sitina/bplus-test-runtime/"
-    "cpython-3.12.13-lock-dbc3f95b77ed/bin/python"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/bplus-test-runtime/cpython-3.12.13-lock-dbc3f95b77ed/bin/python')
 )
 STEP7_PYCACHE_PREFIX = "/var/empty/sitina-step7-pycache-disabled"
 GIT_EXECUTABLE_PATH = "/usr/bin/git"
@@ -52,16 +56,14 @@ GIT_EXECUTABLE_SHA256 = (
     "179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818"
 )
 STEP7_AUTHORITY_PATH = (
-    "/Users/moss/.codex/attachments/"
-    "198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt"
+    (_SITINA_ACCOUNT_HOME + '/.codex/attachments/198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt')
 )
 STEP7_AUTHORITY_SHA256 = (
     "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c"
 )
 STEP56_ACCEPT_SCHEMA = "SITINA_STEP56_INDEPENDENT_ACCEPTANCE_V2"
 STEP56_SOURCE_SESSION_PATH = (
-    "/Users/moss/.codex/sessions/2026/07/20/"
-    "rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+    (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
 )
 STEP56_SOURCE_SESSION_ID = "019f810d-78fe-75d2-8efd-d43fccbd82d7"
 STEP56_SOURCE_SESSION_PREFIX_LINE_COUNT = 11564
@@ -153,7 +155,7 @@ DEPLOYMENT_AUTHORIZATION_MARKER = "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_V2"
 DEPLOYMENT_DELEGATION_MARKER = (
     "SITINA_STEP7_DEPLOYMENT_AUTHORIZATION_DELEGATION_V2"
 )
-CODEX_SESSION_ROOT = Path("/Users/moss/.codex/sessions")
+CODEX_SESSION_ROOT = Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions'))
 SENTINEL_SAMPLE_SCHEMA = "SITINA_STEP7_PRODUCTION_SENTINEL_SAMPLE_V1"
 ROLLBACK_MANIFEST_SCHEMA = "SITINA_STEP7_BACKUP_MANIFEST_V4"
 ROLLBACK_RESULT_SCHEMA = "SITINA_STEP7_ROLLBACK_VERIFICATION_V4"
@@ -209,19 +211,15 @@ FAILED_PREAPPLY_REVOCATION_SUCCESSOR = {
     "scope": "CREATE_NESTED_PREIMAGE_PARENT_DIRECTORIES_NOFOLLOW",
 }
 FAILED_PREAPPLY_REVOCATION_BACKUP_ROOT = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-deploy-v4-"
-    "SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deploy-v4-SITINA_STEP7_DEPLOY_8C3582C_6F_20260727T201000Z')
 )
 FAILED_PREAPPLY_REVOCATION_SESSION = (
-    "/Users/moss/.codex/sessions/2026/07/27/"
-    "rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+    (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/27/rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl')
 )
 FAILED_PREAPPLY_REVOCATION_REFERENCES = {
     "revoked_authorization_request": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-exact-authorization-request-8c3582c.txt"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-exact-authorization-request-8c3582c.txt')
         ),
         "sha256": (
             "51c03fc26fb2ed4a43765d85af385ad4d2200e898465a5202b5cbde4ba7e742c"
@@ -229,8 +227,7 @@ FAILED_PREAPPLY_REVOCATION_REFERENCES = {
     },
     "revoked_candidate": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-review-candidate-8c3582c.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-review-candidate-8c3582c.json')
         ),
         "sha256": (
             "7206bce284ec16a23de43b4b3e34190b8aa454a7a2e60a17215125e51c2f8c33"
@@ -238,8 +235,7 @@ FAILED_PREAPPLY_REVOCATION_REFERENCES = {
     },
     "revoked_evidence": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-request-review-evidence-8c3582c.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-request-review-evidence-8c3582c.json')
         ),
         "sha256": (
             "fa0234f1bcc02b0209eebf4017bef307eba6aab6dc8d861295a519990e556829"
@@ -247,8 +243,7 @@ FAILED_PREAPPLY_REVOCATION_REFERENCES = {
     },
     "revoked_execution_specification": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorized-execution-spec-8c3582c.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorized-execution-spec-8c3582c.json')
         ),
         "sha256": (
             "ab4df5000ce26cc26a949072eb4cf61cd2db40ab74618148a39a3166486f36a2"
@@ -259,9 +254,7 @@ FAILED_PREAPPLY_REVOCATION_REFERENCES = {
     },
     "revoked_packet": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-approval-packet-"
-            "8c3582c-20260727T201000Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-approval-packet-8c3582c-20260727T201000Z.json')
         ),
         "sha256": (
             "3412a711e179a2285ec8ed6ae44d7321588dfa81d8c8a9998885cec09964469b"
@@ -282,13 +275,10 @@ INTERRUPTED_PREBACKUP_REVOCATION_SOURCE = {
     "tree": "3f9005b257ec4523ab68c5b225fe3fd5853168b2",
 }
 INTERRUPTED_PREBACKUP_REVOCATION_BACKUP_ROOT = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-deploy-v4-"
-    "SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deploy-v4-SITINA_STEP7_DEPLOY_63671F9_6F_20260728T050000Z')
 )
 INTERRUPTED_PREBACKUP_REVOCATION_SESSION = (
-    "/Users/moss/.codex/sessions/2026/07/27/"
-    "rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+    (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/27/rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl')
 )
 REJECTED_TOPOLOGY_REVOCATION_SCHEMA = (
     "SITINA_STEP7_DEPLOYMENT_PACKET_REVOCATION_V5"
@@ -301,15 +291,12 @@ REJECTED_TOPOLOGY_REVOCATION_SOURCE = {
     "tree": "1cd20adfd45b20934f76ac891c6b78dcd7d53c36",
 }
 REJECTED_TOPOLOGY_REVOCATION_BACKUP_ROOT = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-deploy-v4-"
-    "SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deploy-v4-SITINA_STEP7_DEPLOY_BBF50D8_6F_20260728T082000Z')
 )
 REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
     "authorization_request": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-exact-authorization-request-bbf50d8.txt"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-exact-authorization-request-bbf50d8.txt')
         ),
         "sha256": (
             "82f6a2cf3ae9bb9517c669800fae2a4ce5c9629ca7bcb75fbe8e7e63ab3c2fb7"
@@ -317,9 +304,7 @@ REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
     },
     "packet": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-approval-packet-"
-            "bbf50d8-20260728T082000Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-approval-packet-bbf50d8-20260728T082000Z.json')
         ),
         "sha256": (
             "cfc727c83d461dc90ba650de2be00f76c18e5bde6a82e6ca13b8ad681e731c21"
@@ -327,8 +312,7 @@ REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
     },
     "review_candidate": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-review-candidate-bbf50d8.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-review-candidate-bbf50d8.json')
         ),
         "sha256": (
             "32db0965ae1b45b239883bf324bac685f5b1ef2208133474b2ab69e52f439702"
@@ -336,8 +320,7 @@ REJECTED_TOPOLOGY_REVOCATION_ARTIFACTS = {
     },
     "evidence_bundle": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-request-review-evidence-bbf50d8.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-request-review-evidence-bbf50d8.json')
         ),
         "sha256": (
             "b9d2c4c145ab6fd13aff2f76cad03c0c9c8140a77e5f2f60c4ed081386b00049"
@@ -358,15 +341,12 @@ FAILED_OFFICIAL_GATE_REVOCATION_SOURCE = {
     "tree": "15ff2d7601b5346e1483b2c18030a3e2f1dc22eb",
 }
 FAILED_OFFICIAL_GATE_REVOCATION_BACKUP_ROOT = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-deploy-v4-"
-    "SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deploy-v4-SITINA_STEP7_DEPLOY_5AEF88E_6F_20260728T092724Z')
 )
 FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     "authorization_request": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-exact-authorization-request-5aef88e.txt"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-exact-authorization-request-5aef88e.txt')
         ),
         "sha256": (
             "2e88f450fe974d9d9685c170b533e8f219749d80ead34a35e478b9e9964800e4"
@@ -374,8 +354,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "authorization_receipt": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorization-receipt-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorization-receipt-5aef88e.json')
         ),
         "sha256": (
             "a107220f9dd2de4ad62ca1d0ef110bd3f808c3ac8d23a78b9504fa1d1f071123"
@@ -386,9 +365,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "packet": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-approval-packet-"
-            "5aef88e-20260728T092724Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-approval-packet-5aef88e-20260728T092724Z.json')
         ),
         "sha256": (
             "992974827462462fd88a9cd4098c5230e48c58c2d09c0c5d199e1fe70b8a08f5"
@@ -396,8 +373,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "review_candidate": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-review-candidate-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-review-candidate-5aef88e.json')
         ),
         "sha256": (
             "9d3716aa6486857e76f0a6486336a621b733c1192262ddbc6efd81361acef398"
@@ -405,8 +381,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "evidence_bundle": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-request-review-evidence-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-request-review-evidence-5aef88e.json')
         ),
         "sha256": (
             "1e7b8a0e18fe71008c81d9ffd3339450f2d9897b55c7d000908e4fc8c2514e47"
@@ -414,8 +389,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "operations": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-operations-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-operations-5aef88e.json')
         ),
         "sha256": (
             "e151b95cb0bf1e7c9f2ade49265a9057eba208a3f30881d10acbecd29dcd4e53"
@@ -423,8 +397,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "preimage_capture": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-preimage-capture-payload-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-preimage-capture-payload-5aef88e.json')
         ),
         "sha256": (
             "0053356cb085a30690c6be1baae4dcd0d63c05f6e24fa494c5d15d1adcfa1f08"
@@ -432,8 +405,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "execution_specification": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorized-execution-spec-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorized-execution-spec-5aef88e.json')
         ),
         "sha256": (
             "d5d64bf793814bf70a0ef54d069820fe22bbe4e3aadf3c37c2760d6b55fc5e39"
@@ -441,8 +413,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "dry_run": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorized-dry-run-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorized-dry-run-5aef88e.json')
         ),
         "sha256": (
             "c12e6156e5b1e7d50f4b558192fa7904e1b1fab7e934dc941a7318637446b216"
@@ -450,8 +421,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "execution_result": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorized-execution-result-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorized-execution-result-5aef88e.json')
         ),
         "sha256": (
             "ecc0560e3c4064eef0bd10348f1e82e172e37f99edb60973fd05f84412e356c9"
@@ -459,8 +429,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "prior_exclusions": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-excluded-attempts-5aef88e.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-excluded-attempts-5aef88e.json')
         ),
         "sha256": (
             "abdd781acdfc5c767a113a0cb50318b3b5ee8ddd3b9774cd6a2bb20571ea0da1"
@@ -468,8 +437,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "cleanup_review_receipt": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-cleanup-source-real-review-5aef88e-receipt.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-cleanup-source-real-review-5aef88e-receipt.json')
         ),
         "sha256": (
             "613c759ec4bae06bf7d95b5a214a281a38813f114ed6a538e565532d56a67edb"
@@ -477,8 +445,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "full_review_receipt": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-full-source-real-review-5aef88e-receipt.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-full-source-real-review-5aef88e-receipt.json')
         ),
         "sha256": (
             "643cc5f3059c52c4742b97781fc2eee8c19781ba6c54a2618f330a7e07222842"
@@ -486,8 +453,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "diagnostic_stdout": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-postimage-activation-diagnostic-5aef88e.stdout"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-postimage-activation-diagnostic-5aef88e.stdout')
         ),
         "sha256": (
             "c5a2892160a4e29839b0d8ed0d5a2e87f90fd4ab172581c7c27e654fbc4b6a8f"
@@ -495,8 +461,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "diagnostic_stderr": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-postimage-activation-diagnostic-5aef88e.stderr"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-postimage-activation-diagnostic-5aef88e.stderr')
         ),
         "sha256": (
             "e577f46b27882c4c45fb5ff541248c10a406b0882ac7639b8c4d0a963e10536c"
@@ -504,8 +469,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "diagnostic_exit": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-postimage-activation-diagnostic-5aef88e.exit"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-postimage-activation-diagnostic-5aef88e.exit')
         ),
         "sha256": (
             "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
@@ -513,8 +477,7 @@ FAILED_OFFICIAL_GATE_REVOCATION_ARTIFACTS = {
     },
     "diagnostic_root_record": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-postimage-diagnostic-root-5aef88e.txt"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-postimage-diagnostic-root-5aef88e.txt')
         ),
         "sha256": (
             "4b0ca49d25283cddccf7f7e8b6b7f7fb1d6bb68f6fa9b45fbb73400c30f74e4c"
@@ -591,17 +554,13 @@ CA61797_REVOCATION_SOURCE = {
     "tree": "8fe817a8565a7529fce9bff953233965e08d1f5e",
 }
 CA61797_REVOCATION_BACKUP_ROOT = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-deploy-v4-"
-    "SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deploy-v4-SITINA_STEP7_DEPLOY_CA61797_6F_20260728T124500Z')
 )
 CA61797_REVOCATION_BODY_SHA256 = (
     "006b2eaad0d6b779ccdfcffa6edcbf6b531aa696f1ee9e730643ef53da16c622"
 )
 CA61797_REVOCATION_ACTIVE_SESSION = (
-    "/Users/moss/.codex/sessions/2026/07/27/"
-    "rollout-2026-07-27T01-36-47-"
-    "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+    (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/27/rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl')
 )
 CA61797_REVOCATION_ACTIVE_PREFIX = {
     "byte_length": 32068553,
@@ -617,9 +576,7 @@ CA61797_REVOCATION_ACTIVE_SESSION_ID = (
     "019fa24a-5147-7001-9788-2af4521d1ea7"
 )
 CA61797_REVOCATION_SOURCE_SESSION = (
-    "/Users/moss/.codex/sessions/2026/07/20/"
-    "rollout-2026-07-20T14-42-51-"
-    "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+    (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
 )
 CA61797_REVOCATION_SOURCE_RECORD = {
     "line_number": 15135,
@@ -667,8 +624,7 @@ CA61797_REVOCATION_FAILURE_IDS = [
 CA61797_REVOCATION_UNBOUND_EXECUTOR = {
     "launcher": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "step7-ca61797-authorized-execution.py"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/step7-ca61797-authorized-execution.py')
         ),
         "sha256": (
             "1dc9577b63c56e0ad7e10bdf95d828fdb4dd33131798c8fc5ef2a60d8892e056"
@@ -676,8 +632,7 @@ CA61797_REVOCATION_UNBOUND_EXECUTOR = {
     },
     "dynamic_template": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "step7-5aef88e-authorized-execution.py"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/step7-5aef88e-authorized-execution.py')
         ),
         "sha256": (
             "19f7bc8041ba79ef70662c56756dc943116978ceaa0616664907738a8a6d66ef"
@@ -687,8 +642,7 @@ CA61797_REVOCATION_UNBOUND_EXECUTOR = {
 INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     "authorization_request": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-exact-authorization-request-63671f9.txt"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-exact-authorization-request-63671f9.txt')
         ),
         "sha256": (
             "f03bce0de8ebe9e97ac2704cc9443da9fc389f098b2286e2c58d07db9fdc460d"
@@ -696,8 +650,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "authorization_receipt": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorization-receipt-63671f9.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorization-receipt-63671f9.json')
         ),
         "sha256": (
             "0d84c0eaddf7c59e51bfc89c1cd07509172d72424694fcaac20c0d109f9aff17"
@@ -708,9 +661,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "packet": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-approval-packet-"
-            "63671f9-20260728T050000Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-approval-packet-63671f9-20260728T050000Z.json')
         ),
         "sha256": (
             "47075865de9f727e01a5eee43469f3e0d5ced0282c31791bb442f7224fe1b65b"
@@ -718,8 +669,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "review_candidate": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-review-candidate-63671f9.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-review-candidate-63671f9.json')
         ),
         "sha256": (
             "00f975caa748093d02d89140969ac8b830cdb109985d59ef9ecaeeb8c864c1ab"
@@ -727,8 +677,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "evidence_bundle": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-request-review-evidence-63671f9.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-request-review-evidence-63671f9.json')
         ),
         "sha256": (
             "a952db4928e946e584a2c438285fcc19f5de48acb36c0aefc43dc44d59cef3e7"
@@ -736,8 +685,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "execution_specification": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-authorized-execution-spec-63671f9.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorized-execution-spec-63671f9.json')
         ),
         "sha256": (
             "deec8cacbb28d59b4618998cb7031bd7eca934f97738d53a36da84a633a0f106"
@@ -745,8 +693,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "executor": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "step7-63671f9-authorized-execution.py"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/step7-63671f9-authorized-execution.py')
         ),
         "sha256": (
             "0ed27440bee83d312de927b924e8d98d3ac7d30d009e9d1313bd32fed6ba425c"
@@ -754,8 +701,7 @@ INTERRUPTED_PREBACKUP_REVOCATION_ARTIFACTS = {
     },
     "executor_bytecode": {
         "path": (
-            "/Users/moss/Desktop/sitina/output/__pycache__/"
-            "step7-63671f9-authorized-execution.cpython-312.pyc"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/__pycache__/step7-63671f9-authorized-execution.cpython-312.pyc')
         ),
         "sha256": (
             "0b54266119d1a328953bbea777e02e576159dc3b9110f0c6c4fda80ac0e14e66"
@@ -770,7 +716,7 @@ MUTABLE_SENTINEL_SCHEMA = "PRODUCTION_MUTABLE_SENTINEL_V3"
 EXECUTION_MANIFEST_SCHEMA = "EXECUTION_MANIFEST_V1"
 EXPECTED_PRODUCTION_GUARD_PROFILE = "APPLICATION_ENFORCED_PYTHON_AUDIT_HOOK_V1"
 BASE_SENTINEL_PATH = (
-    "/Users/moss/Desktop/sitina/output/sitina-bplus-production-sentinel-initial.json"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-production-sentinel-initial.json')
 )
 BASE_SENTINEL_PHYSICAL_SHA256 = (
     "8add59df8b6b3c50666cc90bdc1001a804143295ff18cc97e5227193f2f1d07e"
@@ -779,8 +725,7 @@ BASE_SENTINEL_REPORT_SHA256 = (
     "92a477de47958ad3e616a99a2a031b0752252d4093f101198494855cd9ef4eab"
 )
 MUTABLE_SENTINEL_PATH = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-bplus-production-mutable-sentinel-phase-minus1-baseline.json"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-production-mutable-sentinel-phase-minus1-baseline.json')
 )
 MUTABLE_SENTINEL_PHYSICAL_SHA256 = (
     "965fc0dda5f523170013e53e07514a3de5c2f2bfe164ff7a9a50cd15f5620f1a"
@@ -789,8 +734,7 @@ MUTABLE_SENTINEL_REPORT_SHA256 = (
     "e77130eb077f3e554c277bc6585012f639bf70fbce792baa59f0a333f9dbb52a"
 )
 EXECUTION_MANIFEST_PATH = (
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-bplus-execution-manifest-v1-phase-minus1.json"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-execution-manifest-v1-phase-minus1.json')
 )
 EXECUTION_MANIFEST_PHYSICAL_SHA256 = (
     "41eeb0055857e40c5e1297d60771282ca52ec1806783d242e813c37899248aa8"
@@ -1179,9 +1123,9 @@ STEP7_V4_CHECKPOINT_REFERENCE_SET_ORDER = (
     "KIND_ASC_INDEX_ASC_PATH_ASC_SHA256_ASC_V1"
 )
 STEP7_V4_REAL_ROOTS = (
-    Path("/Users/moss/Desktop/sitina/source-worktree"),
-    Path("/Users/moss/SitinaHub"),
-    Path("/Users/moss/Desktop/sitina/output"),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/source-worktree')),
+    Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output')),
     CODEX_SESSION_ROOT,
 )
 STEP7_V4_TEST_SCOPE_PARENT = Path("/private/tmp")
@@ -8770,8 +8714,7 @@ def _verify_entry_candidate(
                 "tree",
             }
             or binding.get("path")
-            != "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-entry-review-candidate-step56-45a36be.json"
+            != (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-entry-review-candidate-step56-45a36be.json')
             or binding.get("physical_sha256") != ENTRY_CANDIDATE_SHA256
             or binding.get("schema") != ENTRY_CANDIDATE_SCHEMA
             or binding.get("candidate_id") != entry.get("candidate_id")
@@ -9646,13 +9589,12 @@ def _verify_review(
                     allowed_roots = (
                         source_root.resolve(strict=True),
                         deployment_root.resolve(strict=True),
-                        Path("/Users/moss/Desktop/sitina/output").resolve(strict=True),
+                        Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output')).resolve(strict=True),
                     )
                     fixed_allowed_paths = {
                         Path(STEP56_SOURCE_SESSION_PATH).resolve(strict=True),
                         Path(
-                            "/Users/moss/.codex/attachments/"
-                            "198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt"
+                            (_SITINA_ACCOUNT_HOME + '/.codex/attachments/198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt')
                         ).resolve(strict=True),
                         *(
                             {input_path.resolve(strict=True)}
@@ -10355,8 +10297,7 @@ def _verify_cleanup(
         entry_binding = ledger.get("step56_entry_binding")
         if not isinstance(entry_binding, Mapping) or (
             entry_binding.get("path")
-            != "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-entry-review-candidate-step56-45a36be.json"
+            != (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-entry-review-candidate-step56-45a36be.json')
             or entry_binding.get("physical_sha256") != ENTRY_CANDIDATE_SHA256
         ):
             errors.append("cleanup ledger Step5/6 entry binding mismatch")
@@ -10518,7 +10459,7 @@ def _verify_sentinel(
     if base is not None and (
         base.get("schema") != BASE_SENTINEL_SCHEMA
         or base.get("goal_thread_id") != OFFICIAL_GOAL_ID
-        or base.get("production_home") != "/Users/moss/SitinaHub"
+        or base.get("production_home") != (_SITINA_ACCOUNT_HOME + '/SitinaHub')
         or base.get("observation_mode")
         != "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2"
         or base.get("report_sha256") != BASE_SENTINEL_REPORT_SHA256
@@ -10528,7 +10469,7 @@ def _verify_sentinel(
     if mutable is not None and (
         mutable.get("schema") != MUTABLE_SENTINEL_SCHEMA
         or mutable.get("goal_thread_id") != OFFICIAL_GOAL_ID
-        or mutable.get("production_home") != "/Users/moss/SitinaHub"
+        or mutable.get("production_home") != (_SITINA_ACCOUNT_HOME + '/SitinaHub')
         or mutable.get("observation_mode")
         != "CONTENT_ADDRESSED_RELPATH_SIZE_MODE_SHA256_V2"
         or mutable.get("report_sha256") != MUTABLE_SENTINEL_REPORT_SHA256
@@ -10553,7 +10494,7 @@ def _verify_sentinel(
         or not isinstance(manifest_goal, Mapping)
         or manifest_goal.get("thread_id") != OFFICIAL_GOAL_ID
         or not isinstance(manifest_roots, Mapping)
-        or manifest_roots.get("production_home") != "/Users/moss/SitinaHub"
+        or manifest_roots.get("production_home") != (_SITINA_ACCOUNT_HOME + '/SitinaHub')
         or not isinstance(manifest_hashes, Mapping)
         or manifest_hashes.get("production_sentinel_hash")
         != f"sha256:{BASE_SENTINEL_REPORT_SHA256}"
@@ -10586,7 +10527,7 @@ def _verify_sentinel(
                 sample.get("schema") != SENTINEL_SAMPLE_SCHEMA
                 or stage not in ("before", "after")
                 or sample.get("goal_id") != OFFICIAL_GOAL_ID
-                or sample.get("production_home") != "/Users/moss/SitinaHub"
+                or sample.get("production_home") != (_SITINA_ACCOUNT_HOME + '/SitinaHub')
                 or not _valid_iso8601(sample.get("observed_at_utc"))
                 or sample.get("production_attempts") != 0
                 or sample_base
@@ -10622,7 +10563,7 @@ def _verify_sentinel(
         errors.append("production sentinel evidence records a production attempt")
     return {
         "goal_id": OFFICIAL_GOAL_ID,
-        "production_home": "/Users/moss/SitinaHub",
+        "production_home": (_SITINA_ACCOUNT_HOME + '/SitinaHub'),
         "base_path": BASE_SENTINEL_PATH,
         "base_report": BASE_SENTINEL_REPORT_SHA256,
         "mutable_path": MUTABLE_SENTINEL_PATH,
@@ -10957,9 +10898,7 @@ def _failed_preapply_revocation_is_valid(
         return False
     prior_revocation = {
         "path": (
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-packet-revocation-"
-            "8c3582c-20260728T041814Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-packet-revocation-8c3582c-20260728T041814Z.json')
         ),
         "sha256": (
             "f3bb029aa1ff05e239931806d2084a8465ea7a3ab6bde438341f8d93d6d2b467"
@@ -10978,8 +10917,7 @@ def _failed_preapply_revocation_is_valid(
         },
         "authorization_receipt": {
             "path": (
-                "/Users/moss/Desktop/sitina/output/"
-                "sitina-step7-authorization-receipt-8c3582c.json"
+                (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorization-receipt-8c3582c.json')
             ),
             "sha256": (
                 "b1e9eab9a9e8a2e9bd4ed623fdbdc969e9d3829affcce028eeb8ef0459a228cc"
@@ -11510,9 +11448,7 @@ def _interrupted_prebackup_revocation_is_valid(
     expected_chain = {
         "source_user_record": {
             "session_path": (
-                "/Users/moss/.codex/sessions/2026/07/20/"
-                "rollout-2026-07-20T14-42-51-"
-                "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
             ),
             "session_id": STEP7_SOURCE_THREAD_ID,
             "session_meta_raw_sha256": (
@@ -12185,9 +12121,7 @@ def _failed_official_gate_revocation_is_valid(
     expected_authorization_chain = {
         "source_record": {
             "session_path": (
-                "/Users/moss/.codex/sessions/2026/07/20/"
-                "rollout-2026-07-20T14-42-51-"
-                "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
             ),
             "line_number": 14699,
             "record_id": "msg_019fa833-1028-7543-b2ec-ba058c1a29e6",
@@ -12206,9 +12140,7 @@ def _failed_official_gate_revocation_is_valid(
         },
         "wrapper_record": {
             "session_path": (
-                "/Users/moss/.codex/sessions/2026/07/27/"
-                "rollout-2026-07-27T01-36-47-"
-                "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+                (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/27/rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl')
             ),
             "line_number": 14808,
             "record_id": "msg_019fa83a-05be-7430-924e-96b2f61aaaa6",

@@ -7,6 +7,7 @@ import base64
 import datetime as dt
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
+from sitina.install_identity import LEGACY_PRODUCTION_HOME
 
 
 class LegacyFenceError(RuntimeError):
@@ -36,6 +38,8 @@ _guard_installed = False
 _guard_home: Path | None = None
 _writer_fds: dict[Path, int] = {}
 _network_egress_nonces: set[str] = set()
+_network_egress_records: dict[str, dict[str, Any]] = {}
+_native_network_owners: dict[int, tuple[object, int]] = {}
 _sandbox_execution_nonces: dict[str, str] = {}
 _code_mode_sandbox_nonces: dict[str, str] = {}
 _local = threading.local()
@@ -99,6 +103,8 @@ class FrozenNetworkEgressCapability:
     allowed_hosts: tuple[str, ...]
     expires_at: int
     _nonce: str
+    provider_name: str = ""
+    credential_reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -250,7 +256,20 @@ def frozen_sandbox_profile(
     worker = Path(worker_path).expanduser().resolve(strict=True)
     reads = tuple(sorted((Path(path).expanduser().resolve(strict=True) for path in read_roots), key=str))
     writes = tuple(sorted((Path(path).expanduser().resolve(strict=True) for path in write_roots), key=str))
-    read_rules = (python.parents[1], worker, *reads, *writes)
+    runtime_reads = [python.parents[1]]
+    venv_config = python.parents[1] / "pyvenv.cfg"
+    if venv_config.is_file():
+        # A copied venv still imports its standard library from the base
+        # runtime named by this interpreter's own configuration.
+        homes = [value.strip() for line in venv_config.read_text(encoding="utf-8").splitlines()
+                 if "=" in line for key, value in [line.split("=", 1)] if key.strip() == "home"]
+        if len(homes) != 1 or not Path(homes[0]).is_absolute():
+            raise LegacyWriteDenied("sandbox venv base runtime is ambiguous")
+        base_lib = (Path(homes[0]).resolve(strict=True).parent / "lib").resolve(strict=True)
+        if not base_lib.is_dir():
+            raise LegacyWriteDenied("sandbox venv base library is unavailable")
+        runtime_reads.append(base_lib)
+    read_rules = (*runtime_reads, worker, *reads, *writes)
 
     def sbpl(path: Path) -> str:
         rendered = str(path)
@@ -314,7 +333,7 @@ def issue_frozen_sandbox_execution_capability(
     )
 
     if fixture_authorization:
-        if canonical_home == Path("/Users/moss/SitinaHub") or not (
+        if canonical_home == LEGACY_PRODUCTION_HOME or not (
             canonical_home / ".sitina-bplus-disposable-v1"
         ).is_file():
             raise LegacyWriteDenied("sandbox fixture authorization requires a disposable non-Production home")
@@ -816,82 +835,441 @@ def authorized_code_mode_sandbox_execution(
         _local.code_mode_sandbox_execution = previous
 
 
+def _register_native_network_authority(owner: object) -> None:
+    from sitina.loop.control import LoopControlAuthority
+    from sitina.loop.coordinator import LoopBackend
+
+    if type(owner) is not LoopControlAuthority or type(owner.backend) is not LoopBackend:
+        raise LegacyWriteDenied("native network authority requires the live Loop owner")
+    with _state_lock:
+        current = _native_network_owners.get(id(owner.backend))
+        if current is not None and current[0] is not owner:
+            raise LegacyWriteDenied("native network authority already has another owner")
+        _native_network_owners[id(owner.backend)] = (owner, os.getpid())
+
+
+def _unregister_native_network_authority(owner: object) -> None:
+    backend = getattr(owner, "backend", None)
+    with _state_lock:
+        current = _native_network_owners.get(id(backend))
+        if current is not None and current[0] is owner:
+            del _native_network_owners[id(backend)]
+            revoked = [nonce for nonce, record in _network_egress_records.items() if record["backend"] is backend]
+            for nonce in revoked:
+                _network_egress_records.pop(nonce)
+                _network_egress_nonces.discard(nonce)
+
+
+def _native_network_binding(
+    backend: object,
+    task_id: str | None,
+    *,
+    obligation_id: str | None = None,
+    request_id: str | None = None,
+    attempt_count: int | None = None,
+    candidate_id: str | None = None,
+) -> dict[str, object]:
+    from sitina.loop.control import LoopAuthorityLease, LoopControlAuthority
+    from sitina.loop.coordinator import LoopBackend
+    from sitina.loop.model import ControlIntent
+    from sitina.loop.storage import LoopRuntimeContext
+
+    if type(backend) is not LoopBackend or type(backend.context) is not LoopRuntimeContext:
+        raise LegacyWriteDenied("native network authority requires the real LoopBackend")
+    if obligation_id is None and any(
+        value is not None for value in (request_id, attempt_count, candidate_id)
+    ):
+        raise LegacyWriteDenied("native obligation authority is incomplete")
+    with _state_lock:
+        registered = _native_network_owners.get(id(backend))
+    if registered is None or registered[1] != os.getpid():
+        raise LegacyWriteDenied("native network owner is not registered in this process")
+    owner = registered[0]
+    lease = getattr(owner, "_lease", None)
+    obligation_binding: dict[str, object] = {}
+    try:
+        if (
+            type(owner) is not LoopControlAuthority
+            or owner.backend is not backend
+            or type(lease) is not LoopAuthorityLease
+            or lease._file is None or lease._file.closed
+            or owner._stop.is_set() or not owner._authority_owned
+            or owner._thread is None or not owner._thread.is_alive()
+            or owner._socket is None or owner._socket.fileno() < 0
+            or owner.state_root != backend.context.home
+            or lease.state_root != owner.state_root
+            or owner._socket.getsockname() != str(owner.socket_path)
+        ):
+            raise LegacyWriteDenied("native network owner or lease is no longer live")
+        held = os.fstat(lease._file.fileno())
+        current = lease.lock_path.stat()
+        endpoint = owner.socket_path.lstat()
+        if (
+            (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino)
+            or (endpoint.st_dev, endpoint.st_ino) != owner._bound_endpoint_identity
+            or backend.persistence_fenced
+            or backend.run_instance_id != backend.context.run_instance_id
+        ):
+            raise LegacyWriteDenied("native network writer binding changed")
+        with backend._state_lock:
+            if obligation_id is None:
+                task = backend.get_task(task_id)
+                if (
+                    task.is_terminal or task.control_intent is not ControlIntent.RUN
+                    or task.run_instance_id != backend.run_instance_id
+                    or (bool(task.provider_response_dispositions) and (
+                        task.resume_request_id is not None
+                        or task.recovery_state not in {"READY_NEW_TASK", "READY_RECOVERED"}
+                    ))
+                    or (any(operation.unknown_effect for operation in task.unresolved_effects)
+                        and not any(child.get("execution_mode") == "task" for child in task.child_delegations.values()))
+                ):
+                    raise LegacyWriteDenied("native network task/run is not authorized")
+            else:
+                if (
+                    not isinstance(obligation_id, str) or not obligation_id
+                    or not isinstance(request_id, str) or not request_id
+                    or type(attempt_count) is not int or attempt_count < 1
+                    or (candidate_id is not None and (
+                        not isinstance(candidate_id, str) or not candidate_id
+                    ))
+                ):
+                    raise LegacyWriteDenied("native obligation dispatch identity is invalid")
+                obligation = backend._experience_obligation_projection().get(obligation_id)
+                if (
+                    obligation is None
+                    or obligation.get("obligation_type") != "EXPERIENCE_EXTRACTION"
+                    or obligation.get("obligation_id") != obligation_id
+                    or obligation.get("unknown_effect") is True
+                ):
+                    raise LegacyWriteDenied("native experience obligation is unavailable")
+                source_task_id = obligation.get("task_id")
+                if task_id is not None and task_id != source_task_id:
+                    raise LegacyWriteDenied("native obligation source task differs")
+                task = backend.get_task(source_task_id)
+                terminal_events = tuple(
+                    event for event in backend.store.task_events(task.task_id)
+                    if event.event_type == "loop.task-terminated"
+                )
+                if not task.is_terminal or not terminal_events:
+                    raise LegacyWriteDenied("native obligation has no terminal source")
+                closure = backend._terminal_source_closure(task, terminal_events[-1])
+                if (
+                    _canonical(obligation.get("source_closure")) != _canonical(closure)
+                    or obligation.get("actual_envelope_event_id") != closure["actual_envelope_event_id"]
+                    or obligation.get("terminal_event_id") != closure["terminal_event_id"]
+                    or obligation.get("processor_version") != closure["processor_version"]
+                    or "EXPERIENCE_EXTRACTION" not in closure["obligation_types"]
+                    or obligation_id != ":".join((
+                        closure["terminal_event_id"], "EXPERIENCE_EXTRACTION",
+                        closure["processor_version"],
+                    ))
+                ):
+                    raise LegacyWriteDenied("native obligation terminal source differs")
+                if candidate_id is None:
+                    if (
+                        obligation.get("state") != "DISPATCHED"
+                        or obligation.get("dispatch_request_id") != request_id
+                        or obligation.get("attempt_count") != attempt_count
+                        or attempt_count > int(obligation.get("max_attempts") or 0)
+                        or obligation.get("result_request_id") is not None
+                    ):
+                        raise LegacyWriteDenied("native extraction dispatch is no longer active")
+                    provider_profile = obligation.get("provider_profile")
+                else:
+                    prior = (obligation.get("candidate_dispositions") or {}).get(candidate_id) or {}
+                    revision = (obligation.get("candidate_revisions") or {}).get(candidate_id)
+                    if (
+                        obligation.get("state") != "CANDIDATE_REVIEW"
+                        or obligation.get("review_request_id") != request_id
+                        or obligation.get("review_candidate_id") != candidate_id
+                        or candidate_id not in (obligation.get("candidate_ids") or ())
+                        or not revision
+                        or obligation.get("review_candidate_revision") != revision
+                        or prior.get("disposition") not in {None, "NEEDS_WORK"}
+                        or attempt_count != int(prior.get("attempt_count") or 0) + 1
+                        or attempt_count > int(prior.get("max_attempts") or 3)
+                        or not request_id.endswith(
+                            f":candidate:{candidate_id}:attempt:{attempt_count}"
+                        )
+                    ):
+                        raise LegacyWriteDenied("native candidate review is no longer active")
+                    provider_profile = obligation.get("review_provider_profile")
+                    obligation_binding.update({
+                        "candidate_id": candidate_id,
+                        "candidate_revision": revision,
+                        "review_memory_binding_hash": hashlib.sha256(
+                            _canonical(obligation.get("review_memory_binding"))
+                        ).hexdigest(),
+                    })
+                if not isinstance(provider_profile, str) or not provider_profile:
+                    raise LegacyWriteDenied("native obligation provider profile is missing")
+                obligation_binding.update({
+                    "obligation_id": obligation_id,
+                    "request_id": request_id,
+                    "attempt_count": attempt_count,
+                    "provider_profile": provider_profile,
+                    "source_closure_hash": closure["closure_hash"],
+                    "terminal_event_id": closure["terminal_event_id"],
+                    "actual_envelope_event_id": closure["actual_envelope_event_id"],
+                })
+    except LegacyWriteDenied:
+        raise
+    except Exception as error:
+        raise LegacyWriteDenied("native network authority could not be verified") from error
+    return {
+        "state_root": str(backend.context.home),
+        "journal_id": backend.context.journal_id,
+        "run_instance_id": backend.run_instance_id,
+        "task_id": task.task_id,
+        "execution_epoch": task.execution_epoch,
+        "goal_version": task.goal_version,
+        "acceptance_version": task.acceptance_version,
+        "handled_input_seq": task.handled_input_seq,
+        "capability_snapshot_id": task.capability_snapshot_id,
+        "owner_pid": os.getpid(),
+        "lease_identity": [held.st_dev, held.st_ino],
+        "endpoint_identity": list(owner._bound_endpoint_identity),
+        **obligation_binding,
+    }
+
 def issue_frozen_network_egress_capability(
     authority_resolution: object,
     *,
-    manifest_hash: str,
+    manifest_hash: str | None,
     operation: str,
     allowed_hosts: tuple[str, ...],
     expires_at: int,
     now: int | None = None,
+    provider_name: str = "",
+    credential_reference: str = "",
+    _native_backend: object | None = None,
+    _native_task_id: str | None = None,
+    _native_obligation_id: str | None = None,
+    _native_request_id: str | None = None,
+    _native_attempt_count: int | None = None,
+    _native_candidate_id: str | None = None,
 ) -> FrozenNetworkEgressCapability:
-    """Issue an in-process capability without weakening the Legacy fence."""
+    """Issue an in-process grant from the existing Production or native owner."""
 
     moment = int(time.time()) if now is None else int(now)
-    try:
-        authority_resolution.assert_fresh(now=moment)  # type: ignore[attr-defined]
-        journal_authorized = bool(authority_resolution.authorizes_journal)  # type: ignore[attr-defined]
-        writer_count = int(authority_resolution.writer_count)  # type: ignore[attr-defined]
-    except Exception as error:
-        raise LegacyWriteDenied("frozen network egress requires a fresh authority resolution") from error
-    if not journal_authorized or writer_count != 1:
-        raise LegacyWriteDenied("frozen network egress requires one Journal writer authority")
-    if not re.fullmatch(r"[0-9a-f]{64}", manifest_hash):
+    native_binding = None
+    if _native_backend is not None:
+        if authority_resolution is not None or (not _native_task_id and not _native_obligation_id):
+            raise LegacyWriteDenied("native network authority must not impersonate Production")
+        native_binding = _native_network_binding(
+            _native_backend, _native_task_id,
+            obligation_id=_native_obligation_id, request_id=_native_request_id,
+            attempt_count=_native_attempt_count, candidate_id=_native_candidate_id,
+        )
+        if _native_obligation_id is not None and operation != "model_text_generation":
+            raise LegacyWriteDenied("native obligation only authorizes model text generation")
+        if operation not in {"model_text_generation", "tool_http_request"}:
+            raise LegacyWriteDenied("native network operation is outside the allowlist")
+        derived_manifest = hashlib.sha256(_canonical(native_binding)).hexdigest()
+        if manifest_hash is not None and manifest_hash != derived_manifest:
+            raise LegacyWriteDenied("native network manifest does not match its live task binding")
+        manifest_hash = derived_manifest
+    else:
+        if any(value is not None for value in (
+            _native_task_id, _native_obligation_id, _native_request_id,
+            _native_attempt_count, _native_candidate_id,
+        )):
+            raise LegacyWriteDenied("native authority cannot be transferred to Production")
+        try:
+            authority_resolution.assert_fresh(now=moment)
+            journal_authorized = bool(authority_resolution.authorizes_journal)
+            writer_count = int(authority_resolution.writer_count)
+        except Exception as error:
+            raise LegacyWriteDenied("frozen network egress requires a fresh authority resolution") from error
+        if not journal_authorized or writer_count != 1:
+            raise LegacyWriteDenied("frozen network egress requires one Journal writer authority")
+        if operation != "model_text_generation":
+            raise LegacyWriteDenied("frozen network egress operation is outside the non-mutating allowlist")
+    if not isinstance(manifest_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", manifest_hash):
         raise LegacyWriteDenied("frozen network egress requires an exact activation manifest hash")
-    if operation != "model_text_generation":
-        raise LegacyWriteDenied("frozen network egress operation is outside the non-mutating allowlist")
     normalized = tuple(sorted({str(host).strip().lower() for host in allowed_hosts}))
     if not normalized or any(
         not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", host)
-        or ".." in host
-        or host.startswith(".")
-        or host.endswith(".")
+        or ".." in host or host.startswith(".") or host.endswith(".")
         for host in normalized
     ):
         raise LegacyWriteDenied("frozen network egress hosts are invalid")
     if expires_at <= moment or expires_at - moment > 3600:
         raise LegacyWriteDenied("frozen network egress expiry is invalid")
+    if bool(provider_name) != bool(credential_reference):
+        raise LegacyWriteDenied("network provider and credential reference must be bound together")
+    if native_binding is not None and (not provider_name or not credential_reference):
+        raise LegacyWriteDenied("native network grant requires provider and credential scope")
     nonce = os.urandom(32).hex()
-    identity = hashlib.sha256(
-        _canonical(
-            {
-                "manifest_hash": manifest_hash,
-                "operation": operation,
-                "allowed_hosts": list(normalized),
-                "expires_at": expires_at,
-                "nonce_hash": hashlib.sha256(nonce.encode("ascii")).hexdigest(),
-            }
-        )
-    ).hexdigest()
-    _network_egress_nonces.add(nonce)
-    return FrozenNetworkEgressCapability(
-        f"network-egress:{identity}", manifest_hash, operation, normalized, expires_at, nonce
+    identity = hashlib.sha256(_canonical({
+        "manifest_hash": manifest_hash,
+        "operation": operation,
+        "allowed_hosts": list(normalized),
+        "expires_at": expires_at,
+        "provider_name": provider_name,
+        "credential_reference": credential_reference,
+        "nonce_hash": hashlib.sha256(nonce.encode("ascii")).hexdigest(),
+    })).hexdigest()
+    capability = FrozenNetworkEgressCapability(
+        f"network-egress:{identity}", manifest_hash, operation, normalized, expires_at,
+        nonce, provider_name, credential_reference,
     )
+    with _state_lock:
+        _network_egress_nonces.add(nonce)
+        _network_egress_records[nonce] = {
+            "capability": capability, "pid": os.getpid(),
+            "authority": authority_resolution, "backend": _native_backend,
+            "task_id": _native_task_id, "native_binding": native_binding,
+            "obligation_id": _native_obligation_id, "request_id": _native_request_id,
+            "attempt_count": _native_attempt_count, "candidate_id": _native_candidate_id,
+            "credential_digest": None,
+        }
+    return capability
+
+
+def _validate_network_capability(
+    capability: FrozenNetworkEgressCapability | None,
+    *, host: str, operation: str, provider_name: str = "",
+    credential_reference: str = "", now: int | None = None,
+    _native_renewal: bool = False,
+) -> dict[str, Any]:
+    moment = int(time.time()) if now is None else int(now)
+    if type(capability) is not FrozenNetworkEgressCapability:
+        raise LegacyWriteDenied("network access requires an issued capability")
+    with _state_lock:
+        record = _network_egress_records.get(capability._nonce)
+    if (
+        record is None or record["capability"] is not capability
+        or record["pid"] != os.getpid() or capability._nonce not in _network_egress_nonces
+        or capability.operation != operation
+        or str(host).strip().lower() not in capability.allowed_hosts
+        or capability.provider_name != provider_name
+        or capability.credential_reference != credential_reference
+        or (
+            moment >= capability.expires_at
+            and not (
+                _native_renewal and record["backend"] is not None
+                and record.get("obligation_id") is None
+            )
+        )
+    ):
+        raise LegacyWriteDenied("network capability is invalid, expired, or out of scope")
+    if record["backend"] is not None:
+        current = _native_network_binding(
+            record["backend"], record["task_id"],
+            obligation_id=record.get("obligation_id"), request_id=record.get("request_id"),
+            attempt_count=record.get("attempt_count"), candidate_id=record.get("candidate_id"),
+        )
+        if current != record["native_binding"]:
+            raise LegacyWriteDenied("network capability belongs to a stale native task/run")
+    else:
+        try:
+            record["authority"].assert_fresh(now=moment)
+            if not record["authority"].authorizes_journal or record["authority"].writer_count != 1:
+                raise LegacyWriteDenied("network writer authority is no longer valid")
+        except LegacyWriteDenied:
+            raise
+        except Exception as error:
+            raise LegacyWriteDenied("network writer authority is stale") from error
+    return record
+
+
+def _renew_native_network_egress_capability(
+    capability: FrozenNetworkEgressCapability,
+    *, host: str, provider_name: str, credential_reference: str, token: str,
+) -> FrozenNetworkEgressCapability:
+    """Reissue only a live native task's same-scope, credential-bound grant.
+
+    Expiry is ignored only while checking eligibility for a new grant. The
+    old grant still cannot authorize a connection, and revoked, changed or
+    unresolved task authority cannot be renewed.
+    """
+
+    record = _validate_network_capability(
+        capability, host=host, operation="model_text_generation",
+        provider_name=provider_name, credential_reference=credential_reference,
+        _native_renewal=True,
+    )
+    if record["backend"] is None or record.get("obligation_id") is not None:
+        raise LegacyWriteDenied("network renewal requires a live native task")
+    if (
+        not isinstance(token, str) or not token or record["credential_digest"] is None
+        or not hmac.compare_digest(
+            record["credential_digest"], hashlib.sha256(token.encode("utf-8")).digest(),
+        )
+    ):
+        raise LegacyWriteDenied("network renewal requires the same authorized credential")
+    renewed = issue_frozen_network_egress_capability(
+        None, manifest_hash=capability.manifest_hash,
+        operation=capability.operation, allowed_hosts=capability.allowed_hosts,
+        expires_at=int(time.time()) + 1200,
+        provider_name=capability.provider_name,
+        credential_reference=capability.credential_reference,
+        _native_backend=record["backend"], _native_task_id=record["task_id"],
+    )
+    with _state_lock:
+        if (
+            _network_egress_records.get(capability._nonce) is not record
+            or capability._nonce not in _network_egress_nonces
+        ):
+            _network_egress_records.pop(renewed._nonce, None)
+            _network_egress_nonces.discard(renewed._nonce)
+            raise LegacyWriteDenied("network grant was revoked during renewal")
+        _network_egress_records[renewed._nonce]["credential_digest"] = record["credential_digest"]
+        _network_egress_records.pop(capability._nonce)
+        _network_egress_nonces.discard(capability._nonce)
+    return renewed
+
+
+def _authorize_network_credential(
+    capability: FrozenNetworkEgressCapability | None,
+    *, host: str, provider_name: str, credential_reference: str,
+    token: str | None = None,
+) -> None:
+    record = _validate_network_capability(
+        capability, host=host, operation="model_text_generation",
+        provider_name=provider_name, credential_reference=credential_reference,
+    )
+    if token is None:
+        return
+    if not isinstance(token, str) or not token:
+        raise LegacyWriteDenied("network credential token is missing")
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
+    with _state_lock:
+        if record["credential_digest"] is None or not hmac.compare_digest(record["credential_digest"], digest):
+            raise LegacyWriteDenied("network token does not match the authorized credential read")
+
+
+def _bind_network_credential(
+    capability: FrozenNetworkEgressCapability | None,
+    *, host: str, provider_name: str, credential_reference: str, token: str,
+) -> None:
+    record = _validate_network_capability(
+        capability, host=host, operation="model_text_generation",
+        provider_name=provider_name, credential_reference=credential_reference,
+    )
+    if not isinstance(token, str) or not token:
+        raise LegacyWriteDenied("loaded network credential is empty")
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
+    with _state_lock:
+        if record["credential_digest"] is not None and not hmac.compare_digest(record["credential_digest"], digest):
+            raise LegacyWriteDenied("credential changed; a fresh authorization is required")
+        record["credential_digest"] = digest
 
 
 @contextlib.contextmanager
 def authorized_frozen_network_egress(
     capability: FrozenNetworkEgressCapability | None,
-    *,
-    host: str,
-    operation: str,
-    now: int | None = None,
+    *, host: str, operation: str, now: int | None = None,
+    provider_name: str = "", credential_reference: str = "",
 ) -> Iterator[None]:
-    """Scope one concrete socket connection to a validated capability."""
+    """Validate before the concrete connection, including non-frozen homes."""
 
-    moment = int(time.time()) if now is None else int(now)
-    if capability is None:
-        yield
-        return
-    normalized_host = str(host).strip().lower()
-    if (
-        not isinstance(capability, FrozenNetworkEgressCapability)
-        or capability._nonce not in _network_egress_nonces
-        or capability.operation != operation
-        or normalized_host not in capability.allowed_hosts
-        or moment >= capability.expires_at
-    ):
-        raise LegacyWriteDenied("frozen network egress capability is invalid, expired, or out of scope")
+    _validate_network_capability(
+        capability, host=host, operation=operation, now=now,
+        provider_name=provider_name, credential_reference=credential_reference,
+    )
     previous = getattr(_local, "network_egress", None)
     _local.network_egress = capability
     try:
@@ -1533,7 +1911,7 @@ class LegacyWriteGate:
         if not _SNAPSHOT_ID.fullmatch(snapshot_id):
             raise ValueError("invalid snapshot_id")
         marker = self.home / ".sitina-bplus-disposable-v1"
-        if not fixture_authorization or not marker.is_file() or self.home == Path("/Users/moss/SitinaHub"):
+        if not fixture_authorization or not marker.is_file() or self.home == LEGACY_PRODUCTION_HOME:
             raise LegacyWriteDenied("Phase 0 freeze execution is restricted to marked disposable fixtures")
         current = self.status()
         if current.state == "FROZEN_NO_WRITER":
@@ -1646,7 +2024,7 @@ class LegacyWriteGate:
 
     def unfreeze_fixture(self) -> None:
         marker = self.home / ".sitina-bplus-disposable-v1"
-        if not marker.is_file() or self.home == Path("/Users/moss/SitinaHub"):
+        if not marker.is_file() or self.home == LEGACY_PRODUCTION_HOME:
             raise LegacyWriteDenied("only marked disposable fixtures may be unfrozen in Phase 0")
         with _bypass():
             self.marker_path.unlink(missing_ok=True)

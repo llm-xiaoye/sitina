@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import io
 import tempfile
@@ -48,7 +53,7 @@ class InteractiveChatCliTests(unittest.TestCase):
         )
 
     def test_no_argument_non_tty_launcher_prints_help_without_blocking(self) -> None:
-        launcher = Path("/Users/moss/SitinaHub/bin/sitina").read_text(encoding="utf-8")
+        launcher = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub/bin/sitina')).read_text(encoding="utf-8")
         no_argument_branch = launcher.split("if [[ $# -eq 0 ]]; then", 1)[1].split("fi", 1)[0]
         self.assertIn("[[ -t 0 && -t 1 ]]", no_argument_branch)
         self.assertIn("set -- chat", no_argument_branch)

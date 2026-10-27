@@ -795,9 +795,12 @@ def code_mode_producer_spec(role: str) -> dict[str, Any]:
     return dict(value)
 
 
+_SURROGATE_CODE_POINT = re.compile(r"[\ud800-\udfff]")
+
+
 def _normalize_string(value: str) -> str:
     normalized = unicodedata.normalize("NFC", value)
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in normalized):
+    if _SURROGATE_CODE_POINT.search(normalized) is not None:
         raise CanonicalizationError("surrogate code point is forbidden")
     return normalized
 

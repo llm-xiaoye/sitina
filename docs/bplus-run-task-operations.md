@@ -7,7 +7,7 @@ adapter is disabled by default.
 ## Authority boundary
 
 - `runtime.bplus_shadow_enabled` defaults to `false`.
-- The adapter rejects `/Users/moss/SitinaHub` as a writable B+ Journal Home.
+- The adapter rejects `~/SitinaHub` as a writable B+ Journal Home.
 - An enabled adapter requires an isolated-home marker and records only a goal
   hash, length, and provider-mode class. It has no Provider, Tool, MCP, approval,
   worker-effect, or terminal authority adapter.

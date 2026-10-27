@@ -18,7 +18,7 @@ Classifications are:
 
 The machine-readable inventory, including exact file, function, line, source
 expression, category, and hash, is written to
-`/Users/moss/Desktop/sitina/output/sitina-bplus-write-sink-inventory.json`.
+`~/Desktop/sitina/output/sitina-bplus-write-sink-inventory.json`.
 Production files are not instrumented or changed by this scan.
 
 The accepted Phase -1 scan found 248 sink expressions: 202 known Legacy

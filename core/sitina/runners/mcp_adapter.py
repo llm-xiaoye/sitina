@@ -13,7 +13,7 @@ from sitina.constants import SITINA_HOME
 from sitina.guards.evidence import ArtifactRegistry
 from sitina.guards.risk import RiskScanner
 from sitina.storage import SitinaStore
-from sitina.utils import ensure_dir, isolated_env, is_secret_name, load_json_yaml, redact_text, sha256_text, stable_json
+from sitina.utils import ensure_dir, isolated_env, load_json_yaml, redact_text, sha256_text, stable_json
 
 
 SUPPORTED_TRANSPORTS = {"stdio"}
@@ -351,8 +351,6 @@ class McpAdapter:
         raw_env = server.get("env") or {}
         env: dict[str, str] = {}
         for key, value in raw_env.items():
-            if is_secret_name(str(key)):
-                warnings.append(f"{name}: env contains suspicious secret-like key {key}")
             env[str(key)] = self._expand_value(str(value))
         if name == "filesystem":
             policy, policy_warnings, policy_errors = self._resolve_filesystem_policy(server, env)
@@ -544,6 +542,11 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
     expected_type = schema.get("type")
     if expected_type:
         _validate_type(value, expected_type, path)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            raise McpSchemaError(f"{path} must be at least {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise McpSchemaError(f"{path} must be at most {schema['maximum']}")
     if expected_type == "object" or "properties" in schema:
         if not isinstance(value, dict):
             raise McpSchemaError(f"{path} must be an object")

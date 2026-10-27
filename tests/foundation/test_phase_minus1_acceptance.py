@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -13,7 +18,7 @@ from sitina.runtime.execution_contract import BootstrapFoundationRecord, Executi
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 FOUNDATION = CONTROL / "sitina-bplus-bootstrap-foundation-record.json"
 MANIFEST = CONTROL / "sitina-bplus-execution-manifest-v1-phase-minus1.json"
 INITIAL_SENTINEL = CONTROL / "sitina-bplus-production-sentinel-initial.json"
@@ -25,7 +30,7 @@ FINAL_INVENTORY = CONTROL / "sitina-bplus-write-sink-inventory-phase-minus1-fina
 INCIDENT = CONTROL / "sitina-bplus-phase-minus1-production-test-write-incident.json"
 SUITE_RESULTS = CONTROL / "sitina-bplus-phase-minus1-test-results"
 APPROVED_PYTHON = Path(
-    "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+    _sitina_sys.executable
 )
 
 
@@ -114,8 +119,8 @@ class PhaseMinus1AcceptanceTests(unittest.TestCase):
             self.assertEqual(result["production_mutable_sentinel_after"], mutable["report_sha256"])
             self.assertEqual(result["production_guard_profile"], "APPLICATION_ENFORCED_PYTHON_AUDIT_HOOK_V1")
             child = Path(result["child_cwd"]).resolve(strict=False)
-            self.assertNotEqual(child, Path("/Users/moss/SitinaHub"))
-            self.assertTrue(str(child).startswith("/Users/moss/Desktop/sitina/bplus-test-homes/"))
+            self.assertNotEqual(child, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
+            self.assertTrue(str(child).startswith((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/bplus-test-homes/')))
 
     def test_legacy_baseline_reproducible_with_semantics_preserved(self) -> None:
         initial = _load(INITIAL_BASELINE)

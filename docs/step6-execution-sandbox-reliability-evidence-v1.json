@@ -4,7 +4,7 @@
   "verdict": "STEP6_PASS",
   "scope": "LOCAL_SOFTWARE_RELIABILITY_ONLY",
   "source": {
-    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "worktree": "~/Desktop/sitina/source-worktree",
     "branch": "codex/step6-execution-sandbox",
     "parent_commit": "fa12d5976c57131147aae864c140e790ba47f5f3",
     "implementation_diff_sha256": "2d218d69ad02c4886a8a03a8ff9cf7b67c0e4139743494457b129843256cbea4",
@@ -90,7 +90,7 @@
   },
   "isolated_gates": {
     "suite_registry": "tests/test_suites.json",
-    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "approved_python": "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
     "fresh_nonproduction_home": true,
     "execution_activation_gate": {
       "collected": 51,
@@ -139,7 +139,7 @@
   "production_sentinels": {
     "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
     "goal_thread_id": "019f810d-78fe-75d2-8efd-d43fccbd82d7",
-    "production_home": "/Users/moss/SitinaHub",
+    "production_home": "~/SitinaHub",
     "v1_before": "92c9f53fe7ad786f6ade409699dcb633f64587233b98b5a89d8afd4f1fda594a",
     "v1_after": "92c9f53fe7ad786f6ade409699dcb633f64587233b98b5a89d8afd4f1fda594a",
     "mutable_v2_before": "18a40f3d593f3ff6ed4b7292b33586f928f7a04a27664d842595ede4cbaf93f4",
@@ -150,14 +150,14 @@
   },
   "real_sitina_readonly_reviews": {
     "review_packet": {
-      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-result-source-review-packet-20260722T090815Z.json",
+      "path": "~/Desktop/sitina/output/sitina-step6-result-source-review-packet-20260722T090815Z.json",
       "sha256": "f3cf0d7887d542b899fc93a83a3d8f7ef1d08d20e5421dfe16663756e079c028"
     },
     "runtime": "sitina-autonomous-extensions-v1",
     "model": "deepseek-v4-pro",
     "first_review": {
       "run_id": "agent-run-f49c5330d4004a369a075f036260f70a",
-      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-f49c5330d4004a369a075f036260f70a.jsonl",
+      "audit_path": "~/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-f49c5330d4004a369a075f036260f70a.jsonl",
       "audit_sha256": "b3b3563f4ba41382ab0c35e2c7c5f915615678b7968628c3d592a4f0a47ead41",
       "provider_calls": 2,
       "input_tokens": 5066,
@@ -174,7 +174,7 @@
     },
     "final_review": {
       "run_id": "agent-run-e7596890661e491cbbd1b769f4015ede",
-      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-e7596890661e491cbbd1b769f4015ede.jsonl",
+      "audit_path": "~/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-e7596890661e491cbbd1b769f4015ede.jsonl",
       "audit_sha256": "f01a283f4c38ad2c47b81d21fc0f2938d48976357dc85e7d1150e80d2b4d57b5",
       "provider_calls": 2,
       "input_tokens": 4913,

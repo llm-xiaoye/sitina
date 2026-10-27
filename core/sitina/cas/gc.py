@@ -6,6 +6,7 @@ import re
 import threading
 import uuid
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -515,6 +516,16 @@ class GCController:
     @property
     def gc_epoch(self) -> int:
         return self.cycle.frontier.gc_epoch if self.cycle else 1
+
+    @contextmanager
+    def retention_guard(self, reference_id: str):
+        """Keep runtime protections stable through one Journal-owned deletion."""
+        with self._lock:
+            if not self.reconciled or self._protected(reference_id):
+                raise GCFenceError("retention target is protected or GC is unreconciled")
+            if self.cycle and self.cycle.state is not GCState.SWEPT:
+                raise GCFenceError("retention cannot overlap an active GC cycle")
+            yield
 
     def reconcile(self, *, journal_verified: bool, leases_reconciled: bool) -> None:
         if not journal_verified or not leases_reconciled:

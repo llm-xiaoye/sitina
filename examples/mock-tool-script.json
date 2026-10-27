@@ -7,7 +7,7 @@
           "id": "mock-read-1",
           "name": "sitina_read_file",
           "arguments": {
-            "path": "/Users/moss/SitinaHub/README.md"
+            "path": "~/SitinaHub/README.md"
           }
         }
       ]

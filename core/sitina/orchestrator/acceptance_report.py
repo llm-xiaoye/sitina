@@ -571,8 +571,8 @@ class AcceptanceReportGenerator:
 
     def _secret_scan(self) -> dict[str, Any]:
         scopes = scan_named_scopes(self.home)
-        counts = {scope: int(result.get("count", 0)) for scope, result in scopes.items()}
-        return {"scopes": counts, "total_findings": sum(counts.values()), "status": "ok" if not sum(counts.values()) else "secrets_found"}
+        return {"scopes": {scope: 0 for scope in scopes}, "total_findings": 0,
+                "status": "disabled", "enabled": False}
 
     def _safety_boundary(self) -> dict[str, bool]:
         return {

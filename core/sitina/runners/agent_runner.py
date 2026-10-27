@@ -713,6 +713,11 @@ class AgentRunner:
         profile = None
         provider_calls: list[dict[str, Any]] = []
         try:
+            if isinstance(self.client, AnthropicCompatibleClient) and self.client.network_egress_capability is None:
+                raise AgentRunnerError(
+                    "live Provider execution requires an authorized client",
+                    error_type="provider_authority_required",
+                )
             profile = self.client.load_profile(profile_name)
         except ProviderError as exc:
             try:
@@ -992,7 +997,7 @@ class AgentRunner:
                         | {
                             "schema_name": agent,
                             "schema_validation_status": "invalid",
-                            "redaction_status": "redacted",
+                            "redaction_status": "none",
                             "fallback_used": False,
                         }
                         for call in provider_calls
@@ -1018,7 +1023,7 @@ class AgentRunner:
                     | {
                         "schema_name": agent,
                         "schema_validation_status": "invalid" if index < len(provider_calls) - 1 else "valid",
-                        "redaction_status": "redacted",
+                        "redaction_status": "none",
                         "fallback_used": False,
                     }
                     for index, call in enumerate(provider_calls)
@@ -1042,7 +1047,7 @@ class AgentRunner:
                 | {
                     "schema_name": agent,
                     "schema_validation_status": "invalid",
-                    "redaction_status": "redacted",
+                    "redaction_status": "none",
                     "fallback_used": False,
                 }
                 for call in provider_calls
@@ -1289,7 +1294,7 @@ class AgentRunner:
             | {
                 "schema_name": schema_name,
                 "schema_validation_status": "valid",
-                "redaction_status": "redacted",
+                "redaction_status": "none",
                 "fallback_used": False,
             }
             for call in calls
@@ -1440,7 +1445,7 @@ class AgentRunner:
                 "error": redact_text(str(error))[:500],
                 "raw_output_hash": sha256_text(raw),
                 "raw_output_preview": redact_text(raw)[:500],
-                "redaction_status": "redacted",
+                "redaction_status": "none",
                 "repair_attempt": repair_attempt,
                 "created_at": iso_now(),
             },
@@ -1456,7 +1461,7 @@ class AgentRunner:
                 "schema_name": agent,
                 "error_type": "agent_parse_error",
                 "raw_output_hash": sha256_text(raw),
-                "redaction_status": "redacted",
+                "redaction_status": "none",
                 "repair_attempt": repair_attempt,
                 "fallback_used": False,
             },

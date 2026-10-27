@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import shutil
 import sys
 import tempfile
@@ -21,7 +26,7 @@ from sitina.orchestrator.true_multi_agent_runtime import AgentCallResult, Canoni
 from sitina.security.key_provider import InMemoryKeyProvider, JournalAuthProvider
 
 
-HOME = Path("/Users/moss/SitinaHub")
+HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 
 
 def fast_success(*, needs_multi: bool = False, confidence: str = "high") -> dict:

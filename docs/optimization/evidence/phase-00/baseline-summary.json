@@ -40,13 +40,13 @@
       "results": [
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
             "config",
             "validate"
           ],
           "duration_seconds": 1.663434,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/config_validate.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/config_validate.log",
           "name": "config_validate",
           "skipped_count": 0,
           "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
@@ -54,12 +54,12 @@
         },
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
             "doctor"
           ],
           "duration_seconds": 0.528181,
           "exit_code": 2,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/doctor.log",
           "name": "doctor",
           "skipped_count": 0,
           "stdout_sha256": "61b7d6268c282b6bea8de253157a70c0bfe43e4a11966d63e5391e570795b062",
@@ -67,12 +67,12 @@
         },
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-344jhrub/bin/sitina",
             "eval"
           ],
           "duration_seconds": 1.738574,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/eval.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/eval.log",
           "name": "eval",
           "skipped_count": 0,
           "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900",
@@ -80,16 +80,16 @@
         },
         {
           "command": [
-            "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+            "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
             "-m",
             "unittest",
             "discover",
             "-s",
-            "/Users/moss/Desktop/sitina/source-worktree/tests"
+            "~/Desktop/sitina/source-worktree/tests"
           ],
           "duration_seconds": 108.005457,
           "exit_code": 1,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/unittest_full.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/unittest_full.log",
           "name": "unittest_full",
           "skipped_count": 21,
           "stdout_sha256": "4884419fac96ac960427863a3025425d8b43493d2ce07a739c80c4e7c82ae30b",
@@ -109,13 +109,13 @@
       "results": [
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
             "config",
             "validate"
           ],
           "duration_seconds": 1.561757,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-config_validate.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-config_validate.log",
           "name": "config_validate",
           "skipped_count": 0,
           "stdout_sha256": "09322f32174a39251bd209c5fbea4305dfe0b6df636c771478e807021d162508",
@@ -123,12 +123,12 @@
         },
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
             "doctor"
           ],
           "duration_seconds": 0.446598,
           "exit_code": 2,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-doctor.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-doctor.log",
           "name": "doctor",
           "skipped_count": 0,
           "stdout_sha256": "44301fcf508c297ed355ac451bbf0623d6dbef1d81e3a638465284093b05cde5",
@@ -136,12 +136,12 @@
         },
         {
           "command": [
-            "/Users/moss/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
+            "~/Desktop/sitina/bplus-test-homes/optimization-phase00-4_fxj6qp/bin/sitina",
             "eval"
           ],
           "duration_seconds": 1.502448,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-eval.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-eval.log",
           "name": "eval",
           "skipped_count": 0,
           "stdout_sha256": "4966274ab28030c3296ea6b50388da7936c4e487d5b411d896cbfc3a737d9900",
@@ -149,16 +149,16 @@
         },
         {
           "command": [
-            "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+            "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
             "-m",
             "unittest",
             "discover",
             "-s",
-            "/Users/moss/Desktop/sitina/source-worktree/tests"
+            "~/Desktop/sitina/source-worktree/tests"
           ],
           "duration_seconds": 102.851772,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-unittest_full.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/attempt-2-unittest_full.log",
           "name": "unittest_full",
           "skipped_count": 21,
           "stdout_sha256": "053f760ac4b060cfe4679dbaa0789efe2d373b56d9c1aa7e12276e74d55ad44f",
@@ -179,14 +179,14 @@
         {
           "duration_seconds": 0.817052,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-init.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-init.log",
           "name": "init",
           "stdout_sha256": "9abb0638c2fd352bcb36e63ba822a96762b4ccf99376584011e042111e125e40"
         },
         {
           "duration_seconds": 0.474864,
           "exit_code": 0,
-          "log_path": "/Users/moss/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-doctor.log",
+          "log_path": "~/Desktop/sitina/output/optimization-bootstrap/baseline/doctor-initialized-doctor.log",
           "name": "doctor",
           "stdout_sha256": "801ae065298feaf9a5a07d814cd2dbccfb5367cf8de87939e201c0fb37c0848f"
         }

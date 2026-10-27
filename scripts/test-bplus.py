@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import json
@@ -27,11 +32,11 @@ from scripts.bplus_dependency_gate import (  # noqa: E402 - ROOT must be importa
 
 
 CONFIG = ROOT / "tests/test_suites.json"
-PHASE_MINUS1_MANIFEST = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-execution-manifest-v1-phase-minus1.json")
-FOUNDATION = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-bootstrap-foundation-record.json")
-INITIAL_SENTINEL = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-production-sentinel-initial.json")
-MUTABLE_SENTINEL = Path("/Users/moss/Desktop/sitina/output/sitina-bplus-production-mutable-sentinel-phase-minus1-baseline.json")
-CONTROL_ROOT = Path("/Users/moss/Desktop/sitina/output")
+PHASE_MINUS1_MANIFEST = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-execution-manifest-v1-phase-minus1.json'))
+FOUNDATION = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-bootstrap-foundation-record.json'))
+INITIAL_SENTINEL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-production-sentinel-initial.json'))
+MUTABLE_SENTINEL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-production-mutable-sentinel-phase-minus1-baseline.json'))
+CONTROL_ROOT = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 GOAL_THREAD_ID = "019f5c6b-3083-7860-b45b-c8b487c4e3ab"
 CAPTURE_MARKER = "SITINA_BPLUS_CAPTURE_JSON:"
 

@@ -49,30 +49,33 @@ class LegacyRuntimePolicy:
                 candidate = loaded.get("storage_authority")
                 if isinstance(candidate, dict):
                     values = candidate
+        retired_root = str(values["legacy_retired_root"]) if values.get("legacy_retired_root") else None
+        if protected:
+            # Canonical and clean-acceptance homes are a hard runtime fence:
+            # configuration may describe the retired root, but can never
+            # reopen a retired read, fallback, write, or JSONL authority.
+            return cls(
+                legacy_enabled=False,
+                read_enabled=False,
+                fallback_enabled=False,
+                write_enabled=False,
+                active_business_jsonl_enabled=False,
+                missing_legacy_is_valid=True,
+                retired_root=retired_root,
+                protected_environment=True,
+            )
         # Unmarked non-installation homes remain explicit Legacy fixtures so the
         # historical test suite can exercise migration compatibility without
         # weakening the active installation or clean-acceptance policy.
-        if not protected:
-            return cls(
-                legacy_enabled=True,
-                read_enabled=True,
-                fallback_enabled=True,
-                write_enabled=True,
-                active_business_jsonl_enabled=True,
-                missing_legacy_is_valid=False,
-                retired_root=None,
-                protected_environment=False,
-            )
-        default = not protected
         return cls(
-            legacy_enabled=bool(values.get("legacy_enabled", default)),
-            read_enabled=bool(values.get("legacy_read_enabled", default)),
-            fallback_enabled=bool(values.get("legacy_fallback_enabled", default)),
-            write_enabled=bool(values.get("legacy_write_enabled", default)),
-            active_business_jsonl_enabled=bool(values.get("active_business_jsonl_enabled", default)),
-            missing_legacy_is_valid=bool(values.get("missing_legacy_is_valid", not default)),
-            retired_root=str(values["legacy_retired_root"]) if values.get("legacy_retired_root") else None,
-            protected_environment=protected,
+            legacy_enabled=True,
+            read_enabled=True,
+            fallback_enabled=True,
+            write_enabled=True,
+            active_business_jsonl_enabled=True,
+            missing_legacy_is_valid=False,
+            retired_root=None,
+            protected_environment=False,
         )
 
     def validate_protected(self) -> list[str]:

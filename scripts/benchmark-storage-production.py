@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -18,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 GOAL_THREAD_ID = "019f7643-f34d-7911-9bd6-82722c165f2e"
 
 
@@ -403,7 +408,7 @@ def _invoke_worker(name: str, workspace: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", nargs="?", type=Path)
-    parser.add_argument("--workspace", type=Path, default=Path("/Users/moss/Desktop/sitina/.benchmark-tmp"))
+    parser.add_argument("--workspace", type=Path, default=Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/.benchmark-tmp')))
     parser.add_argument("--worker", choices=tuple(WORKERS))
     args = parser.parse_args()
     workspace = args.workspace.expanduser().resolve(strict=False)

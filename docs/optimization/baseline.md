@@ -4,14 +4,14 @@ This baseline is the authority for phase 00 of the 149-item optimization plan. I
 
 ## Source and rollback boundary
 
-- Isolated repository: `/Users/moss/Desktop/sitina/source-worktree`
+- Isolated repository: `~/Desktop/sitina/source-worktree`
 - Branch: `codex/optimization-149`
 - Verified bootstrap commit: `b9fca670ecbd63db8cf807296ccab75a6cef3e2b`
 - Python: `3.12.13`
 - Dependency lock: `requirements-bplus.lock`
 - Source files imported from verified manifests: 571
 - Test files: 155
-- Production runtime `/Users/moss/SitinaHub` is read-only input provenance, not this worktree.
+- Production runtime `~/SitinaHub` is read-only input provenance, not this worktree.
 
 The original source manifest omitted `agents`, `prompts`, `mcp_servers`, `benchmarks`, and three fixture-declared safe `config/*.env` mappings. Phase 00 restored those non-secret source inputs through chained manifests, verified every hash, and added a regression test so later source manifests cannot silently omit them. Provider profile environment files, Journal/CAS data, projections, runtime state, backups, and generated outputs were not imported.
 

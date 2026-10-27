@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 MANIFEST_HASH = "32616d4580f7566f13b91b2d3cfec8a99e34f3091abf98626db95de7365270dd"
 PHASE1_ACCEPTANCE = "32d630a3023f3cd43adab0c16f2af4f459e08da6f3057d4ca08b54161989ae42"
 PHASE1_CONTENT = "2a8ad1fbd4e43aadad94a30ff440c2ce7da631baccb96ecf94ba74953a834987"
@@ -102,7 +107,7 @@ class Phase2AcceptanceTests(unittest.TestCase):
         content = load("sitina-bplus-content-manifest-phase2.json")
         self.assertEqual(canonical_hash(content, "manifest_sha256"), content["manifest_sha256"])
         self.assertEqual(content["previous_manifest_hash"], f"sha256:{PHASE1_CONTENT}")
-        self.assertEqual(content["root"], "/Users/moss/SitinaHub")
+        self.assertEqual(content["root"], (_SITINA_ACCOUNT_HOME + '/SitinaHub'))
         paths = {entry["path"] for entry in content["entries"]}
         for expected in (
             "core/sitina/protocols/run.py",
@@ -138,7 +143,7 @@ class Phase2AcceptanceTests(unittest.TestCase):
 
     def test_acceptance_process_is_disposable(self) -> None:
         home = Path(os.environ["SITINA_HOME"])
-        self.assertNotEqual(home, Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(home, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
         self.assertTrue((home / ".sitina-bplus-disposable-v1").is_file())
 
 

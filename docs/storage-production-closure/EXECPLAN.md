@@ -3,7 +3,7 @@
 ## Goal binding and current state
 
 - Goal thread: `019f7643-f34d-7911-9bd6-82722c165f2e`
-- Production home: `/Users/moss/SitinaHub`
+- Production home: `~/SitinaHub`
 - Authority frontier: position `85449`, epoch `1`, commitment `d11944154b532489d9054a032ab0026388790ef4fbb1873a99d7247345aa1ce2`
 - Final checkpoint: sequence `4`, complete active tail `0`
 - Required success classification: `PRODUCTION_READY_VALIDATED`

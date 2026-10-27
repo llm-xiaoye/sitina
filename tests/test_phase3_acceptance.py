@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 MANIFEST_HASH = "b4cfed0f4556a0e10f71a76f742236344cdc06acc31eb67a608dbd06f5d52563"
 PHASE2_ACCEPTANCE = "1318f86b3ec8b6a835a0bf97b2d9688b0a454b8f48dfff73581cd8b3587bdced"
 PHASE2_CONTENT = "3fdd93903918c36586e6b0620608a8bfb36a25a13e225a4a84f5b5607a4889fa"
@@ -121,7 +126,7 @@ class Phase3AcceptanceTests(unittest.TestCase):
 
     def test_acceptance_process_is_disposable(self) -> None:
         home = Path(os.environ["SITINA_HOME"])
-        self.assertNotEqual(home, Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(home, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
         self.assertTrue((home / ".sitina-bplus-disposable-v1").is_file())
 
 

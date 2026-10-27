@@ -38,12 +38,7 @@ class ResultPipelineOutcome:
     injection_detected: bool = False
 
 
-_SECRET_PATTERNS = (
-    re.compile(rb"(?i)(?:api[_-]?key|token|password)\s*[:=]\s*[^\s\"}]{8,}"),
-    re.compile(rb"\bsk-[A-Za-z0-9_-]{8,}\b"),
-)
 _INJECTION = re.compile(r"(?i)(ignore (?:all |any )?(?:prior|previous) instructions|become system|system prompt)")
-_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 
 class ResultPipeline:
@@ -77,13 +72,10 @@ class ResultPipeline:
             return self._reject(quarantine_id, "SCHEMA_INVALID_JSON")
         if not isinstance(value, dict) or not self.policy.required_schema_keys.issubset(value):
             return self._reject(quarantine_id, "SCHEMA_REQUIRED_KEYS_MISSING")
-        if any(pattern.search(candidate) for pattern in _SECRET_PATTERNS):
-            attestation = self.cas.destroy_quarantine(quarantine_id, reason="SECRET_POSITIVE")
-            return ResultPipelineOutcome(PipelineDisposition.DESTROYED_SECRET_POSITIVE, quarantine_id, "SECRET_POSITIVE", False, destruction_attestation=attestation)
         serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         injection = bool(_INJECTION.search(serialized))
-        redacted = _EMAIL.sub("[REDACTED_EMAIL]", serialized).encode("utf-8")
-        encrypted = encrypt_object(redacted, self.provider, tenant_id=tenant_id, purpose="validated-external-result")
+        content = serialized.encode("utf-8")
+        encrypted = encrypt_object(content, self.provider, tenant_id=tenant_id, purpose="validated-external-result")
         receipt = self.cas.publish_verified(encrypted)
         self.cas.destroy_quarantine(quarantine_id, reason="VALIDATED_AND_PUBLISHED")
         trust = "TRUSTED_ADAPTER_DATA" if trust_source == "trusted_adapter" and not injection else "UNTRUSTED_DATA"

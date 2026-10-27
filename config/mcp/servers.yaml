@@ -6,19 +6,30 @@
       "enabled": true,
       "transport": "stdio",
       "command": "python3",
-      "args": ["mcp_servers/filesystem_server.py"],
+      "args": [
+        "mcp_servers/filesystem_server.py"
+      ],
       "cwd": "${SITINA_ROOT}",
       "env": {},
       "allowed_roots": [
-        "/Users/moss"
+        "${SITINA_ROOT}"
       ],
       "default_mode": "readonly",
       "write_requires_approval": true,
       "sensitive_path_protection": true,
       "allowed_tools": {
-        "list_dir": {"type": "read_only", "approval": false},
-        "read_file": {"type": "read_only", "approval": false},
-        "stat_path": {"type": "read_only", "approval": false}
+        "list_dir": {
+          "type": "read_only",
+          "approval": false
+        },
+        "read_file": {
+          "type": "read_only",
+          "approval": false
+        },
+        "stat_path": {
+          "type": "read_only",
+          "approval": false
+        }
       },
       "risk_policy": "local_readonly_default",
       "timeout_seconds": 30,
@@ -29,14 +40,30 @@
       "enabled": true,
       "transport": "stdio",
       "command": "python3",
-      "args": ["mcp_servers/git_server.py"],
+      "args": [
+        "mcp_servers/git_server.py"
+      ],
       "cwd": "${SITINA_ROOT}",
-      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "env": {
+        "SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"
+      },
       "allowed_tools": {
-        "status": {"type": "read_only", "approval": false},
-        "diff": {"type": "read_only", "approval": false},
-        "log": {"type": "read_only", "approval": false},
-        "show": {"type": "read_only", "approval": false}
+        "status": {
+          "type": "read_only",
+          "approval": false
+        },
+        "diff": {
+          "type": "read_only",
+          "approval": false
+        },
+        "log": {
+          "type": "read_only",
+          "approval": false
+        },
+        "show": {
+          "type": "read_only",
+          "approval": false
+        }
       },
       "risk_policy": "local_readonly_default",
       "timeout_seconds": 30,
@@ -47,11 +74,18 @@
       "enabled": true,
       "transport": "stdio",
       "command": "python3",
-      "args": ["mcp_servers/sqlite_server.py"],
+      "args": [
+        "mcp_servers/sqlite_server.py"
+      ],
       "cwd": "${SITINA_ROOT}",
-      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "env": {
+        "SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"
+      },
       "allowed_tools": {
-        "query": {"type": "read_only", "approval": false}
+        "query": {
+          "type": "read_only",
+          "approval": false
+        }
       },
       "risk_policy": "local_readonly_default",
       "timeout_seconds": 30,
@@ -62,11 +96,18 @@
       "enabled": true,
       "transport": "stdio",
       "command": "python3",
-      "args": ["mcp_servers/obsidian_server.py"],
+      "args": [
+        "mcp_servers/obsidian_server.py"
+      ],
       "cwd": "${SITINA_ROOT}",
-      "env": {"SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"},
+      "env": {
+        "SITINA_ALLOWED_ROOTS": "${SITINA_ROOT}"
+      },
       "allowed_tools": {
-        "search": {"type": "read_only", "approval": false}
+        "search": {
+          "type": "read_only",
+          "approval": false
+        }
       },
       "risk_policy": "local_readonly_default",
       "timeout_seconds": 30,

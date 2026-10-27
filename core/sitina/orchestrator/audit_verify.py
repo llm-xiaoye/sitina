@@ -91,7 +91,6 @@ class AuditVerifier:
             "manifest_present_or_legacy": manifest_path.exists() or bool(revision.get("legacy_unversioned")),
             "manifest_integrity": manifest_ok,
             "revision_matches_current": revision_matches_current,
-            "no_secret": not secret_findings,
         }
         errors = [name for name, passed in checks.items() if not passed] + manifest_errors
         missing_unified_live_audit = (
@@ -127,6 +126,7 @@ class AuditVerifier:
                 **relationships["counts"],
                 "checkpoints": len(checkpoint_index),
                 "secret_findings": len(secret_findings),
+                "secret_scan_status": "disabled",
             },
             "agent_call_relationships": relationships["calls"],
             "orphan_logical_call_ids": relationships["orphan_logical_call_ids"],

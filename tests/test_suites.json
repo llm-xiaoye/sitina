@@ -1,9 +1,9 @@
 {
   "schema": "BPLUS_TEST_SUITES_V1",
-  "approved_python": "/Users/moss/Desktop/sitina/bplus-test-runtime/cpython-3.12.13-lock-dbc3f95b77ed/bin/python",
+  "approved_python": "~/Desktop/sitina/bplus-test-runtime/cpython-3.12.13-lock-dbc3f95b77ed/bin/python",
   "dependency_lock_sha256": "dbc3f95b77ed7034b5a48954abf579f2af77d3d410061482a7062e08d7e8c4bc",
-  "production_home": "/Users/moss/SitinaHub",
-  "test_home_root": "/Users/moss/Desktop/sitina/bplus-test-homes",
+  "production_home": "~/SitinaHub",
+  "test_home_root": "~/Desktop/sitina/bplus-test-homes",
   "selector_reuse_allowlist": {
     "tests/foundation/test_home_isolation.py": [
       "unit_fast",
@@ -207,7 +207,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
     },
     "phase0_acceptance": {
       "selectors": [
@@ -217,7 +217,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase0-execution-manifest-v1.json"
     },
     "phase1_kernel": {
       "selectors": [
@@ -241,7 +241,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
     },
     "phase1_acceptance": {
       "selectors": [
@@ -251,7 +251,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase1-execution-manifest-v1.json"
     },
     "phase2_runtime": {
       "selectors": [
@@ -271,7 +271,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
     },
     "phase2_acceptance": {
       "selectors": [
@@ -281,7 +281,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase2-execution-manifest-v1.json"
     },
     "phase3_runtime": {
       "selectors": [
@@ -300,7 +300,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
     },
     "phase3_acceptance": {
       "selectors": [
@@ -310,7 +310,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase3-execution-manifest-v1.json"
     },
     "phase4_runtime": {
       "selectors": [
@@ -335,7 +335,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
     },
     "phase4_acceptance": {
       "selectors": [
@@ -345,7 +345,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase4-execution-manifest-v1.json"
     },
     "phase5_runtime": {
       "selectors": [
@@ -370,7 +370,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
     },
     "phase5_acceptance": {
       "selectors": [
@@ -380,7 +380,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase5-execution-manifest-v1.json"
     },
     "phase6a_runtime": {
       "selectors": [
@@ -397,7 +397,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "FIXTURE_ONLY_WITH_CONTROL_SENTINEL",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
     },
     "phase6a_acceptance": {
       "selectors": [
@@ -407,7 +407,7 @@
       "expected_duration": "fast",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROL_REPORTS_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase6a-execution-manifest-v1.json"
     },
     "phase6a_production_tooling": {
       "selectors": [
@@ -417,7 +417,7 @@
       "expected_duration": "medium",
       "external_io_policy": "DENY_NETWORK_AND_LIVE_ADAPTERS",
       "production_policy": "CONTROLLED_PRODUCTION_SIMULATION_IN_DISPOSABLE_HOME_ONLY",
-      "execution_manifest": "/Users/moss/Desktop/sitina/output/sitina-bplus-phase6a-remediation-execution-manifest-v1.json"
+      "execution_manifest": "~/Desktop/sitina/output/sitina-bplus-phase6a-remediation-execution-manifest-v1.json"
     },
     "storage_v2_isolated": {
       "selectors": [

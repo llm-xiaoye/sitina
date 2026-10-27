@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 144">
+  <g id="sitina-mark" fill="none" stroke="#70ffb8" stroke-width="4.2" stroke-linecap="round">
+    <g class="mark-ring mark-ring-outer"><circle cx="66" cy="72" r="36" pathLength="100" stroke-dasharray="20 4 23 4 15 5 24 5" transform="rotate(-126 66 72)"/></g>
+    <g class="mark-ring mark-ring-middle"><circle cx="66" cy="72" r="29" pathLength="100" stroke-dasharray="27 5 22 6 16 6 13 5" transform="rotate(-104 66 72)"/></g>
+    <g class="mark-ring mark-ring-inner"><circle cx="66" cy="72" r="22" pathLength="100" stroke-dasharray="35 7 24 8 19 7" transform="rotate(-76 66 72)"/></g>
+    <circle cx="66" cy="72" r="15" pathLength="100" stroke-dasharray="47 12 29 12" transform="rotate(-40 66 72)"/>
+    <path d="M72 69a7 7 0 1 1-10-3"/>
+    <circle cx="66" cy="72" r="1.1" stroke-width="3"/>
+  </g>
+</svg>

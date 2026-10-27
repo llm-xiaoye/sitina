@@ -9,6 +9,11 @@ eight checkpoint resume workers.
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -21,8 +26,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
-PYTHON = Path("/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
+PYTHON = Path(_sitina_sys.executable)
 GOAL_THREAD_ID = "019f7643-f34d-7911-9bd6-82722c165f2e"
 CANARY_GOAL = (
     "Run one bounded real provider recovery after an explicit remote failure, "

@@ -9,6 +9,7 @@ object.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -800,13 +801,21 @@ class WorkerToolExecutor(ToolExecutor):
                 raise CodeModeControllerError("worker path may not contain symlinks")
         return resolved
 
-    def write_direct(self, *, target: str, content: str, run_id: str, expected_before_hash: object = _UNSET, capability: Any = None) -> dict[str, Any]:
+    def write_direct(
+        self, *, target: str, content: str | bytes, run_id: str,
+        expected_before_hash: object = _UNSET, capability: Any = None,
+        verified_source_paths: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         error = self._validate_direct_capability(capability, target=target, run_id=run_id, operation="write")
         if error:
             return {"status": "blocked", "reason": error}
-        if not isinstance(content, str):
+        if not isinstance(content, (str, bytes)):
             return {"status": "blocked", "reason": "worker content is invalid"}
-        redaction = redact_boundary_value(content, boundary="write")
+        binary = isinstance(content, bytes)
+        redaction = redact_boundary_value(
+            content.decode("utf-8", errors="surrogateescape") if binary else content,
+            boundary="write", verified_source_paths=verified_source_paths,
+        )
         if redaction.redacted_paths:
             return {"status": "blocked", "reason": "write blocked: sensitive content at persistence boundary", "redacted_paths": list(redaction.redacted_paths)}
         path = self._checked_path(target)
@@ -816,12 +825,19 @@ class WorkerToolExecutor(ToolExecutor):
         before = self._controller_hash(path)
         if expected_before_hash is not _UNSET and before != expected_before_hash:
             return {"status": "blocked", "reason": "before_hash mismatch", "before_hash": before}
-        result = self._run_worker({
+        expected_after_hash = _hash_bytes(content) if binary else None
+        request = {
             "schema": "CODE_MODE_WORKER_REQUEST_V1", "operation": "write", "path": str(path),
-            "content": content, "expected_before_hash": before, "binding": self._binding(purpose="file-write"),
-        })
+            "content": base64.b64encode(content).decode("ascii") if binary else content,
+            "expected_before_hash": before, "binding": self._binding(purpose="file-write"),
+        }
+        if binary:
+            request["content_encoding"] = "base64"
+        result = self._run_worker(request)
         after = self._controller_hash(path)
-        if result.get("status") != "ok" or result.get("before_hash") != before or after != result.get("after_hash"):
+        if (result.get("status") != "ok" or result.get("before_hash") != before
+                or after != result.get("after_hash")
+                or (expected_after_hash is not None and after != expected_after_hash)):
             return {"status": "blocked", "reason": "worker observation failed controller hash verification", "before_hash": before, "after_hash": after}
         value = {"status": "ok", "patch_id": sha256_text(f"{run_id}\n{path}\n{before}\n{after}"), "before_hash": before, "after_hash": after, "worker_observed": True, "worker_binding_hash": result.get("worker_binding_hash")}
         self._record_direct_audit("tool_worker_write", {"target": str(path), **value}, run_id=run_id, risk_scan_id=scan.risk_scan_id, authorization_ref=str(self.authorization_binding.get("authorization_ref") or ""), exit_status="ok")
@@ -840,7 +856,7 @@ class WorkerToolExecutor(ToolExecutor):
         finally:
             self._active_worker_capability = None
 
-    def _write(self, target: str | None, content: str, run_id: str, *, expected_before_hash: object = _UNSET) -> dict[str, Any]:
+    def _write(self, target: str | None, content: str | bytes, run_id: str, *, expected_before_hash: object = _UNSET) -> dict[str, Any]:
         return self.write_direct(target=str(target or ""), content=content, run_id=run_id, expected_before_hash=expected_before_hash, capability=getattr(self, "_active_worker_capability", None))
 
     def _delete(self, target: str | None, run_id: str, *, expected_before_hash: object = _UNSET) -> dict[str, Any]:

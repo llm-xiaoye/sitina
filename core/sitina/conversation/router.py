@@ -182,6 +182,19 @@ class ConversationRouter:
     def _matches(text: str, markers: Sequence[str]) -> bool:
         return any(normalize_intent_text(marker) in text for marker in markers)
 
+    @staticmethod
+    def _matches_unnegated_execution(text: str, markers: Sequence[str]) -> bool:
+        negations = ("do not", "don't", "dont", "never", "without", "不要", "无需", "禁止")
+        for marker in markers:
+            normalized = normalize_intent_text(marker)
+            offset = 0
+            while normalized and (index := text.find(normalized, offset)) >= 0:
+                prefix = text[:index].rstrip()
+                if not any(prefix.endswith(negation) for negation in negations):
+                    return True
+                offset = index + len(normalized)
+        return False
+
     def _input_hash(
         self,
         mode: ChatMode,
@@ -275,7 +288,12 @@ class ConversationRouter:
         )
         for key, reason in groups:
             markers = self.config.get(key, [])
-            if isinstance(markers, list) and markers and self._matches(text, markers):
+            matcher = (
+                self._matches_unnegated_execution
+                if key == "execution_markers"
+                else self._matches
+            )
+            if isinstance(markers, list) and markers and matcher(text, markers):
                 reasons.append(reason)
                 evidence_codes.append(key)
         conflict_markers = self.config.get("conflicting_constraint_markers", [])

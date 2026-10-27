@@ -65,9 +65,6 @@ def evaluate_deepseek_direct_storage_exception(
         "reason": "user_approved_operational_compatibility_exception",
         "mitigation_controls": [
             "profile_file_mode_0600",
-            "exact_value_scan_all_prohibited_persistence_surfaces",
-            "decrypted_cas_scan",
-            "redacted_cli_errors_logs_and_evidence",
             "no_credential_value_in_exception_evidence",
         ],
         "future_recommendation": "migrate_to_macos_keychain_when_the_user_revisits_the_accepted_risk",
@@ -76,6 +73,7 @@ def evaluate_deepseek_direct_storage_exception(
         "failed_profile_count": len(failed),
         "other_profiles_reference_backed": other_profiles_safe,
         "exact_exception_shape_verified": exact_approved_failure and exact_failure_set and exact_plaintext_count,
+        "content_filtering": "disabled_by_user",
         "credential_value_included": False,
         "credential_modified": False,
     }

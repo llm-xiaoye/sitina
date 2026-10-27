@@ -14,7 +14,7 @@
 - 目标规范：`docs/superpowers/specs/2026-07-13-sitina-bplus-data-architecture-design.md`。
 - 当前项目不是 Git 仓库；执行前必须由用户决定是否初始化 Git 或采用等价变更审计。计划中的 Commit 步骤只有在 Git 初始化后执行。
 - 修改任何现有文件前必须有 Source-only Baseline；Production 数据/状态备份必须位于受控、加密或权限隔离位置，不得把 Secret 或 Runtime State 复制进源码仓库。
-- Phase -1 未通过前，任何测试不得运行在 `/Users/moss/SitinaHub` Production Home。
+- Phase -1 未通过前，任何测试不得运行在 `~/SitinaHub` Production Home。
 - Shadow、Fixture、Replay、`MigrationWorkspaceRoot` 和 Production Journal 使用不同 Physical Root、Journal Identity 和 Key Namespace；Shadow/Workspace 不得提升为 Production。获验的迁移 provenance/control 只写 `ProductionMigrationControlStream`。
 - Legacy 与 B+ 并存时 Authority Writer 数量只能为零或一；Cutover prepared/unknown/recovery 状态必须为零。
 - Writer Authority 只由获验的 Authority Control facts/Cutover Outcome 解析；Phase enum、CLI flag、Feature Flag、Readiness Report 或文件存在性都不能选择 Writer。
@@ -158,9 +158,9 @@ Existing large modules such as `orchestrator/engine.py` remain compatibility coo
 Every Phase must use the approved Phase -1 runner. Bare `python3` and Production Home are forbidden:
 
 ```bash
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py unit_fast
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py integration_isolated
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py crash_fault --phase <authorized-phase>
+<approved-python> ~/SitinaHub/scripts/test-bplus.py unit_fast
+<approved-python> ~/SitinaHub/scripts/test-bplus.py integration_isolated
+<approved-python> ~/SitinaHub/scripts/test-bplus.py crash_fault --phase <authorized-phase>
 ```
 
 Expected: all applicable existing and new tests pass in a disposable Test Home; Production sentinel hashes/size/mtime remain unchanged；tests using real providers remain disabled unless explicitly authorized。

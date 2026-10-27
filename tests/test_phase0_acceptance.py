@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 EXPECTED_MANIFEST_HASH = "7b9eafbd2b0a0cd10b5520774d72d6d46db8a6c471993fd9d3093224041f6f6a"
 EXPECTED_PHASE_MINUS1_ACCEPTANCE = "c8176e5ae731fcaaf750428634bef884362a13fa1a8631bdd5ef6ad1359b03f8"
 EXPECTED_PHASE_MINUS1_CONTENT = "13fd832932887fa11196f6736d1e3261a34552b5746322132d588a1ca48023e7"
@@ -68,7 +73,7 @@ class Phase0AcceptanceTests(unittest.TestCase):
         report = _load("sitina-bplus-content-manifest-phase0.json")
         self.assertEqual(_canonical_hash(report, excluded_field="manifest_sha256"), report["manifest_sha256"])
         self.assertEqual(report["previous_manifest_hash"], f"sha256:{EXPECTED_PHASE_MINUS1_CONTENT}")
-        self.assertEqual(report["root"], "/Users/moss/SitinaHub")
+        self.assertEqual(report["root"], (_SITINA_ACCOUNT_HOME + '/SitinaHub'))
         self.assertEqual(
             set(report["excluded_roots"]),
             {"artifacts", "backups", "data", "logs", "memory", "outputs", "state", "temp"},
@@ -121,7 +126,7 @@ class Phase0AcceptanceTests(unittest.TestCase):
 
     def test_acceptance_process_is_disposable(self) -> None:
         home = Path(os.environ["SITINA_HOME"])
-        self.assertNotEqual(home, Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(home, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
         self.assertTrue((home / ".sitina-bplus-disposable-v1").is_file())
 
 

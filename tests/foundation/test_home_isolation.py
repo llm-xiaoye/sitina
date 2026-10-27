@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import os
 import tempfile
 import unittest
@@ -28,7 +33,7 @@ class DisposableHomeTests(unittest.TestCase):
             self.assertTrue((home / "outputs/generated").is_dir())
             self.assertTrue((home / "outputs/reports/Sitina_v1_final_acceptance_report.md").is_file())
             self.assertFalse(any(path.name == "gpt.env" and "profiles" not in path.parts for path in home.rglob("*")))
-            self.assertNotIn("/Users/moss", (home / "config/mcp/servers.yaml").read_text(encoding="utf-8"))
+            self.assertNotIn((_SITINA_ACCOUNT_HOME), (home / "config/mcp/servers.yaml").read_text(encoding="utf-8"))
             disposable.cleanup()
             self.assertFalse(home.exists())
 
@@ -46,7 +51,7 @@ class DisposableHomeTests(unittest.TestCase):
     def test_import_environment_must_be_set_before_constants_load(self) -> None:
         current = os.environ.get("SITINA_HOME")
         self.assertIsNotNone(current)
-        self.assertNotEqual(Path(current).resolve(), Path("/Users/moss/SitinaHub").resolve())
+        self.assertNotEqual(Path(current).resolve(), Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')).resolve())
 
     def test_production_alias_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import json
 import datetime as dt
 import hashlib
@@ -187,7 +192,7 @@ class LegacyCompatibilityTests(unittest.TestCase):
                 subprocess.run([sys.executable, "-c", "print('forbidden')"], check=False)
         finally:
             gate.unfreeze_fixture()
-        inventory = json.loads(Path("/Users/moss/Desktop/sitina/output/sitina-bplus-write-sink-inventory-phase-minus1-final.json").read_text(encoding="utf-8"))
+        inventory = json.loads(Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-bplus-write-sink-inventory-phase-minus1-final.json')).read_text(encoding="utf-8"))
         coverage = build_fence_coverage(inventory)
         self.assertEqual(coverage["summary"]["blocker_count"], 0, coverage)
         self.assertEqual(coverage["summary"]["entry_count"], inventory["summary"]["entry_count"])

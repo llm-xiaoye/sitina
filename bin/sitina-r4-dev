@@ -1,0 +1,33 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+DEV_ROOT="${0:A:h:h}"
+EXPECTED_PYTHON="$DEV_ROOT/.venv-r4/bin/python"
+MARKER="$DEV_ROOT/.sitina-r4-development-root-v1.json"
+
+fail() {
+  print -u2 -r -- "sitina-r4-dev: $1"
+  exit 64
+}
+
+[[ -f "$MARKER" && ! -L "$MARKER" ]] || fail "development-root marker is missing or is a symlink"
+[[ -x "$EXPECTED_PYTHON" ]] || fail "the pinned development interpreter is missing"
+
+if [[ -n "${SITINA_R4_DEV_ROOT:-}" && "${SITINA_R4_DEV_ROOT:a}" != "$DEV_ROOT" ]]; then
+  fail "SITINA_R4_DEV_ROOT points at a different or symlinked root"
+fi
+if [[ -n "${SITINA_HOME:-}" && "${SITINA_HOME:a}" != "$DEV_ROOT" ]]; then
+  fail "SITINA_HOME points at a different or symlinked root"
+fi
+if [[ -n "${SITINA_PYTHON:-}" && "${SITINA_PYTHON:a}" != "$EXPECTED_PYTHON" ]]; then
+  fail "SITINA_PYTHON points at a different or symlinked interpreter"
+fi
+
+export SITINA_R4_DEV_ROOT="$DEV_ROOT"
+export SITINA_HOME="$DEV_ROOT"
+export SITINA_SOURCE_ROOT="$DEV_ROOT"
+export SITINA_PYTHON="$EXPECTED_PYTHON"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$DEV_ROOT/core:${PYTHONPATH:-}"
+
+exec "$EXPECTED_PYTHON" -m sitina.cli "$@"

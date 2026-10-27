@@ -4,7 +4,7 @@
   "verdict": "STEP6_PASS",
   "scope": "LOCAL_SOFTWARE_RELIABILITY_ONLY",
   "source": {
-    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "worktree": "~/Desktop/sitina/source-worktree",
     "branch": "codex/step6-execution-sandbox",
     "parent_commit": "7a1fcc82fc0d15547fe1d5f3ace9bf31ca16fc80",
     "implementation_diff_sha256": "c737c9f466667cf50077d7c5f131d16a25849de5b38c2f28b31f10af0aed69d0",
@@ -56,7 +56,7 @@
   },
   "isolated_gates": {
     "suite_registry": "tests/test_suites.json",
-    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "approved_python": "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
     "fresh_nonproduction_homes": true,
     "execution_activation_gate": {
       "collected": 52,
@@ -104,7 +104,7 @@
   },
   "production_sentinels": {
     "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
-    "production_home": "/Users/moss/SitinaHub",
+    "production_home": "~/SitinaHub",
     "v1_before": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
     "v1_after_tests": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
     "v1_after_readonly_review": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
@@ -115,13 +115,13 @@
   },
   "real_sitina_readonly_review": {
     "review_packet": {
-      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-result-integrity-review-packet-v2-20260722T101836Z.json",
+      "path": "~/Desktop/sitina/output/sitina-step6-result-integrity-review-packet-v2-20260722T101836Z.json",
       "sha256": "a29d7ba86ff2ad3e9a4291031bf194e25e228e018bf27110201e13cc4b65d41a"
     },
     "runtime": "sitina-autonomous-extensions-v1",
     "model": "deepseek-v4-pro",
     "run_id": "agent-run-fb35b38cb95342ada8c587372b1e27aa",
-    "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-fb35b38cb95342ada8c587372b1e27aa.jsonl",
+    "audit_path": "~/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-fb35b38cb95342ada8c587372b1e27aa.jsonl",
     "audit_sha256": "27bfd1cc770c97f5be80a9c6261282c37ef372b0b54ad4c95fb177e002c682a9",
     "provider_calls": 2,
     "input_tokens": 4748,
@@ -155,7 +155,7 @@
       "stage": "first real Sitina read-only review",
       "classification": "PROVIDER_OUTPUT_LIMIT_FAILURE_NOT_REVIEW_PASS",
       "run_id": "agent-run-46605fd471ba4ebbac699d553e3a1d32",
-      "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-46605fd471ba4ebbac699d553e3a1d32.jsonl",
+      "audit_path": "~/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-46605fd471ba4ebbac699d553e3a1d32.jsonl",
       "audit_sha256": "d1513fd1da9550321b2e2f88cba02f8a7f71ca8be7cecde704ea722ecb09e045",
       "input_tokens": 4919,
       "output_tokens": 1299,

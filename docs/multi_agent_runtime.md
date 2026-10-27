@@ -278,20 +278,20 @@ file writes, memory acceptance, git apply, or external commands.
 Use these commands to inspect collaboration state:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina trace <run_id>
-/Users/moss/SitinaHub/bin/sitina replay diff <run_id>
-/Users/moss/SitinaHub/bin/sitina replay simulate <run_id>
-/Users/moss/SitinaHub/bin/sitina run graph <run_id>
-/Users/moss/SitinaHub/bin/sitina proposals list --run-id <run_id>
-/Users/moss/SitinaHub/bin/sitina blackboard show --run-id <run_id>
-/Users/moss/SitinaHub/bin/sitina handoff list --run-id <run_id>
-/Users/moss/SitinaHub/bin/sitina handoff show <handoff_id>
-/Users/moss/SitinaHub/bin/sitina lease list --run-id <run_id>
-/Users/moss/SitinaHub/bin/sitina lease show <lease_id>
-/Users/moss/SitinaHub/bin/sitina arbitration list --run-id <run_id>
-/Users/moss/SitinaHub/bin/sitina arbitration show <arbitration_id>
-/Users/moss/SitinaHub/bin/sitina goal list
-/Users/moss/SitinaHub/bin/sitina backlog list
+~/SitinaHub/bin/sitina trace <run_id>
+~/SitinaHub/bin/sitina replay diff <run_id>
+~/SitinaHub/bin/sitina replay simulate <run_id>
+~/SitinaHub/bin/sitina run graph <run_id>
+~/SitinaHub/bin/sitina proposals list --run-id <run_id>
+~/SitinaHub/bin/sitina blackboard show --run-id <run_id>
+~/SitinaHub/bin/sitina handoff list --run-id <run_id>
+~/SitinaHub/bin/sitina handoff show <handoff_id>
+~/SitinaHub/bin/sitina lease list --run-id <run_id>
+~/SitinaHub/bin/sitina lease show <lease_id>
+~/SitinaHub/bin/sitina arbitration list --run-id <run_id>
+~/SitinaHub/bin/sitina arbitration show <arbitration_id>
+~/SitinaHub/bin/sitina goal list
+~/SitinaHub/bin/sitina backlog list
 ```
 
 ## Tested Fixtures

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+
+import yaml
 
 
 PLUGIN_SCHEMA = "SITINA_PLUGIN_V1"
@@ -18,7 +21,10 @@ MARKETPLACE_SCHEMA = "SITINA_MARKETPLACE_V1"
 
 PERMISSIONS = frozenset({"read", "write", "shell", "network", "external_service"})
 READ_ONLY_PERMISSIONS = frozenset({"read"})
-IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+# Agent Skills permits one-character names.  Keep the same conservative
+# alphabet as the native extension identifiers, but do not silently reject a
+# valid ``x`` skill merely because the old plugin rule required two chars.
+IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 
 
@@ -93,6 +99,62 @@ def parse_json_frontmatter(path: Path, *, schema: str) -> tuple[dict[str, Any], 
     return metadata, body
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """SafeLoader variant that rejects duplicate metadata keys."""
+
+    def construct_mapping(self, node: yaml.nodes.MappingNode, deep: bool = False) -> dict[str, Any]:
+        if not isinstance(node, yaml.nodes.MappingNode):
+            raise ExtensionSpecError("Skill YAML frontmatter must be a mapping")
+        mapping: dict[str, Any] = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str):
+                raise ExtensionSpecError("Skill YAML metadata keys must be strings")
+            if key in mapping:
+                raise ExtensionSpecError(f"duplicate Skill YAML metadata key: {key}")
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+def _parse_yaml_frontmatter_safe(raw: str, *, path: Path) -> dict[str, Any]:
+    try:
+        value = yaml.load(raw, Loader=_UniqueKeySafeLoader)
+    except yaml.YAMLError as exc:
+        raise ExtensionSpecError(f"{path} frontmatter is invalid YAML: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ExtensionSpecError(f"{path} frontmatter must be one YAML object")
+    return value
+
+def parse_skill_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
+    """Read standard Agent Skills YAML or explicit legacy Sitina JSON."""
+
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if len(lines) < 3 or lines[0].strip() != "---":
+        raise ExtensionSpecError(f"{path} must start with frontmatter between --- lines")
+    try:
+        closing = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+    except StopIteration as exc:
+        raise ExtensionSpecError(f"{path} is missing the closing frontmatter delimiter") from exc
+    raw = "\n".join(lines[1:closing]).strip()
+    if raw.startswith("{"):
+        try:
+            metadata = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ExtensionSpecError(f"{path} legacy JSON frontmatter is invalid: {exc}") from exc
+        if not isinstance(metadata, dict) or metadata.get("schema") != SKILL_SCHEMA:
+            raise ExtensionSpecError(f"{path} uses an unsupported legacy Skill schema")
+    else:
+        metadata = _parse_yaml_frontmatter_safe(raw, path=path)
+        legacy_schema = metadata.get("schema")
+        if legacy_schema is not None and legacy_schema != SKILL_SCHEMA:
+            raise ExtensionSpecError(f"{path} uses an unsupported Skill schema")
+    body = "\n".join(lines[closing + 1 :]).strip()
+    if not body:
+        raise ExtensionSpecError(f"{path} must contain instructions after frontmatter")
+    return metadata, body
+
+
 @dataclass(frozen=True)
 class SkillDefinition:
     name: str
@@ -101,6 +163,10 @@ class SkillDefinition:
     path: Path
     body: str
     plugin_name: str | None = None
+    allowed_tools: tuple[str, ...] = ()
+    optional_metadata: Mapping[str, Any] = None  # type: ignore[assignment]
+    required_tools: tuple[str, ...] = ()
+    instructions_sha256: str = ""
 
     @property
     def qualified_name(self) -> str:
@@ -114,20 +180,50 @@ class SkillDefinition:
             "triggers": list(self.triggers),
             "plugin": self.plugin_name,
             "path": str(self.path),
+            "allowed_tools": list(self.allowed_tools),
+            "required_tools": list(self.required_tools),
+            "instructions_sha256": self.instructions_sha256,
+            "version": str((self.optional_metadata or {}).get("version") or self.instructions_sha256),
+            "metadata": dict(self.optional_metadata or {}),
         }
 
 
-def load_skill(path: Path, *, plugin_name: str | None = None) -> SkillDefinition:
-    metadata, body = parse_json_frontmatter(path, schema=SKILL_SCHEMA)
-    name = validate_identifier(str(metadata.get("name") or ""), label="skill name")
-    description = str(metadata.get("description") or "").strip()
+def load_skill(path: Path, *, plugin_name: str | None = None, metadata_only: bool = False) -> SkillDefinition:
+    metadata, body = parse_skill_frontmatter(path)
+    raw_name = metadata.get("name")
+    raw_description = metadata.get("description")
+    if not isinstance(raw_name, str):
+        raise ExtensionSpecError(f"{path} requires a string name")
+    if not isinstance(raw_description, str):
+        raise ExtensionSpecError(f"{path} requires a string description")
+    description = raw_description.strip()
     if not description:
         raise ExtensionSpecError(f"{path} requires a non-empty description")
+    name = validate_identifier(raw_name, label="skill name")
     raw_triggers = metadata.get("triggers", [])
     if not isinstance(raw_triggers, list) or any(not isinstance(item, str) for item in raw_triggers):
         raise ExtensionSpecError(f"{path} triggers must be an array of strings")
     triggers = tuple(dict.fromkeys(item.strip().casefold() for item in raw_triggers if item.strip()))
-    return SkillDefinition(name, description, triggers, path.resolve(), body, plugin_name)
+    raw_allowed = metadata.get("allowed-tools", ())
+    if isinstance(raw_allowed, str):
+        allowed_tools = tuple(dict.fromkeys(item for item in raw_allowed.replace(",", " ").split() if item))
+    elif isinstance(raw_allowed, list) and all(isinstance(item, str) and item.strip() for item in raw_allowed):
+        allowed_tools = tuple(dict.fromkeys(item.strip() for item in raw_allowed))
+    elif raw_allowed in (None, ()):
+        allowed_tools = ()
+    else:
+        raise ExtensionSpecError(f"{path} allowed-tools must be a string or array of strings")
+    optional = {
+        key: value for key, value in metadata.items()
+        if key not in {"schema", "name", "description", "triggers", "allowed-tools", "required-tools"}
+    }
+    required = metadata.get("required-tools", [])
+    if not isinstance(required, list) or any(not isinstance(item, str) or not item.strip() for item in required):
+        raise ExtensionSpecError(f"{path} required-tools must be an array of tool names")
+    required_tools = tuple(dict.fromkeys(item.strip() for item in required))
+    instructions_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return SkillDefinition(name, description, triggers, path.resolve(), "" if metadata_only else body,
+                           plugin_name, allowed_tools, optional, required_tools, instructions_hash)
 
 
 @dataclass(frozen=True)
@@ -327,6 +423,29 @@ def _validate_mcp(raw: Mapping[str, Any]) -> None:
                 raise ExtensionSpecError(f"remote MCP server {name} requires an absolute http(s) URL")
         else:
             raise ExtensionSpecError(f"MCP server {name} uses unsupported transport {transport!r}")
+        from sitina.runners.mcp_client import McpRuntimeError, keychain_reference
+        try:
+            if server.get("credential") is not None:
+                keychain_reference(server["credential"])
+                if transport not in {"http", "streamable_http"} or not str(server.get("url", "")).startswith("https://"):
+                    raise ExtensionSpecError("MCP bearer credentials require an HTTPS transport")
+            references = server.get("env_credentials") or {}
+            if not isinstance(references, dict):
+                raise ExtensionSpecError("MCP environment credentials must be an object")
+            for env_name, reference in references.items():
+                if not isinstance(env_name, str) or not env_name or "=" in env_name or "\x00" in env_name:
+                    raise ExtensionSpecError("MCP credential environment name is invalid")
+                keychain_reference(reference)
+                if env_name in dict(server.get("env") or {}):
+                    raise ExtensionSpecError("MCP credential environment conflicts with a literal value")
+        except McpRuntimeError as error:
+            raise ExtensionSpecError(str(error)) from error
+        for field in ("allowed_tools", "denied_tools"):
+            values = server.get(field)
+            if values is not None and (
+                not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values)
+            ):
+                raise ExtensionSpecError("MCP tool scope must be an array of tool names")
         advertised = server.get("tools")
         if advertised is not None:
             if not isinstance(advertised, list):

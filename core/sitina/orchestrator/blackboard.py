@@ -40,7 +40,7 @@ class BlackboardDocument(BaseModel):
     content_summary: str
     artifact_refs: list[str] = Field(default_factory=list)
     related_docs: list[str] = Field(default_factory=list)
-    sensitive_redacted: bool = True
+    sensitive_redacted: bool = False
     version: int = 1
     created_at: str
     updated_at: str | None = None
@@ -125,7 +125,7 @@ class Blackboard:
             content_summary=(redacted or "<redacted>")[:1000],
             artifact_refs=artifact_refs or [],
             related_docs=related_docs or [],
-            sensitive_redacted=True,
+            sensitive_redacted=False,
             version=1,
             created_at=iso_now(),
         )
@@ -203,7 +203,7 @@ class Blackboard:
                     "content_summary": redacted[:1000],
                     "artifact_refs": list(current.artifact_refs if artifact_refs is None else artifact_refs),
                     "related_docs": list(current.related_docs if related_docs is None else related_docs),
-                    "sensitive_redacted": True,
+                    "sensitive_redacted": False,
                     "version": current.version + 1,
                     "updated_at": iso_now(),
                 }
@@ -345,12 +345,7 @@ class Blackboard:
         ]
 
     def _looks_sensitive(self, value: str) -> bool:
-        lower = value.lower()
-        return any(marker in lower for marker in ("password", "secret", "token", "private key", "api_key", "apikey"))
+        return False
 
     def _redact_summary(self, value: str) -> str:
-        redacted = redact_text(value)
-        markers = ("hunter2", ".env", "anthropic", "openai", "deepseek")
-        for marker in markers:
-            redacted = redacted.replace(marker, "<redacted>").replace(marker.upper(), "<redacted>").replace(marker.title(), "<redacted>")
-        return redacted
+        return value

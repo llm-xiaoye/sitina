@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import json
 import os
 import shutil
@@ -292,7 +297,7 @@ class ReliabilityManagementTests(unittest.TestCase):
                 json.loads(line)
                 for line in (restored_path / "journal/events.jsonl").read_text(encoding="utf-8").splitlines()
             )
-            verifier = DisasterRecoveryVerifier(production_home=Path("/Users/moss/SitinaHub"), events=self.events)
+            verifier = DisasterRecoveryVerifier(production_home=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')), events=self.events)
             evidence = verifier.verify(
                 backup_id=manifest.backup_id,
                 manifest_hash=restored.manifest_hash,
@@ -308,7 +313,7 @@ class ReliabilityManagementTests(unittest.TestCase):
                 verifier.verify(
                     backup_id=manifest.backup_id,
                     manifest_hash=manifest.manifest_hash,
-                    restored_path=Path("/Users/moss/SitinaHub"),
+                    restored_path=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                     expected_event_count=2,
                     replayed_events=replayed,
                     writer_activated=False,

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -30,7 +35,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 
 SOURCE = Path(__file__).resolve().parents[1]
-PRODUCTION = Path("/Users/moss/SitinaHub").resolve(strict=True)
+PRODUCTION = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')).resolve(strict=True)
 _configured_canary_root = os.environ.get("SITINA_CANARY_ROOT")
 CANARY_ROOT = (
     Path(_configured_canary_root).expanduser()

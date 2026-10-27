@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import ast
 import copy
 import hashlib
@@ -96,8 +101,7 @@ from scripts.step7_readiness_gate import (
 
 
 ENTRY_CANDIDATE = Path(
-    "/Users/moss/Desktop/sitina/output/"
-    "sitina-step7-entry-review-candidate-step56-45a36be.json"
+    (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-entry-review-candidate-step56-45a36be.json')
 )
 DEPLOYED_CONTENT_ROOT = Path(__file__).resolve().parents[2]
 _BOUND_SOURCE_ROOT = os.environ.get("SITINA_STEP7_SOURCE_ROOT")
@@ -229,12 +233,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self._git("commit", "-qm", "fixture")
 
         cleanup_source = Path(
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-cleanup-candidate-step7-20260727.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-cleanup-candidate-step7-20260727.json')
         )
         ledger_source = Path(
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-cleanup-ledger-step7-20260727.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-cleanup-ledger-step7-20260727.json')
         )
         cleanup_candidate = json.loads(cleanup_source.read_text(encoding="utf-8"))
         for index, reference in enumerate(cleanup_candidate["evidence_sources"]):
@@ -599,9 +601,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "revoked_artifacts": {
                 "prior_revocation": {
                     "path": (
-                        "/Users/moss/Desktop/sitina/output/"
-                        "sitina-step7-deployment-packet-revocation-"
-                        "8c3582c-20260728T041814Z.json"
+                        (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-packet-revocation-8c3582c-20260728T041814Z.json')
                     ),
                     "sha256": (
                         "f3bb029aa1ff05e239931806d2084a846"
@@ -618,8 +618,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 },
                 "authorization_receipt": {
                     "path": (
-                        "/Users/moss/Desktop/sitina/output/"
-                        "sitina-step7-authorization-receipt-8c3582c.json"
+                        (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-authorization-receipt-8c3582c.json')
                     ),
                     "sha256": (
                         "b1e9eab9a9e8a2e9bd4ed623fdbdc969"
@@ -1026,7 +1025,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "schema": SENTINEL_SAMPLE_SCHEMA,
             "sample": sample,
             "goal_id": OFFICIAL_GOAL_ID,
-            "production_home": "/Users/moss/SitinaHub",
+            "production_home": (_SITINA_ACCOUNT_HOME + '/SitinaHub'),
             "observed_at_utc": f"2026-07-27T00:10:0{second}Z",
             "production_attempts": 0,
             "base": {
@@ -1571,9 +1570,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "evidence": {
                 "authority": {
                     "path": (
-                        "/Users/moss/.codex/attachments/"
-                        "198f270e-7042-4d01-aac5-ff595095d657/"
-                        "pasted-text-1.txt"
+                        (_SITINA_ACCOUNT_HOME + '/.codex/attachments/198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt')
                     ),
                     "sha256": "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c",
                 },
@@ -2124,8 +2121,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             ),
             self._review_required_file(
                 Path(
-                    "/Users/moss/.codex/attachments/"
-                    "198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt"
+                    (_SITINA_ACCOUNT_HOME + '/.codex/attachments/198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt')
                 ),
                 "text",
                 "current Step7 authority",
@@ -2620,9 +2616,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         bound_evidence = [
             {
                 "path": (
-                    "/Users/moss/.codex/attachments/"
-                    "198f270e-7042-4d01-aac5-ff595095d657/"
-                    "pasted-text-1.txt"
+                    (_SITINA_ACCOUNT_HOME + '/.codex/attachments/198f270e-7042-4d01-aac5-ff595095d657/pasted-text-1.txt')
                 ),
                 "sha256": (
                     "685f93ec678a2590cf621336b559cf5e3cedc73701f1aefed3f01db5f28fea3c"
@@ -5039,7 +5033,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         object.__setattr__(
             capability,
             "_source_root",
-            Path("/Users/moss/Desktop/sitina/source-worktree"),
+            Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/source-worktree')),
         )
         try:
             with self.assertRaisesRegex(ValueError, "root binding drift"):
@@ -5079,11 +5073,11 @@ class Step7ReadinessGateTests(unittest.TestCase):
     ) -> None:
         with mock.patch.dict(
             "os.environ",
-            {"TMPDIR": "/Users/moss/Desktop/sitina"},
+            {"TMPDIR": (_SITINA_ACCOUNT_HOME + '/Desktop/sitina')},
         ), mock.patch.object(
             tempfile,
             "tempdir",
-            "/Users/moss/Desktop/sitina",
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina'),
         ):
             spec = self._step7_v4_execution_spec()
         capability = self._step7_v4_capability(spec)
@@ -5100,10 +5094,10 @@ class Step7ReadinessGateTests(unittest.TestCase):
 
     def test_v4_test_roots_reject_real_relatives_before_preflight(self) -> None:
         real_roots = (
-            Path("/Users/moss/Desktop/sitina/source-worktree"),
-            Path("/Users/moss/SitinaHub"),
-            Path("/Users/moss/Desktop/sitina/output"),
-            Path("/Users/moss/.codex/sessions"),
+            Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/source-worktree')),
+            Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
+            Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output')),
+            Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
         )
         fields = (
             "source_root",
@@ -6527,7 +6521,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self,
     ) -> None:
         source_root = REPOSITORY_ROOT
-        deployment_root = Path("/Users/moss/SitinaHub")
+        deployment_root = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
         source_state = {
             "head": subprocess.check_output(
                 ["git", "rev-parse", "HEAD^{commit}"],
@@ -6618,9 +6612,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "authorization_chain": {
                 "source_record": {
                     "session_path": (
-                        "/Users/moss/.codex/sessions/2026/07/20/"
-                        "rollout-2026-07-20T14-42-51-"
-                        "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                        (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
                     ),
                     "line_number": 14699,
                     "record_id": (
@@ -6644,9 +6636,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 },
                 "wrapper_record": {
                     "session_path": (
-                        "/Users/moss/.codex/sessions/2026/07/27/"
-                        "rollout-2026-07-27T01-36-47-"
-                        "019fa24a-5147-7001-9788-2af4521d1ea7.jsonl"
+                        (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/27/rollout-2026-07-27T01-36-47-019fa24a-5147-7001-9788-2af4521d1ea7.jsonl')
                     ),
                     "line_number": 14808,
                     "record_id": (
@@ -6868,7 +6858,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     source_root=source_root,
                     deployment_root=deployment_root,
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                 )
             )
             for label, (path, value) in mutations.items():
@@ -6886,7 +6876,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                             deployment_root=deployment_root,
                             source_state=source_state,
                             anchor_root=Path(
-                                "/Users/moss/.codex/sessions"
+                                (_SITINA_ACCOUNT_HOME + '/.codex/sessions')
                             ),
                         )
                     )
@@ -6895,9 +6885,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         self,
     ) -> None:
         path = Path(
-            "/Users/moss/Desktop/sitina/output/"
-            "sitina-step7-deployment-packet-revocation-"
-            "ca61797-v7-20260728T151500Z.json"
+            (_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/sitina-step7-deployment-packet-revocation-ca61797-v7-20260728T151500Z.json')
         )
         document = json.loads(path.read_text(encoding="utf-8"))
         source_state = {
@@ -6917,9 +6905,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             return step7_gate._failed_ca61797_revocation_v7_is_valid(
                 value,
                 source_root=REPOSITORY_ROOT,
-                deployment_root=Path("/Users/moss/SitinaHub"),
+                deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                 source_state=source_state,
-                anchor_root=Path("/Users/moss/.codex/sessions"),
+                anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
             )
 
         self.assertTrue(validate(document))
@@ -6927,12 +6915,12 @@ class Step7ReadinessGateTests(unittest.TestCase):
         original_inventory = step7_gate._step7_v4_inventory
 
         def reject_live_target(path: Path) -> dict[str, object]:
-            if Path(path).is_relative_to(Path("/Users/moss/SitinaHub")):
+            if Path(path).is_relative_to(Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))):
                 raise AssertionError("V7 historical validation read live target")
             return original_file_tuple(path)
 
         def reject_live_inventory(path: Path) -> dict[str, object]:
-            if Path(path) == Path("/Users/moss/SitinaHub"):
+            if Path(path) == Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')):
                 raise AssertionError(
                     "V7 historical validation read live inventory"
                 )
@@ -10836,9 +10824,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             step7_gate._failed_preapply_revocation_is_valid(
                 document,
                 source_root=REPOSITORY_ROOT,
-                deployment_root=Path("/Users/moss/SitinaHub"),
+                deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                 source_state=source_state,
-                anchor_root=Path("/Users/moss/.codex/sessions"),
+                anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                 live_target_expectation="NONE",
             )
         )
@@ -10851,7 +10839,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "head": document["successor_fix"]["head"],
             "tree": document["successor_fix"]["tree"],
         }
-        deployment_root = Path("/Users/moss/SitinaHub")
+        deployment_root = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
         targets = {
             Path(operation["target_path"])
             for operation in json.loads(
@@ -10889,7 +10877,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     source_root=REPOSITORY_ROOT,
                     deployment_root=deployment_root,
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     live_target_expectation="NONE",
                 )
             )
@@ -10899,7 +10887,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     source_root=REPOSITORY_ROOT,
                     deployment_root=deployment_root,
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     live_target_expectation="UNKNOWN",
                 )
             )
@@ -10909,7 +10897,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     source_root=REPOSITORY_ROOT,
                     deployment_root=deployment_root,
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     live_target_expectation="PREIMAGE",
                 )
 
@@ -10963,9 +10951,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                     step7_gate._failed_preapply_revocation_is_valid(
                         document,
                         source_root=REPOSITORY_ROOT,
-                        deployment_root=Path("/Users/moss/SitinaHub"),
+                        deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                         source_state=source_state,
-                        anchor_root=Path("/Users/moss/.codex/sessions"),
+                        anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     )
                 )
 
@@ -10978,7 +10966,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
         original_sha256 = step7_gate._sha256
 
         def drift_one_preimage(path: Path) -> str:
-            if path == Path("/Users/moss/SitinaHub/scripts/test-bplus.py"):
+            if path == Path((_SITINA_ACCOUNT_HOME + '/SitinaHub/scripts/test-bplus.py')):
                 return "0" * 64
             return original_sha256(path)
 
@@ -10991,9 +10979,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 step7_gate._failed_preapply_revocation_is_valid(
                     document,
                     source_root=REPOSITORY_ROOT,
-                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                 )
             )
 
@@ -11118,9 +11106,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             step7_gate._rejected_topology_revocation_is_valid(
                 value,
                 source_root=REPOSITORY_ROOT,
-                deployment_root=Path("/Users/moss/SitinaHub"),
+                deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                 source_state=source_state,
-                anchor_root=Path("/Users/moss/.codex/sessions"),
+                anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
             )
         )
         self.assertTrue(validate(document))
@@ -11263,9 +11251,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
             "authorization_chain": {
                 "source_user_record": {
                     "session_path": (
-                        "/Users/moss/.codex/sessions/2026/07/20/"
-                        "rollout-2026-07-20T14-42-51-"
-                        "019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl"
+                        (_SITINA_ACCOUNT_HOME + '/.codex/sessions/2026/07/20/rollout-2026-07-20T14-42-51-019f810d-78fe-75d2-8efd-d43fccbd82d7.jsonl')
                     ),
                     "session_id": step7_gate.STEP7_SOURCE_THREAD_ID,
                     "session_meta_raw_sha256": (
@@ -11371,8 +11357,7 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 },
                 "deployment_policy": {
                     "path": (
-                        "/Users/moss/SitinaHub/"
-                        f"{step7_gate.POLICY_RELATIVE_PATH}"
+                        f'{_SITINA_ACCOUNT_HOME}/SitinaHub/{step7_gate.POLICY_RELATIVE_PATH}'
                     ),
                     "sha256": policy_sha256,
                 },
@@ -11454,9 +11439,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
             step7_gate._interrupted_prebackup_revocation_is_valid(
                 value,
                 source_root=REPOSITORY_ROOT,
-                deployment_root=Path("/Users/moss/SitinaHub"),
+                deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                 source_state=source_state,
-                anchor_root=Path("/Users/moss/.codex/sessions"),
+                anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                 live_target_expectation="NONE",
             )
         )
@@ -11481,9 +11466,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 step7_gate._interrupted_prebackup_revocation_is_valid(
                     document,
                     source_root=REPOSITORY_ROOT,
-                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     live_target_expectation="NONE",
                 )
             )
@@ -11491,9 +11476,9 @@ class Step7ReadinessGateTests(unittest.TestCase):
                 step7_gate._interrupted_prebackup_revocation_is_valid(
                     document,
                     source_root=REPOSITORY_ROOT,
-                    deployment_root=Path("/Users/moss/SitinaHub"),
+                    deployment_root=Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')),
                     source_state=source_state,
-                    anchor_root=Path("/Users/moss/.codex/sessions"),
+                    anchor_root=Path((_SITINA_ACCOUNT_HOME + '/.codex/sessions')),
                     live_target_expectation="PREIMAGE",
                 )
         mutations = (

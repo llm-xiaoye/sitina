@@ -8,6 +8,11 @@ frontier.  Evidence is written outside the target installation.
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -44,7 +49,7 @@ from sitina.security.macos_keychain import (
 from sitina.storage import DisabledLegacyStore, LegacyRuntimePolicy
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 FEATURES = (
     ("agent_context_v2_write", ("agent-context-v2",)),
     ("memory_v1_write", ("memory-v1",)),

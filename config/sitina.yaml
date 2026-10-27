@@ -19,7 +19,7 @@
     "bplus_effect_shadow_enabled": false
   },
   "effects": {
-    "activation_level": "MOCK_ONLY",
+    "activation_level": "LIVE",
     "live_capability_authorized": false,
     "adapter_manifest_set": "config/effect_adapters.mock.json",
     "max_physical_sends_per_attempt": 1,
@@ -35,10 +35,16 @@
     "busy_timeout_ms": 5000
   },
   "context": {
-    "source_priority": ["source_code", "project_docs", "obsidian", "official_web", "general_web"],
+    "source_priority": [
+      "source_code",
+      "project_docs",
+      "obsidian",
+      "official_web",
+      "general_web"
+    ],
     "untrusted_nonce_required": true,
     "obsidian": {
-      "vaults": ["/Users/moss/Documents/obsidian"],
+      "vaults": [],
       "incremental_index": true,
       "line_based_citations": true,
       "max_results": 10
@@ -52,41 +58,66 @@
     "backup_excludes_tokens": true
   },
   "providers": {
-    "default_mode": "mock",
-    "live_requires_explicit_flag": true,
+    "default_mode": "live",
+    "live_requires_explicit_flag": false,
     "schema_repair_attempts": 0,
-    "fallback_profiles": ["deepseek"],
+    "fallback_profiles": [
+      "deepseek"
+    ],
     "fallback_profiles_by_agent": {
-      "controller": ["deepseek"],
-      "planner": ["deepseek"],
-      "tester": ["deepseek"],
-      "reviewer": ["deepseek"],
-      "summary": ["deepseek"],
-      "coder": ["deepseek"]
+      "controller": [
+        "deepseek"
+      ],
+      "planner": [
+        "deepseek"
+      ],
+      "tester": [
+        "deepseek"
+      ],
+      "reviewer": [
+        "deepseek"
+      ],
+      "summary": [
+        "deepseek"
+      ],
+      "coder": [
+        "deepseek"
+      ]
     },
-    "fallback_on_http_status": [429, 500, 502, 503, 504],
-    "health_profiles": ["gpt", "qwen", "minimax", "deepseek"],
+    "fallback_on_http_status": [
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "health_profiles": [
+      "gpt",
+      "qwen",
+      "minimax",
+      "deepseek"
+    ],
     "health_check_interval_seconds": 3600,
     "health_unavailable_ttl_seconds": 900,
-    "connect_timeout_seconds": 10,
-    "read_timeout_seconds": 120,
-    "total_request_timeout_seconds": 120,
-    "run_deadline_seconds": 900,
+    "connect_timeout_seconds": 30,
+    "read_timeout_seconds": 600,
+    "total_request_timeout_seconds": 600,
+    "run_deadline_seconds": 3600,
     "retry_backoff_seconds": 1,
     "retry_max_backoff_seconds": 60,
     "retry_jitter_ratio": 0.2,
-    "max_provider_retries": 1,
+    "max_provider_retries": 3,
     "max_live_agents_per_run": 24,
     "max_live_agents_per_round": 8,
     "max_live_proposers": 2,
     "max_live_evaluators": 2,
-    "max_live_rounds": 2,
-    "max_live_revisions": 1,
-    "max_live_debate_rounds": 1,
-    "max_live_retries": 1,
-    "max_live_tokens_per_agent": 4096,
-    "max_live_tokens_per_run": 24000,
-    "max_live_seconds_per_agent": 120,
-    "max_live_seconds_per_run": 900
+    "max_live_rounds": 3,
+    "max_live_revisions": 2,
+    "max_live_debate_rounds": 2,
+    "max_live_retries": 2,
+    "max_live_tokens_per_agent": 16384,
+    "max_live_tokens_per_run": 100000,
+    "max_live_seconds_per_agent": 180,
+    "max_live_seconds_per_run": 1800
   }
 }

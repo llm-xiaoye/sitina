@@ -1511,7 +1511,7 @@ Cutover 后不得重新启用 Legacy SQLite/JSON/JSONL Writer，不得独立 Dua
 - 目标规范：`docs/superpowers/specs/2026-07-13-sitina-bplus-data-architecture-design.md`。
 - 当前项目不是 Git 仓库；执行前必须由用户决定是否初始化 Git 或采用等价变更审计。计划中的 Commit 步骤只有在 Git 初始化后执行。
 - 修改任何现有文件前必须有 Source-only Baseline；Production 数据/状态备份必须位于受控、加密或权限隔离位置，不得把 Secret 或 Runtime State 复制进源码仓库。
-- Phase -1 未通过前，任何测试不得运行在 `/Users/moss/SitinaHub` Production Home。
+- Phase -1 未通过前，任何测试不得运行在 `~/SitinaHub` Production Home。
 - Shadow、Fixture、Replay、`MigrationWorkspaceRoot` 和 Production Journal 使用不同 Physical Root、Journal Identity 和 Key Namespace；Shadow/Workspace 不得提升为 Production。获验的迁移 provenance/control 只写 `ProductionMigrationControlStream`。
 - Legacy 与 B+ 并存时 Authority Writer 数量只能为零或一；Cutover prepared/unknown/recovery 状态必须为零。
 - Writer Authority 只由获验的 Authority Control facts/Cutover Outcome 解析；Phase enum、CLI flag、Feature Flag、Readiness Report 或文件存在性都不能选择 Writer。
@@ -1655,9 +1655,9 @@ Existing large modules such as `orchestrator/engine.py` remain compatibility coo
 Every Phase must use the approved Phase -1 runner. Bare `python3` and Production Home are forbidden:
 
 ```bash
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py unit_fast
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py integration_isolated
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py crash_fault --phase <authorized-phase>
+<approved-python> ~/SitinaHub/scripts/test-bplus.py unit_fast
+<approved-python> ~/SitinaHub/scripts/test-bplus.py integration_isolated
+<approved-python> ~/SitinaHub/scripts/test-bplus.py crash_fault --phase <authorized-phase>
 ```
 
 Expected: all applicable existing and new tests pass in a disposable Test Home; Production sentinel hashes/size/mtime remain unchanged；tests using real providers remain disabled unless explicitly authorized。
@@ -1756,14 +1756,14 @@ No implementation task in this plan authorizes execution by itself. Each Phase r
 
 **Goal:** 在不改变 Sitina 现有 Runtime、Legacy Authority、数据和外部行为的前提下，通过受限 Bootstrap V0 建立可复现解释器与依赖，再生成正式 Execution Manifest V1、隔离测试 Home、变更审计、执行授权契约和计划完整性工具，使后续 Phase 可以被 Codex 安全、分段、可验证地执行。
 
-**Architecture:** Phase -1 只建立施工控制面。Production Home `/Users/moss/SitinaHub` 始终只读；所有测试、Crash Injection、Fixture Run、Shadow Journal 和临时数据库必须位于一次性 Test Home。现有 Legacy 功能作为兼容性 Oracle 保留，不在本阶段重构。
+**Architecture:** Phase -1 只建立施工控制面。Production Home `~/SitinaHub` 始终只读；所有测试、Crash Injection、Fixture Run、Shadow Journal 和临时数据库必须位于一次性 Test Home。现有 Legacy 功能作为兼容性 Oracle 保留，不在本阶段重构。
 
 **Tech Stack:** 固定 Python 3.12 Profile、Pydantic v2、经批准并锁定的密码库、标准依赖锁、`unittest` 分层 Runner、Git 或等价内容寻址变更审计、Canonical JSON Execution Manifest。
 
 ## Global Constraints
 
 - Phase -1 不创建 Canonical Journal、CAS、Projection 或 Shadow Business Event。
-- 不运行会把 `SITINA_HOME` 解析为 `/Users/moss/SitinaHub` 的测试。
+- 不运行会把 `SITINA_HOME` 解析为 `~/SitinaHub` 的测试。
 - 不修改、重建、Checkpoint、Vacuum 或扫描写入 Production SQLite。
 - 不写 Production `logs/`、`state/`、`artifacts/`、`outputs/`、`memory/` 或 `backups/`。
 - 不调用真实 Provider、MCP、Tool、Git Push、Publication 或外部 Mutation。
@@ -2021,7 +2021,7 @@ Phase -1 completion authorizes neither Phase 0 implementation nor any Production
 ## Global Constraints
 
 - 不执行 Authority Cutover。
-- 不删除、重写、Vacuum 或重建 `/Users/moss/SitinaHub/data/sitina.db`。
+- 不删除、重写、Vacuum 或重建 `~/SitinaHub/data/sitina.db`。
 - 不修改现有 JSONL、Checkpoint、Manifest、Replay Snapshot、Blackboard 或 Evidence Bundle。
 - Production Commands 继续走 Legacy Writer；Shadow 只读取。
 - 所有源码修改受 Phase -1 Source-only Baseline 保护；不得把 Runtime State 或 Secret 复制进源码备份。
@@ -2072,7 +2072,7 @@ def test_legacy_source_record_requires_provenance():
 Run:
 
 ```bash
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py unit_fast --test tests/test_legacy_compatibility.py
+<approved-python> ~/SitinaHub/scripts/test-bplus.py unit_fast --test tests/test_legacy_compatibility.py
 ```
 
 Expected: import failure for `sitina.legacy.model`.

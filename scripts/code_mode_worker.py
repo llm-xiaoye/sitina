@@ -9,6 +9,8 @@ workspace and treats every response as untrusted observation.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -246,12 +248,27 @@ def execute(request: Mapping[str, Any]) -> dict[str, Any]:
         content = request.get("content")
         if not isinstance(content, str):
             raise PermissionError("worker write content is invalid")
+        encoding = request.get("content_encoding", "utf-8")
+        if encoding == "utf-8":
+            content_bytes = content.encode("utf-8")
+        elif encoding == "base64":
+            try:
+                content_bytes = base64.b64decode(content, validate=True)
+                if base64.b64encode(content_bytes).decode("ascii") != content:
+                    raise ValueError("noncanonical base64")
+            except (binascii.Error, ValueError, UnicodeError):
+                raise PermissionError("worker base64 content is invalid") from None
+        else:
+            raise PermissionError("worker content encoding is invalid")
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name("." + path.name + ".sitina-worker-tmp")
-        temp.write_text(content, encoding="utf-8")
+        if encoding == "base64":
+            temp.write_bytes(content_bytes)
+        else:
+            temp.write_text(content, encoding="utf-8")
         os.replace(temp, path)
         return _result("ok", operation=operation, path=str(path), before_hash=before,
-                       after_hash=_path_hash(path), content_sha256=_hash_bytes(content.encode("utf-8")))
+                       after_hash=_path_hash(path), content_sha256=_hash_bytes(content_bytes))
     if operation == "delete":
         path = _safe_path(request.get("path"), root, allow_missing=True)
         if path == root or path.is_dir() or path.is_symlink():

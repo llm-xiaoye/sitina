@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 MANIFEST_HASH = "8e96dd7a3e4d83190e968b99c8877c4467e6eb39bb2783a00fa9fc6ebf6c72df"
 PHASE0_ACCEPTANCE = "c6b359afad4af52c3692ad51d35d03080046ec130e02fa16f8d41d977d93c008"
 PHASE0_CONTENT = "b2a6add265318b7308626b971a1c0471bb4cee38cd9eada39524230b09ac46ed"
@@ -57,7 +62,7 @@ class Phase1KernelAcceptanceTests(unittest.TestCase):
         content = load("sitina-bplus-content-manifest-phase1.json")
         entries = {entry["path"]: entry["sha256"] for entry in content["entries"]}
         for item in freeze["files"]:
-            relative = Path(item["path"]).relative_to("/Users/moss/SitinaHub").as_posix()
+            relative = Path(item["path"]).relative_to((_SITINA_ACCOUNT_HOME + '/SitinaHub')).as_posix()
             self.assertEqual(entries[relative], item["sha256"])
 
     def test_red_green_evidence_and_all_regression_layers_pass(self) -> None:
@@ -95,7 +100,7 @@ class Phase1KernelAcceptanceTests(unittest.TestCase):
         content = load("sitina-bplus-content-manifest-phase1.json")
         self.assertEqual(canonical_hash(content, "manifest_sha256"), content["manifest_sha256"])
         self.assertEqual(content["previous_manifest_hash"], f"sha256:{PHASE0_CONTENT}")
-        self.assertEqual(content["root"], "/Users/moss/SitinaHub")
+        self.assertEqual(content["root"], (_SITINA_ACCOUNT_HOME + '/SitinaHub'))
         paths = {entry["path"] for entry in content["entries"]}
         for expected in ("core/sitina/journal/local.py", "core/sitina/cas/local.py", "core/sitina/projections/runner.py", "docs/journal-kernel-operations.md", "tests/test_phase1_kernel_acceptance.py"):
             self.assertIn(expected, paths)
@@ -116,7 +121,7 @@ class Phase1KernelAcceptanceTests(unittest.TestCase):
 
     def test_acceptance_process_is_disposable(self) -> None:
         home = Path(os.environ["SITINA_HOME"])
-        self.assertNotEqual(home, Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(home, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
         self.assertTrue((home / ".sitina-bplus-disposable-v1").is_file())
 
 

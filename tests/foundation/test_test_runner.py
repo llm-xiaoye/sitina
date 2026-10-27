@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import json
 import hashlib
 import io
@@ -194,7 +199,7 @@ class LayeredRunnerTests(unittest.TestCase):
 
     def test_child_process_sees_disposable_home(self) -> None:
         home = Path(os.environ["SITINA_HOME"]).resolve()
-        self.assertNotEqual(home, Path("/Users/moss/SitinaHub").resolve())
+        self.assertNotEqual(home, Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')).resolve())
         self.assertTrue((home / ".sitina-bplus-disposable-v1").is_file())
 
     def test_application_guard_denies_fake_production_mutation(self) -> None:

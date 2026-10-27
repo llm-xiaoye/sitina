@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import json
@@ -18,9 +23,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHON = Path(
-    "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+    _sitina_sys.executable
 )
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 MARKER = ".sitina-bplus-disposable-v1"
 
 

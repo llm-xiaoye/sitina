@@ -16,7 +16,7 @@ core/sitina/orchestrator/engine.py    # run/ask integration
 Profiles live in:
 
 ```text
-/Users/moss/SitinaHub/profiles/*.env
+~/SitinaHub/profiles/*.env
 ```
 
 Required fields:
@@ -35,7 +35,7 @@ does not print token values.
 Role mapping lives in:
 
 ```text
-/Users/moss/SitinaHub/config/roles.env
+~/SitinaHub/config/roles.env
 ```
 
 Current test mapping:
@@ -127,7 +127,7 @@ they are the configured secret source, not a persistence leak.
 Default command:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina run --provider-mode mock "smoke test"
+~/SitinaHub/bin/sitina run --provider-mode mock "smoke test"
 ```
 
 Mock mode uses `MockProvider`, but still exercises:
@@ -145,7 +145,7 @@ Mock mode uses `MockProvider`, but still exercises:
 Live role mapping:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina run --provider-mode live "task"
+~/SitinaHub/bin/sitina run --provider-mode live "task"
 ```
 
 The current local test mapping can route all roles to `deepseek`. A production
@@ -156,7 +156,7 @@ configuration choices, not as a correctness requirement.
 Temporary profile overrides:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina run --provider-mode live \
+~/SitinaHub/bin/sitina run --provider-mode live \
   --profile-override controller=deepseek \
   --profile-override planner=deepseek \
   --profile-override tester=deepseek \
@@ -182,7 +182,7 @@ same run.
 ## Single-Profile Smoke
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina provider smoke deepseek
+~/SitinaHub/bin/sitina provider smoke deepseek
 ```
 
 Confirmed:
@@ -227,7 +227,7 @@ phase: awaiting_approval
 Approve and continue:
 
 ```bash
-/Users/moss/SitinaHub/bin/sitina approve-run <run_id>
+~/SitinaHub/bin/sitina approve-run <run_id>
 ```
 
 The approval flow:

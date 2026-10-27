@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import unittest
 
 from sitina.legacy.cutover_contracts import CutoverCommandIdentity, READINESS_PREDICATE_IDS
@@ -23,6 +28,6 @@ class CutoverDryRunTests(unittest.TestCase):
         bad=inputs(); bad[READINESS_PREDICATE_IDS[0]]=False
         with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"predicates":bad})
         with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"operators":("o1",)})
-        with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"allowed_paths":("/Users/moss/SitinaHub/data",)})
+        with self.assertRaises(MaintenanceManifestError): MaintenanceManifestBuilder().build_candidate(**{**base,"allowed_paths":((_SITINA_ACCOUNT_HOME + '/SitinaHub/data'),)})
 
 if __name__ == "__main__": unittest.main()

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from sitina.schemas.models import CommonAgentOutput, validate_agent_output
 from sitina.runners.prompt_contracts import PromptContractError, PromptContractRegistry
+from sitina.runners.provider import parse_complete_json_object
 
 
 class AgentParseError(ValueError):
@@ -32,11 +33,14 @@ class AgentOutputParser:
                 self.contract_registry.validate_output_payload(agent, payload)
             output = validate_agent_output(agent, payload)
         except ValidationError as exc:
-            raise AgentParseError(f"{agent} output schema_error: {exc}") from exc
-        except ValueError as exc:
-            raise AgentParseError(f"{agent} output schema_error: {exc}") from exc
-        except PromptContractError as exc:
-            raise AgentParseError(f"{agent} output prompt_contract_error: {exc}") from exc
+            # Pydantic's formatted error includes input values. Keep locations
+            # and error types useful for correction without logging payloads.
+            issues = [{"loc": item["loc"], "type": item["type"]} for item in exc.errors()]
+            raise AgentParseError(f"{agent} output schema_error: {issues}") from None
+        except PromptContractError:
+            raise AgentParseError(f"{agent} output prompt_contract_error") from None
+        except ValueError:
+            raise AgentParseError(f"{agent} output schema_error") from None
         return ParsedAgentOutput(output=output, payload=output.model_dump())
 
     def parse_single_json(self, text: str) -> dict[str, Any]:
@@ -45,9 +49,15 @@ class AgentOutputParser:
         if fenced:
             stripped = fenced.group(1).strip()
         try:
-            payload = json.loads(stripped)
+            payload = parse_complete_json_object(stripped)
         except json.JSONDecodeError as exc:
-            raise AgentParseError(f"agent output must be one JSON object: {exc}") from exc
+            # An incomplete response is not an executable decision. Never
+            # repair guessed syntax or expose response snippets in stderr.
+            raise AgentParseError(
+                f"agent output must be one complete JSON object (line {exc.lineno}, column {exc.colno})"
+            ) from None
+        except ValueError:
+            raise AgentParseError("agent output must be one unambiguous JSON object") from None
         if not isinstance(payload, dict):
             raise AgentParseError("agent output must be a JSON object")
         return payload

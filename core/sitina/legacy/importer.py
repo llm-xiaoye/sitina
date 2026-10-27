@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping
+from sitina.install_identity import LEGACY_PRODUCTION_HOME
 
 from sitina.journal.model import canonical_json_bytes, domain_hash, validate_identifier
 
@@ -46,7 +47,7 @@ class MigrationCandidate:
 class MigrationWorkspace:
     def __init__(self, root: Path):
         self.root=Path(root).resolve(strict=True)
-        if not (self.root/".sitina-bplus-migration-workspace-v1").is_file() or self.root==Path("/Users/moss/SitinaHub"):
+        if not (self.root/".sitina-bplus-migration-workspace-v1").is_file() or self.root==LEGACY_PRODUCTION_HOME:
             raise ImportError("migration requires an isolated marked workspace")
 
     def import_records(self, records: tuple[Mapping[str,object],...], *, snapshot_hash: str, conversion_rule_hash: str) -> MigrationCandidate:

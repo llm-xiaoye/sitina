@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -24,7 +29,7 @@ from sitina.security.key_provider import JournalAuthProvider
 from sitina.security.profile_exception import evaluate_deepseek_direct_storage_exception
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 GOAL_THREAD_ID = "019f7643-f34d-7911-9bd6-82722c165f2e"
 CANARY_MESSAGE = (
     "Return a concise confirmation that the production storage canary completed. "

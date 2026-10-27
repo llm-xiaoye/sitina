@@ -5,13 +5,16 @@ import ast
 import hashlib
 import json
 import os
+import re
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from sitina.legacy.fence import LegacyWriteDenied
 from sitina.install_identity import canonical_journal_native_home
+from sitina.journal.model import canonical_json_bytes  # ⭐ 添加导入
 from sitina.orchestrator.execution_bridge import (
     ExecutionIdentityBinding,
     VerificationVerdict,
@@ -22,6 +25,72 @@ from sitina.orchestrator.execution_sandbox import (
     SandboxResourceLimits,
     TestEvidencePublisher,
 )
+
+
+ARTIFACT_PROTOCOL_DOMAIN = b"CODE_MODE_ARTIFACT_READBACK_V1"
+ARTIFACT_POLICY_DOMAIN = b"CODE_MODE_ARTIFACT_READBACK_POLICY_V1"
+
+
+def _artifact_readback_observation(
+    diff_paths: Sequence[str],
+    expected_content_hashes: Mapping[str, str],
+) -> dict[str, Any]:
+    """Read each mutated path back off disk and hash its real bytes.
+
+    Nothing here is inferred from prose.  A path that cannot be read is
+    counted as unreadable; a path whose bytes disagree with a sealed
+    expectation is counted as mismatched.  The caller turns these real counts
+    into evidence, so an unreadable or mismatched path can only ever produce a
+    rejection.
+    """
+    from sitina.orchestrator.execution_sandbox import _sha256_bytes
+
+    readback: list[tuple[str, str]] = []
+    matched = 0
+    mismatched = 0
+    unreadable = 0
+    detail: list[str] = []
+    for value in sorted({str(item) for item in diff_paths}):
+        path = Path(value).expanduser()
+        try:
+            if path.is_symlink():
+                raise OSError("artifact path is a symlink")
+            resolved = path.resolve(strict=True)
+            if not resolved.is_file():
+                raise OSError("artifact path is not a regular file")
+            raw = resolved.read_bytes()
+        except (OSError, ValueError) as error:
+            unreadable += 1
+            readback.append((str(path), _sha256_bytes(b"")))
+            detail.append(f"unreadable artifact {path.name}: {type(error).__name__}")
+            continue
+        digest = _sha256_bytes(raw)
+        readback.append((str(resolved), digest))
+        expected = expected_content_hashes.get(str(resolved)) or expected_content_hashes.get(
+            resolved.name
+        )
+        if expected is not None and expected != digest:
+            mismatched += 1
+            detail.append(f"artifact bytes differ from the sealed expectation: {resolved.name}")
+            continue
+        if resolved.suffix == ".py":
+            # Parse the bytes that were actually read back.  A produced Python
+            # artifact that cannot be parsed is not a satisfied artifact.
+            try:
+                ast.parse(raw.decode("utf-8"))
+            except (SyntaxError, ValueError, UnicodeDecodeError) as error:
+                mismatched += 1
+                detail.append(f"artifact is not parseable Python: {resolved.name} ({type(error).__name__})")
+                continue
+        matched += 1
+    return {
+        "readback_hashes": tuple(readback),
+        "verified_path_count": len(readback),
+        "matched_path_count": matched,
+        "mismatched_path_count": mismatched,
+        "unreadable_path_count": unreadable,
+        "reasons": tuple(detail),
+    }
 
 
 def verify_execution_diff(
@@ -48,6 +117,8 @@ def verify_execution_diff(
     worker_executor: Any | None = None,
     execution_root: Path | str | None = None,
     baseline_test_inventory: Sequence[Mapping[str, Any] | str] = (),
+    acceptance_checks: Sequence[str] = (),
+    expected_artifact_hashes: Mapping[str, str] | None = None,
 ) -> VerificationVerdict:
     """Statically inspect the diff, then execute tests only in a qualified OS sandbox.
 
@@ -199,12 +270,170 @@ def verify_execution_diff(
         return verdict(
             False, checked_diff=True, checked_tests=False, reasons=tuple(reasons)
         )
+
+    # Artifact readback path: the goal produced concrete files but carries no
+    # executable test suite.  Evidence comes from reading the produced bytes
+    # back off disk -- never from the acceptance-check prose.  A missing
+    # publisher, an unreadable artifact, or bytes that disagree with a sealed
+    # expectation all become a structured rejection.
+    if not test_targets and diff_paths:
+        from sitina.orchestrator.execution_sandbox import (
+            ArtifactEvidence,
+            _canonical,
+            _sha256_bytes,
+            _sha256_file,
+            _utc_now,
+            hash_diff,
+        )
+
+        # An artifact readback is only evidence if there is an independently
+        # sealed expectation to read back *against*.  With no expected content
+        # hashes, the strongest available observation is "Forge wrote a file
+        # that parses", which says nothing about whether the produced bytes are
+        # the bytes the goal asked for.  Accepting on that basis is the hollow
+        # accept this branch must not reintroduce, so fail closed instead.
+        if not dict(expected_artifact_hashes or {}):
+            return verdict(
+                False,
+                checked_diff=True,
+                checked_tests=False,
+                reasons=(
+                    "artifact goal has no independently sealed expected content hashes",
+                ),
+            )
+        if evidence_publisher is None:
+            return verdict(
+                False,
+                checked_diff=True,
+                checked_tests=False,
+                reasons=("immutable artifact evidence publisher unavailable",),
+            )
+        started_at = _utc_now()
+        try:
+            evidence_paths = tuple(
+                Path(value).expanduser().resolve(strict=True) for value in diff_paths
+            )
+            diff_before, target_hashes = hash_diff(evidence_paths)
+            observation = _artifact_readback_observation(
+                diff_paths, dict(expected_artifact_hashes or {})
+            )
+            # Re-hash after readback: verification must not mutate the artifact.
+            diff_after, _ = hash_diff(evidence_paths)
+
+            empty_argv_hash = _sha256_bytes(_canonical([]))
+            protocol_key_hash = _sha256_bytes(ARTIFACT_PROTOCOL_DOMAIN)
+            policy_hash = _sha256_bytes(ARTIFACT_POLICY_DOMAIN)
+            response_hash = _sha256_bytes(_canonical(dict(observation)))
+            capability_id = _sha256_bytes(
+                _canonical(
+                    {
+                        "run_id": run_id or f"verification-{verifier_id}",
+                        "attempt": forge_attempt,
+                        "artifact_readback": True,
+                    }
+                )
+            )
+            runner_hash = _sha256_file(Path(sys.executable))
+            worker_hash = _sha256_file(Path(__file__))
+            root = str(execution_root or Path.cwd())
+            expected_pairs = tuple(
+                sorted((str(key), str(value)) for key, value in dict(expected_artifact_hashes or {}).items())
+            )
+
+            evidence_values: dict[str, Any] = {
+                "run_id": run_id or f"verification-{verifier_id}",
+                "artifact_plan_hash": _sha256_bytes(canonical_json_bytes(list(acceptance_checks))),
+                "diff_hash_before": diff_before,
+                "diff_hash_after": diff_after,
+                "target_hashes": target_hashes,
+                "readback_hashes": observation["readback_hashes"],
+                "expected_content_hashes": expected_pairs,
+                "verified_path_count": observation["verified_path_count"],
+                "matched_path_count": observation["matched_path_count"],
+                "mismatched_path_count": observation["mismatched_path_count"],
+                "unreadable_path_count": observation["unreadable_path_count"],
+                "execution_performed": False,
+                "execution_return_code": 0,
+                "execution_timed_out": False,
+                "execution_stdout_hash": _sha256_bytes(b""),
+                "execution_stderr_hash": _sha256_bytes(b""),
+                "expected_stdout_hash": _sha256_bytes(b""),
+                "stdout_matched": False,
+                "runner_executable_hash": runner_hash,
+                "python_executable_hash": runner_hash,
+                "worker_hash": worker_hash,
+                "argv_hash": empty_argv_hash,
+                "sandbox_policy_hash": policy_hash,
+                "sandbox_provider_id": "artifact-readback-verifier",
+                "sandbox_capability_id": capability_id,
+                "identity": identity_binding,
+                "controller_protocol_response_present": True,
+                "controller_protocol_key_hash": protocol_key_hash,
+                "controller_response_hash": response_hash,
+                "cwd": root,
+                "read_roots": (root,),
+                "write_roots": (root,),
+                "resource_limits": tuple(),
+                "started_at": started_at,
+                "finished_at": _utc_now(),
+                "duration_milliseconds": 0,
+                "runner_argv": (),
+            }
+            evidence_values["controller_attestation_hash"] = _sha256_bytes(
+                _canonical(
+                    {
+                        "schema": "SITINA_SANDBOX_ARTIFACT_ATTESTATION_V1",
+                        "controller_identity": capability_id,
+                        "diff_hash": diff_before,
+                        "artifact_plan_hash": evidence_values["artifact_plan_hash"],
+                        "execution_identity_hash": identity_binding.binding_hash,
+                        "protocol_key_hash": protocol_key_hash,
+                        "response_hash": response_hash,
+                        "worker_hash": worker_hash,
+                        "argv_hash": empty_argv_hash,
+                        "readback_hashes": [
+                            [path, digest] for path, digest in observation["readback_hashes"]
+                        ],
+                        "execution_performed": False,
+                        "execution_return_code": 0,
+                        "execution_timed_out": False,
+                        "stdout_hash": _sha256_bytes(b""),
+                        "protocol_response_present": True,
+                    }
+                )
+            )
+            evidence = ArtifactEvidence(**evidence_values)
+            evidence_ref = evidence_publisher.publish(
+                evidence.canonical_bytes(), evidence_hash=evidence.evidence_hash
+            )
+        except (OSError, UnicodeError, ValueError, TypeError, ExecutionSandboxError) as error:
+            return verdict(
+                False,
+                checked_diff=True,
+                checked_tests=False,
+                reasons=(f"artifact readback verification unavailable ({type(error).__name__})",),
+            )
+        return verdict(
+            evidence.accepted,
+            checked_diff=True,
+            checked_tests=evidence.verification_complete,
+            reasons=() if evidence.accepted else (
+                observation["reasons"] or ("artifact readback evidence rejected",)
+            ),
+            test_evidence_ref=evidence_ref,
+            test_evidence_hash=evidence.evidence_hash,
+        )
+
     if not test_targets:
+        # Unreachable in practice: an empty diff rejected above, and a non-empty
+        # diff without test targets is answered by the artifact readback path.
+        # Kept as a fail-closed floor so a future edit cannot fall through into
+        # an acceptance that references no evidence.
         return verdict(
             False,
             checked_diff=True,
             checked_tests=False,
-            reasons=("no executable test evidence (no doctest/test_*.py)",),
+            reasons=("no executable test evidence and no artifact readback evidence",),
         )
     if worker_executor is not None:
         from sitina.orchestrator.execution_sandbox import (

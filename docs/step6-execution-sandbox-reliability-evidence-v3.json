@@ -10,7 +10,7 @@
     "previous_pass_reused": false
   },
   "source": {
-    "worktree": "/Users/moss/Desktop/sitina/source-worktree",
+    "worktree": "~/Desktop/sitina/source-worktree",
     "branch": "codex/step6-execution-sandbox",
     "parent_commit": "2b9eb3aa014957d680be093dc455473162267438",
     "implementation_diff_sha256": "3c5122343a692ac9b34461e1b61cfba7b14ff85431af1d2ee2357bd403b7f931",
@@ -90,7 +90,7 @@
   },
   "isolated_gates": {
     "suite_registry": "tests/test_suites.json",
-    "approved_python": "/Users/moss/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "approved_python": "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
     "fresh_nonproduction_homes": true,
     "execution_activation_gate": {
       "collected": 57,
@@ -138,7 +138,7 @@
   },
   "production_sentinels": {
     "capture_mode": "RAW_BYTES_READ_ONLY_NO_SQLITE_NO_JSON_PARSE",
-    "production_home": "/Users/moss/SitinaHub",
+    "production_home": "~/SitinaHub",
     "goal_thread_id": "019f5c6b-3083-7860-b45b-c8b487c4e3ab",
     "v1_before": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
     "v1_after_tests": "2d969412a9fab8fcb37cc3aed74e256f2ddcd606bb6dd41ae5404017fb43a50f",
@@ -153,13 +153,13 @@
   },
   "real_sitina_readonly_review": {
     "review_packet": {
-      "path": "/Users/moss/Desktop/sitina/output/sitina-step6-type-params-review-packet-20260722T114902Z.json",
+      "path": "~/Desktop/sitina/output/sitina-step6-type-params-review-packet-20260722T114902Z.json",
       "sha256": "81eba91d5ebaf8778afc31731636bb5c3d28fb8805039e955ee24d3d91235425"
     },
     "runtime": "sitina-autonomous-extensions-v1",
     "model": "deepseek-v4-pro",
     "run_id": "agent-run-1d6b846984b740c6bd26294efa860fc3",
-    "audit_path": "/Users/moss/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-1d6b846984b740c6bd26294efa860fc3.jsonl",
+    "audit_path": "~/Desktop/sitina/output/sitina-real-reviews/runs/agent-run-1d6b846984b740c6bd26294efa860fc3.jsonl",
     "audit_sha256": "9b1afa1cee360b1654def6de53bdcbf50ddce1045ed55d28466b797f8aec593c",
     "provider_calls": 2,
     "input_tokens": 5191,

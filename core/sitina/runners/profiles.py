@@ -4,8 +4,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from sitina.constants import SITINA_HOME
+from sitina.legacy.fence import (
+    FrozenNetworkEgressCapability, _authorize_network_credential, _bind_network_credential,
+)
 from sitina.security.macos_keychain import KeychainBackend, SecurityFrameworkKeychainBackend
-from sitina.utils import chmod_octal, is_secret_name
+from sitina.utils import chmod_octal
 
 
 class ProfileSecretError(PermissionError):
@@ -15,6 +18,12 @@ class ProfileSecretError(PermissionError):
 class ProfileLoader:
     TOKEN_KEY = "ANTHROPIC_AUTH_TOKEN"
     TOKEN_REF_KEY = "ANTHROPIC_AUTH_TOKEN_REF"
+    TOKEN_KEYS = (
+        "SITINA_PROVIDER_AUTH_TOKEN",
+        "ANTHROPIC_AUTH_TOKEN",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+    )
 
     def __init__(self, home: Path = SITINA_HOME, *, keychain_backend: KeychainBackend | None = None):
         self.home = home
@@ -63,7 +72,7 @@ class ProfileLoader:
 
     @classmethod
     def _inspect_env_security(cls, profile_name: str, env: dict[str, str]) -> dict[str, object]:
-        literal_present = bool(env.get(cls.TOKEN_KEY))
+        literal_present = any(env.get(key) for key in cls.TOKEN_KEYS)
         reference = env.get(cls.TOKEN_REF_KEY, "")
         reference_valid = False
         reference_error: str | None = None
@@ -110,8 +119,15 @@ class ProfileLoader:
             "secret_values_included": False,
         }
 
-    def _resolve_keychain_reference(self, reference: str) -> str:
+    def _resolve_keychain_reference(
+        self, reference: str, *, capability: FrozenNetworkEgressCapability | None,
+        profile_name: str, host: str,
+    ) -> str:
         service, account = self._parse_keychain_reference(reference)
+        _authorize_network_credential(
+            capability, host=host, provider_name=profile_name,
+            credential_reference=reference,
+        )
         backend = self._keychain_backend
         if backend is None:
             backend = SecurityFrameworkKeychainBackend()
@@ -127,23 +143,59 @@ class ProfileLoader:
             raise ProfileSecretError("Provider credential in macOS Keychain is empty")
         return value
 
-    def load_env(self, profile_name: str) -> dict[str, str]:
-        env = self._raw_env(profile_name)
-        literal = env.get(self.TOKEN_KEY, "")
+    def _credential_scope(self, profile_name: str, env: dict[str, str]) -> dict[str, str]:
+        base_url = next((env.get(key) for key in (
+            "SITINA_PROVIDER_BASE_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "DEEPSEEK_BASE_URL"
+        ) if env.get(key)), "")
+        parsed = urlsplit(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ProfileSecretError("Provider credential scope requires an exact HTTP host")
+        source_path = str((self.profile_dir / f"{profile_name}.env").resolve(strict=True))
+        literals = [key for key in self.TOKEN_KEYS if env.get(key)]
         reference = env.get(self.TOKEN_REF_KEY, "")
-        # Explicit local-profile compatibility: a mode-0600 profile may carry
-        # the token directly. Security audit/doctor continues to flag this
-        # posture, and ambiguous literal-plus-reference profiles fail closed.
-        if literal and not reference:
-            return env
-        security = self._inspect_env_security(profile_name, env)
-        if security["status"] != "ok":
-            codes = ",".join(str(item) for item in security["findings"])
-            raise ProfileSecretError(f"unsafe Provider profile {profile_name}: {codes}")
-        reference = env.pop(self.TOKEN_REF_KEY)
-        env[self.TOKEN_KEY] = self._resolve_keychain_reference(reference)
+        if reference:
+            self._parse_keychain_reference(reference)
+            if literals:
+                raise ProfileSecretError("Provider credential source is ambiguous")
+        else:
+            if len(literals) != 1:
+                raise ProfileSecretError("Provider credential scope requires one declared reference")
+            reference = "profile-file:" + source_path + "#" + literals[0]
+        return {
+            "provider_name": profile_name, "host": parsed.hostname.lower(),
+            "credential_reference": reference, "source_path": source_path,
+        }
+
+    def _authorization_metadata(self, profile_name: str) -> dict[str, str]:
+        """Return only the configured non-secret credential and host binding."""
+        return self._credential_scope(profile_name, self._raw_env(profile_name))
+
+    def load_env(
+        self, profile_name: str, *,
+        network_egress_capability: FrozenNetworkEgressCapability | None = None,
+    ) -> dict[str, str]:
+        if network_egress_capability is None:
+            raise ProfileSecretError("Provider credential use requires an issued capability")
+        env = self._raw_env(profile_name)
+        scope = self._credential_scope(profile_name, env)
+        _authorize_network_credential(
+            network_egress_capability, host=scope["host"], provider_name=profile_name,
+            credential_reference=scope["credential_reference"],
+        )
+        reference = env.get(self.TOKEN_REF_KEY, "")
+        if reference:
+            env.pop(self.TOKEN_REF_KEY)
+            env[self.TOKEN_KEY] = self._resolve_keychain_reference(
+                reference, capability=network_egress_capability,
+                profile_name=profile_name, host=scope["host"],
+            )
+        token = next(env[key] for key in self.TOKEN_KEYS if env.get(key))
+        _bind_network_credential(
+            network_egress_capability, host=scope["host"], provider_name=profile_name,
+            credential_reference=scope["credential_reference"], token=token,
+        )
         return env
 
     def safe_summary(self, profile_name: str) -> dict[str, str]:
         env = self._raw_env(profile_name)
-        return {k: ("<redacted>" if is_secret_name(k) else v) for k, v in env.items()}
+        return dict(env)

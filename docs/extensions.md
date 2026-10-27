@@ -1,9 +1,11 @@
 # Sitina-native Skills, Plugins, and autonomous tools
 
 Sitina has its own extension format. It does not install or interpret Claude
-Code or Codex plugin manifests. All extensions are global and live under
+Code or Codex plugin manifests. Installed extensions live under
 `$SITINA_EXTENSIONS_HOME`, or `~/.sitina/extensions` when the variable is not
-set. Every Sitina home and task sees the same active registry.
+set. Set this variable explicitly for independent installations and test
+instances. Global settings determine what a new task can bind; an existing
+native task retains its authenticated Skill versions.
 
 ## Runtime behavior
 
@@ -52,11 +54,19 @@ permissions are `read`, `write`, `shell`, `network`, and `external_service`.
 
 ### Skills
 
-Each Skill is `skills/<name>/SKILL.md`. Its frontmatter is JSON, not YAML:
+Each Skill is a directory containing `SKILL.md`. Plugin Skills use
+`skills/<name>/SKILL.md`; standalone Skills use the directory root. YAML
+frontmatter is supported, and existing `SITINA_SKILL_V1` JSON frontmatter
+remains compatible:
 
 ```markdown
 ---
-{"schema":"SITINA_SKILL_V1","name":"release_notes","description":"Creates release notes from changes.","triggers":["release notes","changelog"]}
+name: release_notes
+description: Creates release notes from changes.
+version: '1'
+triggers:
+  - release notes
+  - changelog
 ---
 Follow the repository's release-note structure. Read references/style.md when needed.
 ```
@@ -68,7 +78,31 @@ sources remain outside the prompt until the model calls
 `sitina_read_skill_resource`.
 
 Standalone global Skills use the same file format and can be installed without
-a Plugin.
+a Plugin. Descriptions and metadata support discovery; a task loads the body
+and resources only when needed. Skill instructions and `allowed-tools` metadata
+do not grant file, network, shell, or other execution permissions.
+
+The Skills page supports local directories, single `SKILL.md` files, ZIP
+packages, and anonymous public sources. For a Skill inside a GitHub repository,
+use `https://github.com/owner/repo/tree/<40-hex-commit>/path/to/skill`.
+The complete commit is required: branch names such as `main` are not pinned.
+The existing anonymous gateway downloads that commit's archive and installs
+the selected directory with its scripts, references, and assets. Sibling
+directories are not installed as part of that Skill. Root Git repositories
+and direct ZIP/Markdown sources remain supported; authenticated sources and
+fallback download routes are not introduced.
+
+Updating, disabling, enabling, and rolling back change the default for new
+task bindings. They do not replace a version already bound by an existing
+task. For example, a task bound to v1 keeps v1 after a global update to v2;
+a new task receives v2. Disabling prevents new bindings while retaining
+existing versions and their resources.
+
+Native tasks expose `sitina_task_skills` to inspect or load their pinned roster
+and to change task-local exclusions. An excluded Skill cannot be newly selected
+or loaded, and its resource root is removed from the task's available reads.
+History still records earlier use. Removing an exclusion restores access to
+the task's original pinned version, without changing global settings.
 
 ### Declarative command tools
 

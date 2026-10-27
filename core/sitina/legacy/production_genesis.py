@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping
+from sitina.install_identity import LEGACY_PRODUCTION_HOME
 
 from sitina.journal.model import canonical_json_bytes, domain_hash, validate_identifier
 
@@ -70,7 +71,7 @@ class ProductionGenesisBuilder:
         operator_id: str,
         feature_flags: Mapping[str, object] | None = None,
     ) -> GenesisArtifact:
-        if not (self.root / ".sitina-bplus-disposable-v1").is_file() or self.root == Path("/Users/moss/SitinaHub"):
+        if not (self.root / ".sitina-bplus-disposable-v1").is_file() or self.root == LEGACY_PRODUCTION_HOME:
             raise GenesisError("Phase 6A fixture genesis requires a marked disposable root")
         for value, field in ((installation_id,"installation_id"),(journal_id,"journal_id"),(key_namespace,"key_namespace"),(operator_id,"operator_id")):
             validate_identifier(value,field=field)

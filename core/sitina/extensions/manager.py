@@ -27,6 +27,11 @@ from sitina.extensions.spec import (
     read_json_object,
     validate_identifier,
 )
+from sitina.extensions.authority import (
+    CandidatePreparationError,
+    ExtensionAuthority,
+    PreparedCandidate,
+)
 from sitina.legacy.fence import authorized_extension_effect
 from sitina.utils import iso_now, write_json
 
@@ -70,6 +75,287 @@ class ExtensionManager:
         self.plugins_root = self.root / "plugins"
         self.skills_root = self.root / "skills"
         self.audit_path = self.root / "audit.jsonl"
+        self._shared_authority: ExtensionAuthority | None = None
+
+    @property
+    def authority_bound(self) -> bool:
+        return (self.root / ".sitina-extension-authority-v1.json").is_file()
+
+    def bind_shared_authority(self, *, state_root: Path, backend: Any, store: Any | None = None) -> ExtensionAuthority:
+        """Bind this extension root to the existing Loop Journal/CAS writer.
+
+        The binding is persisted on the extension root, so another process
+        cannot silently select the same root from a different state root and
+        form a second authority.  The manager's legacy mutation methods are
+        closed as soon as this succeeds.
+        """
+
+        if store is not None:
+            raise ExtensionInstallError(
+                "shared extension authority requires the LoopBackend bridge, not a raw Journal/CAS store"
+            )
+        self._shared_authority = ExtensionAuthority(
+            self.root,
+            state_root=Path(state_root),
+            backend=backend,
+            sitina_home=self.sitina_home,
+        )
+        return self._shared_authority
+
+    @property
+    def shared_authority(self) -> ExtensionAuthority:
+        if self._shared_authority is None:
+            raise ExtensionInstallError("extension root has no shared Journal/CAS authority client")
+        return self._shared_authority
+
+    def use_shared_authority(self, authority: ExtensionAuthority) -> ExtensionAuthority:
+        """Attach the existing global authority; never bind it to a task root."""
+        from .reader import ReadOnlyExtensionAuthority
+        if not isinstance(authority, ExtensionAuthority) or authority.extension_root != self.root:
+            raise ExtensionInstallError("shared authority belongs to another extension root")
+        check = ReadOnlyExtensionAuthority.from_authority(authority)
+        check.close()
+        self._shared_authority = authority
+        return authority
+
+    def open_shared_authority_reader(self, *, keychain_backend: Any | None = None,
+                                     sitina_home: Path | None = None) -> ExtensionAuthority:
+        """Open authenticated existing state without a writer lease or Host.
+
+        The caller may close the returned reader after use.  Its refreshable
+        key provider is only the existing Journal authentication provider.
+        """
+        from .reader import ReadOnlyExtensionAuthority
+        reader = ReadOnlyExtensionAuthority(self.root, sitina_home=sitina_home or self.sitina_home,
+                                           keychain_backend=keychain_backend)
+        self._shared_authority = reader
+        return reader
+
+    @staticmethod
+    def _skill_exclusions(values: Iterable[str]) -> list[str]:
+        if isinstance(values, (str, bytes)):
+            raise ExtensionInstallError("task Skill exclusions must be a list of qualified names")
+        names = list(values)
+        if any(not isinstance(name, str) or not re.fullmatch(
+                r"[a-z0-9][a-z0-9_-]{0,63}(?::[a-z0-9][a-z0-9_-]{0,63})?", name) for name in names):
+            raise ExtensionInstallError("task Skill exclusion name is invalid")
+        return sorted(set(names))
+
+    def _task_skill_authority(self):
+        from .reader import ReadOnlyExtensionAuthority
+        authority = self._shared_authority or self.open_shared_authority_reader()
+        return authority.refreshed() if isinstance(authority, ReadOnlyExtensionAuthority) else ReadOnlyExtensionAuthority.from_authority(authority)
+
+    @staticmethod
+    def _task_candidate_pin(authority, snapshot):
+        candidate_id = snapshot["candidate_id"] if isinstance(snapshot, Mapping) else snapshot.candidate_id
+        candidate = authority.candidate(candidate_id)
+        return {**{name: snapshot[name] if isinstance(snapshot, Mapping) else getattr(snapshot, name) for name in (
+            "candidate_id", "snapshot_id", "snapshot_hash", "location_binding", "tree_hash", "kind", "name",
+        )}, "version": str(candidate["version"])}
+
+    @staticmethod
+    def _task_candidate_skills(snapshot, version):
+        if snapshot.kind == "skill":
+            paths = [(snapshot.root / "SKILL.md", None)]
+        elif snapshot.kind == "plugin":
+            manifest = PluginManifest.load(snapshot.root)
+            directory = manifest.component_path("skills")
+            paths = [(path, manifest.name) for path in sorted(directory.glob("*/SKILL.md"))] if directory else []
+        else:
+            raise ExtensionInstallError("task Skill pin is not a Skill or Plugin candidate")
+        result = []
+        for path, plugin_name in paths:
+            skill = load_skill(path, plugin_name=plugin_name, metadata_only=True)
+            record = {"name": skill.name, "qualified_name": skill.qualified_name,
+                "description": skill.description, "triggers": list(skill.triggers),
+                "required_tools": list(skill.required_tools), "allowed_tools": list(skill.allowed_tools),
+                "plugin_name": plugin_name, "relative_path": path.relative_to(snapshot.root).as_posix(),
+                "candidate_id": snapshot.candidate_id, "snapshot_id": snapshot.snapshot_id, "version": version}
+            result.append((record, skill))
+        return result
+
+    @staticmethod
+    def _published_task_candidates(authority):
+        """Use authenticated selections; defer MCP runtime trust to that MCP call."""
+        projection = authority.load_projection()
+        selected = {}
+        for default in projection["defaults"].values():
+            if default.get("state") != "ACTIVE" or default.get("slot", {}).get("kind") not in {"skill", "plugin"}:
+                continue
+            publication = projection["publications"].get(default.get("publication_id"))
+            snapshot = publication.get("published") if isinstance(publication, Mapping) else None
+            if (not isinstance(snapshot, Mapping)
+                    or any(snapshot.get(key) != default.get(key) for key in ("candidate_id", "snapshot_id", "snapshot_hash"))
+                    or snapshot.get("kind") != default["slot"]["kind"]):
+                raise ExtensionInstallError("task extension publication binding is invalid")
+            selected[snapshot["candidate_id"]] = dict(snapshot)
+        return selected
+
+    @staticmethod
+    def _task_skill_execution_snapshot(authority, published):
+        bindings = published.get("bindings")
+        if not isinstance(bindings, Mapping):
+            raise ExtensionInstallError("task extension publication lacks bindings")
+        # An MCP-only candidate contributes no Skill body or resource directory.
+        # Its authenticated metadata can be listed even when its executable or
+        # configuration is unavailable. No bytes from that candidate are read.
+        if published["kind"] == "plugin" and not any(bindings.get(section) for section in ("skills", "agents", "tools", "hooks")):
+            return None
+        current = authority.build_execution_snapshot(published["candidate_id"], include_mcp_runtime=False)
+        def skill_view(value):
+            result = {key: item for key, item in value.items() if key not in {"snapshot_id", "snapshot_hash"}}
+            result["bindings"] = {key: item for key, item in result["bindings"].items() if key != "mcp"}
+            result["dependencies"] = [item for item in result["dependencies"] if item.get("type") != "mcp"]
+            return result
+        if skill_view(current.as_dict()) != skill_view(published):
+            raise ExtensionInstallError("task Skill content or non-MCP execution identity changed")
+        return current
+
+    def bind_task_skills(self, task_id: str, *, exclusions: Iterable[str] = ()) -> dict[str, Any]:
+        """Pin this task's discoverable roster once, before selecting bodies."""
+        if not isinstance(task_id, str) or not task_id or len(task_id) > 256:
+            raise ExtensionInstallError("task Skill binding requires its original task identity")
+        binding = {"schema": "SITINA_TASK_SKILL_BINDING_V1", "task_id": task_id,
+            "extension_root": str(self.root), "authority_stream_id": None, "authority_position": None,
+            "candidates": [], "skills": [], "exclusions": self._skill_exclusions(exclusions)}
+        if not self.authority_bound and self._shared_authority is None:
+            legacy = self.load_registry()
+            if any(not item.get("disabled") for section in ("skills", "plugins") for item in legacy[section].values()):
+                raise ExtensionInstallError("installed extensions require an authenticated global authority before task pinning")
+            return binding
+        authority = self._task_skill_authority()
+        projection = authority.load_projection()
+        binding["authority_stream_id"] = authority.stream_id
+        binding["authority_position"] = authority._stream_position(authority._journal_events())
+        for candidate_id, published in sorted(self._published_task_candidates(authority).items()):
+            snapshot = self._task_skill_execution_snapshot(authority, published)
+            pin = self._task_candidate_pin(authority, published)
+            binding["candidates"].append(pin)
+            if snapshot is not None:
+                binding["skills"].extend(record for record, _skill in self._task_candidate_skills(snapshot, pin["version"]))
+        binding["candidates"].sort(key=lambda value: value["candidate_id"])
+        binding["skills"].sort(key=lambda value: value["qualified_name"])
+        if len({value["qualified_name"] for value in binding["skills"]}) != len(binding["skills"]):
+            raise ExtensionInstallError("task Skill qualified names are ambiguous")
+        return binding
+
+    def _bound_task_skill_records(self, binding: Mapping[str, Any], *, task_id: str):
+        required = {"schema", "task_id", "extension_root", "authority_stream_id", "authority_position",
+                    "candidates", "skills", "exclusions"}
+        if (not isinstance(task_id, str) or not task_id or not isinstance(binding, Mapping) or set(binding) != required
+                or binding["schema"] != "SITINA_TASK_SKILL_BINDING_V1" or binding["task_id"] != task_id
+                or binding["extension_root"] != str(self.root)
+                or not isinstance(binding["candidates"], list) or not isinstance(binding["skills"], list)
+                or not isinstance(binding["exclusions"], list)
+                or binding["exclusions"] != self._skill_exclusions(binding["exclusions"])):
+            raise ExtensionInstallError("task Skill binding is invalid or belongs to another task")
+        if binding["authority_stream_id"] is None:
+            if binding["authority_position"] is not None or binding["candidates"] or binding["skills"]:
+                raise ExtensionInstallError("empty task Skill roster contains unauthenticated members")
+            return []
+        authority = self._task_skill_authority()
+        if authority.stream_id != binding["authority_stream_id"]:
+            raise ExtensionInstallError("task Skill authority differs from its original owner")
+        authority = authority.at_position(binding["authority_position"])
+        projection = authority.load_projection()
+        published_candidates = self._published_task_candidates(authority)
+        expected_ids = set(published_candidates)
+        records, expected_pins, seen = [], [], set()
+        for pin in binding["candidates"]:
+            if not isinstance(pin, Mapping) or not isinstance(pin.get("candidate_id"), str):
+                raise ExtensionInstallError("task Skill candidate pin is invalid")
+            candidate_id = pin["candidate_id"]
+            if candidate_id in seen:
+                raise ExtensionInstallError("task Skill candidate pin is duplicated")
+            seen.add(candidate_id)
+            published = published_candidates.get(candidate_id)
+            if published is None:
+                raise ExtensionInstallError("task candidate is not an authenticated selected publication")
+            snapshot = self._task_skill_execution_snapshot(authority, published)
+            expected = self._task_candidate_pin(authority, published)
+            if dict(pin) != expected:
+                raise ExtensionInstallError("task Skill candidate differs from its immutable snapshot")
+            expected_pins.append(expected)
+            if snapshot is not None:
+                records.extend(self._task_candidate_skills(snapshot, expected["version"]))
+        expected_pins.sort(key=lambda value: value["candidate_id"])
+        records.sort(key=lambda value: value[0]["qualified_name"])
+        if (seen != expected_ids or expected_pins != binding["candidates"]
+                or [record for record, _skill in records] != binding["skills"]):
+            raise ExtensionInstallError("task Skill roster differs from its authenticated immutable candidates")
+        return records
+
+    def task_mcp_snapshots(self, binding: Mapping[str, Any], *, task_id: str) -> list[dict[str, Any]]:
+        """Resolve MCP plugins from this task's existing authenticated candidate pins."""
+        self._bound_task_skill_records(binding, task_id=task_id)
+        if binding["authority_stream_id"] is None:
+            return []
+        authority = self._task_skill_authority().at_position(binding["authority_position"])
+        published_candidates = self._published_task_candidates(authority)
+        snapshots = []
+        for pin in binding["candidates"]:
+            if pin["kind"] != "plugin":
+                continue
+            snapshot = published_candidates[pin["candidate_id"]]
+            if snapshot["bindings"].get("mcp"):
+                snapshots.append(snapshot)
+        return snapshots
+
+    def task_skill_resource_roots(self, binding: Mapping[str, Any], *, task_id: str) -> tuple[Path, ...]:
+        """Verified per-Skill read directories; no state/control/write grant."""
+        records = self._bound_task_skill_records(binding, task_id=task_id)
+        return tuple(sorted({skill.path.parent.resolve(strict=True) for record, skill in records
+            if record["qualified_name"] not in binding["exclusions"]}, key=str))
+
+    def task_skill_summaries(self, binding: Mapping[str, Any], *, task_id: str) -> list[dict[str, Any]]:
+        records = self._bound_task_skill_records(binding, task_id=task_id)
+        return [{**{name: value for name, value in record.items() if name != "relative_path"},
+                 "excluded": record["qualified_name"] in binding["exclusions"]} for record, _skill in records]
+
+    def load_task_skill(self, name: str, binding: Mapping[str, Any], *, task_id: str) -> SkillDefinition:
+        records = self._bound_task_skill_records(binding, task_id=task_id)
+        if name in binding["exclusions"]:
+            raise ExtensionInstallError("Skill is excluded for this task: " + name)
+        for record, skill in records:
+            if record["qualified_name"] == name:
+                return load_skill(skill.path, plugin_name=skill.plugin_name)
+        raise ExtensionInstallError("Skill is not in this task's pinned roster: " + str(name))
+
+    def with_task_skill_exclusions(self, binding: Mapping[str, Any], *, task_id: str,
+                                  exclusions: Iterable[str]) -> dict[str, Any]:
+        self._bound_task_skill_records(binding, task_id=task_id)
+        result = json.loads(json.dumps(binding))
+        result["exclusions"] = self._skill_exclusions(exclusions)
+        return result
+
+    def select_task_skills(self, task: str, binding: Mapping[str, Any], *, task_id: str,
+                           explicit_only: bool = False) -> list[SkillDefinition]:
+        records = self._bound_task_skill_records(binding, task_id=task_id)
+        text = task.casefold()
+        explicit = set(re.findall(r"\$([a-z0-9][a-z0-9_-]{0,63}(?::[a-z0-9][a-z0-9_-]{0,63})?)", text))
+        excluded = explicit & set(binding["exclusions"])
+        if excluded:
+            raise ExtensionInstallError("requested Skills are excluded for this task: " + ", ".join(sorted(excluded)))
+        selected = []
+        for record, skill in records:
+            if record["qualified_name"] in binding["exclusions"]:
+                continue
+            explicit_match = skill.qualified_name in explicit or (skill.plugin_name is None and skill.name in explicit)
+            trigger_match = any(trigger and trigger in text for trigger in skill.triggers)
+            name_match = len(skill.name) >= 4 and skill.name.replace("_", " ") in text
+            if explicit_match or (not explicit_only and (trigger_match or name_match)):
+                selected.append(load_skill(skill.path, plugin_name=skill.plugin_name))
+        missing = explicit - {skill.qualified_name for skill in selected} - {skill.name for skill in selected if skill.plugin_name is None}
+        if missing:
+            raise ExtensionInstallError("requested Skills are not in this task's pinned roster: " + ", ".join(sorted(missing)))
+        return selected
+
+    def _assert_legacy_mutation_allowed(self) -> None:
+        if self.authority_bound:
+            raise ExtensionInstallError(
+                "r4-managed extension root rejects the legacy registry write path; use the shared authority candidate API"
+            )
 
     @staticmethod
     def empty_registry() -> dict[str, Any]:
@@ -83,15 +369,37 @@ class ExtensionManager:
         }
 
     def load_registry(self) -> dict[str, Any]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for registry reads"
+                )
+            # Validate/read the authoritative projection first.  A stale or
+            # old-schema registry.json is never allowed to become an active
+            # source; the legacy maps are intentionally empty compatibility
+            # fields and active readers use the branches in skills() and
+            # active_plugins() above.
+            projection = self.shared_authority.load_projection()
+            return {
+                **projection,
+                "plugins": {},
+                "skills": {},
+                "marketplaces": {},
+            }
         if not self.registry_path.exists():
             return self.empty_registry()
-        raw = read_json_object(self.registry_path, schema=REGISTRY_SCHEMA)
+        raw = read_json_object(self.registry_path)
+        if raw.get("schema") == "SITINA_EXTENSION_PROJECTION_V1":
+            raise ExtensionInstallError("extension projection requires a shared ExtensionAuthority client")
+        if raw.get("schema") != REGISTRY_SCHEMA:
+            raise ExtensionInstallError(f"extension registry must use schema {REGISTRY_SCHEMA}")
         for key in ("plugins", "skills", "marketplaces"):
             if not isinstance(raw.get(key), dict):
                 raise ExtensionInstallError(f"extension registry field {key} must be an object")
         return raw
 
     def _save_registry(self, registry: Mapping[str, Any]) -> None:
+        self._assert_legacy_mutation_allowed()
         value = dict(registry)
         value["generation"] = int(value.get("generation", 0)) + 1
         value["updated_at"] = iso_now()
@@ -113,6 +421,7 @@ class ExtensionManager:
         git_ref: str | None = None,
         update: bool = False,
     ) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         prepared = self._prepare_source(source, approve_network=approve_network, git_ref=git_ref)
         try:
             manifest = PluginManifest.load(prepared.root)
@@ -190,6 +499,7 @@ class ExtensionManager:
             prepared.close()
 
     def rollback_plugin(self, name: str, *, install_id: str | None = None) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="plugin name")
         registry = self.load_registry()
         state = dict(registry["plugins"].get(name) or {})
@@ -214,6 +524,7 @@ class ExtensionManager:
         return {"status": "ok", "plugin": name, "active": install_id, "previous": active}
 
     def disable_plugin(self, name: str) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="plugin name")
         registry = self.load_registry()
         state = dict(registry["plugins"].get(name) or {})
@@ -247,6 +558,50 @@ class ExtensionManager:
         return result
 
     def active_plugins(self) -> list[tuple[PluginManifest, dict[str, Any]]]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for active plugin reads"
+                )
+            authority = self.shared_authority
+            projection = authority.load_projection()
+            result: list[tuple[PluginManifest, dict[str, Any]]] = []
+            defaults = projection.get("defaults") if isinstance(projection.get("defaults"), Mapping) else {}
+            for slot_id, default in sorted(defaults.items()):
+                slot = dict(default.get("slot") or {}) if isinstance(default, Mapping) else {}
+                if str(slot.get("kind") or "") != "plugin" or str(default.get("state") or "ACTIVE") != "ACTIVE":
+                    continue
+                # Resolve through the authoritative fixed-position resolver;
+                # do not derive an active candidate from a cached registry
+                # projection or independently rebuild a second default path.
+                resolution = authority.resolve_default(slot_id)
+                publication_id = str(resolution.get("publication_id") or "")
+                candidate_id = str(resolution.get("candidate_id") or "")
+                if not candidate_id:
+                    continue
+                candidate = dict(authority.candidate(candidate_id))
+                snapshot = dict(resolution)
+                path = Path(str(candidate.get("candidate_path") or ""))
+                manifest = PluginManifest.load(path)
+                permissions = dict(candidate.get("permissions") or {})
+                declared_permissions = tuple(manifest.permissions)
+                granted_permissions = tuple(
+                    item for item in (permissions.get("granted") or declared_permissions)
+                    if item in declared_permissions
+                )
+                record = {
+                    "install_id": candidate.get("install_id"),
+                    "version": candidate.get("version"),
+                    "content_sha256": candidate.get("tree_hash"),
+                    "path": str(path),
+                    "declared_permissions": list(declared_permissions),
+                    "granted_permissions": list(granted_permissions),
+                    "candidate_id": candidate_id,
+                    "snapshot_id": snapshot.get("snapshot_id"),
+                    "publication_id": publication_id,
+                }
+                result.append((manifest, record))
+            return result
         registry = self.load_registry()
         result: list[tuple[PluginManifest, dict[str, Any]]] = []
         for name, raw_state in sorted(registry["plugins"].items()):
@@ -264,6 +619,7 @@ class ExtensionManager:
         return result
 
     def install_skill(self, source: str | Path) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         source_path = Path(source).expanduser().resolve(strict=True)
         skill_file = source_path / "SKILL.md" if source_path.is_dir() else source_path
         skill = load_skill(skill_file)
@@ -296,6 +652,7 @@ class ExtensionManager:
         return {"status": "ok", "skill": skill.name, "active": install_id, "record": record}
 
     def rollback_skill(self, name: str, *, install_id: str | None = None) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="skill name")
         registry = self.load_registry()
         state = dict(registry["skills"].get(name) or {})
@@ -320,6 +677,7 @@ class ExtensionManager:
         return {"status": "ok", "skill": name, "active": install_id, "previous": active}
 
     def disable_skill(self, name: str) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         name = validate_identifier(name, label="skill name")
         registry = self.load_registry()
         state = dict(registry["skills"].get(name) or {})
@@ -331,7 +689,32 @@ class ExtensionManager:
         self._audit("skill_disabled", {"skill": name, "active": state.get("active")})
         return {"status": "ok", "skill": name, "disabled": True, "retained_versions": len(state.get("versions", []))}
 
-    def skills(self) -> list[SkillDefinition]:
+    def skills(self, *, metadata_only: bool = False) -> list[SkillDefinition]:
+        if self.authority_bound:
+            if self._shared_authority is None:
+                raise ExtensionInstallError(
+                    "bound r4 extension root requires a shared ExtensionAuthority client for active skill reads"
+                )
+            authority = self.shared_authority
+            projection = authority.load_projection()
+            result: list[SkillDefinition] = []
+            defaults = projection.get("defaults") if isinstance(projection.get("defaults"), Mapping) else {}
+            for _slot_id, default in sorted(defaults.items()):
+                slot = dict(default.get("slot") or {}) if isinstance(default, Mapping) else {}
+                if str(slot.get("kind") or "") != "skill" or str(default.get("state") or "ACTIVE") != "ACTIVE":
+                    continue
+                resolution = authority.resolve_default(str(_slot_id))
+                candidate_id = str(resolution.get("candidate_id") or "")
+                if not candidate_id:
+                    continue
+                candidate = dict(authority.candidate(candidate_id))
+                path = Path(str(candidate.get("candidate_path") or ""))
+                result.append(load_skill(path / "SKILL.md", metadata_only=metadata_only))
+            for manifest, _record in self.active_plugins():
+                path = manifest.component_path("skills")
+                if path:
+                    result.extend(load_skill(item, plugin_name=manifest.name, metadata_only=metadata_only) for item in sorted(path.glob("*/SKILL.md")))
+            return result
         registry = self.load_registry()
         result: list[SkillDefinition] = []
         for name, raw_state in sorted(registry["skills"].items()):
@@ -340,11 +723,11 @@ class ExtensionManager:
                 continue
             record = self._version_record(state, str(state.get("active") or ""))
             if record:
-                result.append(load_skill(Path(str(record["path"])) / "SKILL.md"))
+                result.append(load_skill(Path(str(record["path"])) / "SKILL.md", metadata_only=metadata_only))
         for manifest, _record in self.active_plugins():
             path = manifest.component_path("skills")
             if path:
-                result.extend(load_skill(item, plugin_name=manifest.name) for item in sorted(path.glob("*/SKILL.md")))
+                result.extend(load_skill(item, plugin_name=manifest.name, metadata_only=metadata_only) for item in sorted(path.glob("*/SKILL.md")))
         return result
 
     def agents(self) -> list[AgentDefinition]:
@@ -355,19 +738,39 @@ class ExtensionManager:
                 result.extend(load_agent(item, plugin_name=manifest.name) for item in sorted(path.glob("*.md")))
         return result
 
-    def select_skills(self, task: str) -> list[SkillDefinition]:
+    def select_skills(self, task: str, *, explicit_only: bool = False) -> list[SkillDefinition]:
         text = task.casefold()
-        explicit = set(re.findall(r"\$([a-z0-9][a-z0-9_-]{1,63}(?::[a-z0-9][a-z0-9_-]{1,63})?)", text))
+        explicit = set(re.findall(r"\$([a-z0-9][a-z0-9_-]{0,63}(?::[a-z0-9][a-z0-9_-]{0,63})?)", text))
         selected: list[SkillDefinition] = []
-        for skill in self.skills():
+        for skill in self.skills(metadata_only=True):
             explicit_match = skill.qualified_name in explicit or (skill.plugin_name is None and skill.name in explicit)
             trigger_match = any(trigger and trigger in text for trigger in skill.triggers)
             name_match = len(skill.name) >= 4 and skill.name.replace("_", " ") in text
-            if explicit_match or trigger_match or name_match:
-                selected.append(skill)
+            if explicit_match or (not explicit_only and (trigger_match or name_match)):
+                selected.append(load_skill(skill.path, plugin_name=skill.plugin_name))
         missing = explicit - {item.qualified_name for item in selected} - {item.name for item in selected if item.plugin_name is None}
         if missing:
             raise ExtensionInstallError(f"requested skills are not installed: {', '.join(sorted(missing))}")
+        return selected
+
+    def select_task_agents(self, task: str, binding: Mapping[str, Any], *, task_id: str) -> list[AgentDefinition]:
+        """Select only pinned Agent instructions; unrelated MCP cannot block them."""
+        self._bound_task_skill_records(binding, task_id=task_id)
+        if binding["authority_stream_id"] is None:
+            return []
+        authority = self._task_skill_authority().at_position(binding["authority_position"])
+        selected = []
+        text = task.casefold()
+        for published in self._published_task_candidates(authority).values():
+            if published["kind"] != "plugin" or not published["bindings"].get("agents"):
+                continue
+            snapshot = self._task_skill_execution_snapshot(authority, published)
+            directory = PluginManifest.load(snapshot.root).component_path("agents")
+            if directory:
+                for path in sorted(directory.glob("*.md")):
+                    agent = load_agent(path, plugin_name=snapshot.name)
+                    if any(trigger and trigger in text for trigger in agent.triggers):
+                        selected.append(agent)
         return selected
 
     def select_agents(self, task: str) -> list[AgentDefinition]:
@@ -375,6 +778,7 @@ class ExtensionManager:
         return [agent for agent in self.agents() if any(trigger and trigger in text for trigger in agent.triggers)]
 
     def add_marketplace(self, source: str, *, approve_network: bool = False) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         parsed = urlparse(source)
         if parsed.scheme in {"http", "https"}:
             if not approve_network:
@@ -419,6 +823,7 @@ class ExtensionManager:
         grants: Iterable[str] = (),
         approve_network: bool = False,
     ) -> dict[str, Any]:
+        self._assert_legacy_mutation_allowed()
         marketplace = validate_identifier(marketplace, label="marketplace name")
         plugin = validate_identifier(plugin, label="plugin name")
         registry = self.load_registry()
@@ -439,6 +844,75 @@ class ExtensionManager:
             expected_sha256=str(entry.get("sha256") or "") or None,
             git_ref=str(entry.get("git_ref") or "") or None,
             update=False,
+        )
+
+    def prepare_plugin_candidate(
+        self,
+        source: str | Path,
+        *,
+        grants: Iterable[str] = (),
+        expected_sha256: str | None = None,
+        execution_context: Any | None = None,
+    ) -> PreparedCandidate:
+        """Prepare a complete immutable plugin candidate without changing default."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.prepare_plugin(
+            source,
+            grants=tuple(str(item) for item in grants),
+            expected_sha256=expected_sha256,
+            execution_context=execution_context,
+        )
+
+    def manage_mcp(self, request: Mapping[str, Any], *, user_initiated: bool = False) -> dict[str, Any]:
+        """Apply the authenticated user's MCP-only installation through the shared authority."""
+        if self._shared_authority is None:
+            raise ExtensionInstallError("MCP management requires the shared Journal/CAS authority")
+        return self._shared_authority.manage_mcp(request, user_initiated=user_initiated)
+
+    def manage_skill(
+        self, request: Mapping[str, Any], *, user_initiated: bool = False,
+        source_resolver: Any | None = None,
+    ) -> dict[str, Any]:
+        """Apply a user's global skill choice through the bound authority only."""
+        return self.shared_authority.manage_skill(
+            request, user_initiated=user_initiated, source_resolver=source_resolver,
+        )
+
+    def prepare_skill_candidate(
+        self,
+        source: str | Path,
+        *,
+        execution_context: Any | None = None,
+    ) -> PreparedCandidate:
+        """Prepare a complete immutable Skill candidate without changing default."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.prepare_skill(source, execution_context=execution_context)
+
+    def create_extension_preparation_context(
+        self,
+        task_id: str,
+        source: str | Path,
+        *,
+        operation_id: str | None = None,
+    ) -> Any:
+        """Create the Loop-issued context required by candidate preparation."""
+
+        if self._shared_authority is None:
+            raise CandidatePreparationError(
+                "candidate preparation requires a bound shared Journal/CAS authority"
+            )
+        return self._shared_authority.create_preparation_context(
+            task_id,
+            source,
+            operation_id=operation_id,
         )
 
     @staticmethod

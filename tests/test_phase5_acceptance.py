@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -8,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 MANIFEST_HASH = "151ac665bfc3f99d12d2b3f8e5a30c3e2ec443a74638f42173af8c86b1647d32"
 PHASE4_ACCEPTANCE = "4c4091cbc99dfa9227040de6a55d89a96a289907431fb3bbfa736fb21899edd8"
 PHASE4_CONTENT = "2b4e54a05dc0bf98913b56e9cffe3f42971a46cf7d9e0f13c7a6045a312d4367"
@@ -117,7 +122,7 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertTrue(all(item["absent"] for item in post["authority_path_checks"]))
         self.assertEqual((post["production_evidence_seal_count"], post["production_archive_transfer_count"], post["destructive_retention_execution_count"]), (0, 0, 0))
         self.assertEqual(post["production_writer"], "legacy")
-        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
 
 
 if __name__ == "__main__":

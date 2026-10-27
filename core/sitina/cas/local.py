@@ -637,20 +637,140 @@ class LocalCAS:
             "loose_metadata_deleted": False,
         }
 
+    @contextmanager
+    def _locked_retention_copy(self, reference: ObjectRef):
+        """Pin the one loose content copy; reject links, aliases and busy readers."""
+        self._assert_writable()
+        if not isinstance(reference, ObjectRef) or (
+            len(reference.object_id) != 64
+            or any(c not in "0123456789abcdef" for c in reference.object_id)
+        ):
+            raise CASError("retention requires an exact CAS object identity")
+        directories = []
+        fd = None
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        try:
+            directory = os.open(self.home, flags)
+            directories.append(directory)
+            for component in ("cas", "objects", reference.object_id[:2]):
+                directory = os.open(component, flags, dir_fd=directory)
+                directories.append(directory)
+            name = reference.object_id + ".obj"
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or info.st_uid != os.getuid() or not 4 <= info.st_size <= 512 * 1024):
+                raise CASError("retention content copy is not a bounded exclusive regular object")
+            raw = b""
+            while len(raw) < info.st_size:
+                chunk = os.read(fd, info.st_size - len(raw))
+                if not chunk:
+                    raise CASError("retention content copy changed while reading")
+                raw += chunk
+            if os.read(fd, 1) or hashlib.sha256(raw).hexdigest() != reference.object_id:
+                raise CASError("retention content digest mismatch")
+            current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            if (current.st_dev, current.st_ino, current.st_size, current.st_nlink) != (
+                info.st_dev, info.st_ino, info.st_size, 1
+            ):
+                raise CASError("retention content identity changed")
+            binding = {
+                "copy_id": reference.reference_id,
+                "relative_path": "objects/" + reference.object_id[:2] + "/" + name,
+                "sha256": reference.object_id, "size_bytes": info.st_size,
+                "dev": info.st_dev, "inode": info.st_ino,
+                "mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid, "nlink": 1,
+            }
+            yield directory, fd, name, binding
+        finally:
+            if fd is not None:
+                os.close(fd)
+            for directory in reversed(directories):
+                os.close(directory)
+
+    def inspect_retention_copy(self, reference: ObjectRef) -> dict[str, Any]:
+        with self._locked_retention_copy(reference) as (_, _, _, binding):
+            return binding
+
+    def observe_retention_copy(self, expected_copy: Mapping[str, Any]) -> str:
+        """Read-only UNKNOWN reconciliation; absence is never success evidence."""
+        object_id = str(expected_copy["copy_id"]).removeprefix("cas:")
+        if len(object_id) != 64 or any(c not in "0123456789abcdef" for c in object_id):
+            raise CASError("invalid retained copy identity")
+        path = self._object_path(object_id)
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return "ABSENT_UNATTRIBUTED"
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            return "CHANGED_OR_UNSAFE"
+        if (info.st_dev, info.st_ino, info.st_size) != (
+            expected_copy["dev"], expected_copy["inode"], expected_copy["size_bytes"]
+        ):
+            return "CHANGED_OR_UNSAFE"
+        return "PRESENT_NO_RETRY_AUTHORITY"
+
+    def delete_retained_content(
+        self, reference: ObjectRef, *, expected_copy: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """One physical attempt; only the Journal retention owner invokes this."""
+        with self._locked_retention_copy(reference) as (directory, fd, name, observed):
+            if observed != dict(expected_copy):
+                raise CASError("retention copy does not match its persisted plan")
+            os.unlink(name, dir_fd=directory)
+            os.fsync(directory)
+            try:
+                os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                absent = True
+            else:
+                absent = False
+            pinned = os.fstat(fd)
+            if not absent or pinned.st_nlink != 0:
+                raise CASError("retention physical outcome is unknown")
+            return {"copy_id": reference.reference_id, "unlinked": True,
+                    "directory_fsync_completed": True, "path_absent": True,
+                    "opened_inode_nlink_after": pinned.st_nlink,
+                    "declared_copy_count": 1}
+
+    def record_destruction_attestation(self, attestation) -> None:
+        from .gc import DestructionAttestation
+        self._assert_writable()
+        if not isinstance(attestation, DestructionAttestation):
+            raise CASError("typed destruction attestation is required")
+        value = attestation.mapping()
+        directory = self.root / "destruction-attestations"
+        if directory.is_symlink() or not directory.is_dir():
+            raise CASError("destruction attestation directory is unsafe")
+        path = directory / (value["attestation_id"] + ".json")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(canonical_json_bytes(value))
+            handle.flush()
+            os.fsync(handle.fileno())
+        sync_directory(directory)
+
+
     def open_verified(self, reference: ObjectRef) -> bytes:
         path = self._object_path(reference.object_id)
         if path.is_symlink() or not path.is_file():
             raise CASError("CAS object is missing")
-        raw = path.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != reference.object_id or len(raw) < 4:
-            raise CASError("CAS object digest mismatch")
-        header_length = int.from_bytes(raw[:4], "big")
-        if header_length > len(raw) - 4:
-            raise CASError("invalid CAS object header length")
-        header = parse_canonical_json(raw[4 : 4 + header_length])
-        envelope = self._load_envelope(reference.object_id)
-        encrypted = EncryptedObject(reference, header, raw[4 + header_length :], envelope)
-        return decrypt_object(encrypted, self.provider)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(fd, "rb") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            if os.fstat(handle.fileno()).st_nlink == 0:
+                raise CASError("CAS content was removed before read admission")
+            raw = handle.read()
+            if hashlib.sha256(raw).hexdigest() != reference.object_id or len(raw) < 4:
+                raise CASError("CAS object digest mismatch")
+            header_length = int.from_bytes(raw[:4], "big")
+            if header_length > len(raw) - 4:
+                raise CASError("invalid CAS object header length")
+            header = parse_canonical_json(raw[4 : 4 + header_length])
+            envelope = self._load_envelope(reference.object_id)
+            encrypted = EncryptedObject(reference, header, raw[4 + header_length :], envelope)
+            return decrypt_object(encrypted, self.provider)
 
     def resolve_reference(self, reference_id: str) -> ObjectRef:
         """Resolve the authenticated commitment binding for an existing CAS id.

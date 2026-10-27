@@ -2,7 +2,7 @@
 
 Phase 1 operates only in a directory carrying
 `.sitina-bplus-disposable-v1` or `.sitina-bplus-shadow-v1`. The implementation
-explicitly rejects `/Users/moss/SitinaHub` as a Journal or CAS home. Legacy is
+explicitly rejects `~/SitinaHub` as a Journal or CAS home. Legacy is
 the sole Production writer throughout Phase 1; no Phase 1 receipt, frontier,
 shadow Journal, fixture projection, benchmark, or acceptance report can promote
 itself to Production authority.

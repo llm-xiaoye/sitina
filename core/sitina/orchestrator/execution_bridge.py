@@ -461,6 +461,19 @@ class VerificationVerdict:
             self.test_evidence_hash
         ):
             raise ValueError("verification verdict evidence hash is invalid")
+        # An acceptance must carry the immutable evidence it rests on.  Enforcing
+        # this at construction keeps the "accepted implies evidence" invariant
+        # next to the claim instead of at a downstream consumer, so a verifier
+        # branch cannot fail open into an acceptance that references nothing.
+        if self.accepted and not (
+            isinstance(self.test_evidence_ref, str)
+            and self.test_evidence_ref.strip()
+            and isinstance(self.test_evidence_hash, str)
+            and _SHA256.fullmatch(self.test_evidence_hash)
+        ):
+            raise ValueError(
+                "accepted verification verdict requires an immutable evidence reference and hash"
+            )
 
     def mapping(self) -> dict[str, object]:
         return {
@@ -845,6 +858,8 @@ def run_safe_execution(
         if not diff_paths or len(set(diff_paths)) != len(diff_paths) or any(
             not _approved(value) for value in diff_paths
         ):
+            # Empty output can be a blocked write; a model's success report
+            # cannot replace an independently verified deliverable.
             notes.append(f"attempt{attempt}:scope_blocked")
             scope_hash = hashlib.sha256(",".join(sorted(diff_paths)).encode("utf-8")).hexdigest()
             _record_failure(
@@ -902,6 +917,7 @@ def run_safe_execution(
                 notes=tuple(notes),
             )
 
+
         # H11: executor must not be its own verifier.
         try:
             verdict = verifier(diff_paths, forge_result)
@@ -919,6 +935,7 @@ def run_safe_execution(
                     notes=tuple(notes),
                 )
             continue
+
         try:
             if verdict.identity != binding.identity:
                 raise ExecutionBridgeError("verdict execution identity binding differs")

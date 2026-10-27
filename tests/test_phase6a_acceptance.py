@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import hashlib
 import json
 import os
@@ -10,7 +15,7 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
-CONTROL = Path("/Users/moss/Desktop/sitina/output")
+CONTROL = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output'))
 R1_EXECUTION_MANIFEST_HASH = "c97c027174b365d3c3e359763aacf4cc6488eefbcff109aa4169a732c60062b2"
 R1A_EXECUTION_MANIFEST_HASH = "99c33e5f6cadfa21d5f1bed8c02e7e1b074166b89e17e297c201d2eb819d3b34"
 EXECUTION_MANIFEST_HASH = "cb1f1c529e5cd9dfbf7c05c7bf8e023c6ee3191d06455952062ffed19603add1"
@@ -51,7 +56,7 @@ class Phase6AR1BAcceptanceTests(unittest.TestCase):
         self.assertEqual(manifest["authorization"]["authorized_phase"], "6A-R1B")
         self.assertEqual(manifest["authorization"]["required_stop_point"], "CUTOVER_TOOLING_READY_R1B_FIXTURE_ONLY")
         self.assertIn("FREEZE_SNAPSHOT_IMPORT_OR_CUTOVER_PRODUCTION", manifest["prohibited_operations"])
-        self.assertIn("/Users/moss/SitinaHub/tests/test_sitina.py", manifest["exact_authorized_files"])
+        self.assertIn((_SITINA_ACCOUNT_HOME + '/SitinaHub/tests/test_sitina.py'), manifest["exact_authorized_files"])
         self.assertEqual(manifest["hashes"]["phase6a_r1a_addendum_hash"], f"sha256:{R1A_EXECUTION_MANIFEST_HASH}")
         self.assertEqual(manifest["hashes"]["phase6a_r1_acceptance_hash"], f"sha256:{SUPERSEDED_ACCEPTANCE}")
 
@@ -161,7 +166,7 @@ class Phase6AR1BAcceptanceTests(unittest.TestCase):
             (0, 0, 0, 0),
         )
         self.assertEqual(post["production_writer"], "legacy")
-        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path("/Users/moss/SitinaHub"))
+        self.assertNotEqual(Path(os.environ["SITINA_HOME"]), Path((_SITINA_ACCOUNT_HOME + '/SitinaHub')))
 
 
 if __name__ == "__main__":

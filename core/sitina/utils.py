@@ -91,8 +91,7 @@ def command_fingerprint(command: str, cwd: str, env_fingerprint: str) -> str:
 
 
 def env_fingerprint(env: dict[str, str]) -> str:
-    public = {k: v for k, v in sorted(env.items()) if not is_secret_name(k)}
-    return sha256_text(stable_json(public))
+    return sha256_text(stable_json(dict(sorted(env.items()))))
 
 
 def chmod_octal(path: Path) -> str:

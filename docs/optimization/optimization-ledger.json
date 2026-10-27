@@ -3338,7 +3338,7 @@
     "E-11",
     "第18项"
   ],
-  "spec_path": "/Users/moss/Desktop/sitina/Sitina_Codex_优化提示词_顺序执行版.md",
+  "spec_path": "~/Desktop/sitina/Sitina_Codex_优化提示词_顺序执行版.md",
   "test_runs": [
     {
       "evidence_ref": "docs/optimization/evidence/phase-00/baseline-summary.json",

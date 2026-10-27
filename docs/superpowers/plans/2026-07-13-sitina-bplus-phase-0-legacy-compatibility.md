@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 不执行 Authority Cutover。
-- 不删除、重写、Vacuum 或重建 `/Users/moss/SitinaHub/data/sitina.db`。
+- 不删除、重写、Vacuum 或重建 `~/SitinaHub/data/sitina.db`。
 - 不修改现有 JSONL、Checkpoint、Manifest、Replay Snapshot、Blackboard 或 Evidence Bundle。
 - Production Commands 继续走 Legacy Writer；Shadow 只读取。
 - 所有源码修改受 Phase -1 Source-only Baseline 保护；不得把 Runtime State 或 Secret 复制进源码备份。
@@ -62,7 +62,7 @@ def test_legacy_source_record_requires_provenance():
 Run:
 
 ```bash
-<approved-python> /Users/moss/SitinaHub/scripts/test-bplus.py unit_fast --test tests/test_legacy_compatibility.py
+<approved-python> ~/SitinaHub/scripts/test-bplus.py unit_fast --test tests/test_legacy_compatibility.py
 ```
 
 Expected: import failure for `sitina.legacy.model`.

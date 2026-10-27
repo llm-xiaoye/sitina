@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import concurrent.futures
 import datetime as dt
@@ -15,8 +20,8 @@ from pathlib import Path
 from typing import Any
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
-DEFAULT_OUTPUT = Path("/Users/moss/Desktop/sitina/output/storage-production-closure")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
+DEFAULT_OUTPUT = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/storage-production-closure'))
 GROUPS = {
     "journal_crash_and_concurrency": (
         "tests.test_journal_model",

@@ -4,6 +4,11 @@ approval + real boundary redaction + real ast verifier + bounded rework + rollba
 — driven by a scripted-mock Forge (no provider/live)."""
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import itertools
 import os
 import shutil
@@ -58,7 +63,7 @@ class ExecutionBridgeIntegrationTests(unittest.TestCase):
         # rejected by the production verifier.
         (self.home / ".sitina-bplus-disposable-v1").touch()
         LegacyWriteGate(self.home).freeze("execution-bridge-integration", fixture_authorization=True)
-        shutil.copytree("/Users/moss/SitinaHub/config", self.home / "config", dirs_exist_ok=True)
+        shutil.copytree((_SITINA_ACCOUNT_HOME + '/SitinaHub/config'), self.home / "config", dirs_exist_ok=True)
         self._ctr = itertools.count()
 
     def tearDown(self) -> None:

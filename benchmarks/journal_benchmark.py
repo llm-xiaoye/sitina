@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import datetime as dt
 import hashlib
@@ -68,7 +73,7 @@ def run_case(test_root: Path, *, payload_bytes: int, command_count: int) -> dict
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--test-root", type=Path, default=Path("/Users/moss/Desktop/sitina/bplus-test-homes"))
+    parser.add_argument("--test-root", type=Path, default=Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/bplus-test-homes')))
     parser.add_argument("--count", type=int, default=100)
     arguments = parser.parse_args(argv)
     arguments.test_root.mkdir(parents=True, exist_ok=True)

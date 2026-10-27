@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import importlib.util
@@ -15,8 +20,8 @@ from sitina.runners.profiles import ProfileLoader
 from sitina.security.profile_exception import evaluate_deepseek_direct_storage_exception
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
-DEFAULT_EVIDENCE_ROOT = Path("/Users/moss/Desktop/sitina/output/storage-production-closure")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
+DEFAULT_EVIDENCE_ROOT = Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/storage-production-closure'))
 
 
 def _audit_module() -> Any:

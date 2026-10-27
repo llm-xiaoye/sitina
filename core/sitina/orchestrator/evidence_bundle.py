@@ -1,4 +1,4 @@
-"""Portable, hash-verified evidence bundles with redacted relative paths."""
+"""Hash-verified evidence bundles preserving the supplied payload content."""
 
 from __future__ import annotations
 
@@ -31,7 +31,8 @@ class EvidenceBundleManager:
             "completeness_level": "LEGACY_TERMINAL_MANIFEST",
             "bplus_opt_compliant": False,
             "bplus_sealed": False,
-            "portable_relative_paths": True,
+            "portable_relative_paths": False,
+            "payload_redaction": "none",
             "artifact_hashes_verified": True,
         }
 
@@ -141,11 +142,6 @@ class EvidenceBundleManager:
             errors.append(f"bundle contains unlisted file: {relative}")
         if any(path.is_symlink() for path in directory.rglob("*")):
             errors.append("bundle contains symbolic link")
-        text_files = [path for path in directory.rglob("*") if path.is_file()]
-        for path in text_files:
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if str(self.home) in text or re.search(r"/Users/[^/\s]+/", text):
-                errors.append(f"bundle contains absolute local path: {path.relative_to(directory)}")
         secret_scan = scan_paths_for_secrets([directory], scope="evidence_bundle")
         if secret_scan["count"]:
             errors.append("bundle secret scan failed")
@@ -155,6 +151,7 @@ class EvidenceBundleManager:
             "run_id": manifest.get("run_id"),
             "errors": errors,
             "secret_findings": secret_scan["count"],
+            "secret_scan_status": secret_scan["status"],
         }
 
     def _sanitize(self, value: Any) -> Any:
@@ -166,7 +163,4 @@ class EvidenceBundleManager:
             return {str(key): self._sanitize_value(item) for key, item in value.items()}
         if isinstance(value, list):
             return [self._sanitize_value(item) for item in value]
-        if isinstance(value, str):
-            redacted = redact_text(value).replace(str(self.home), "$SITINA_HOME")
-            return re.sub(r"/Users/[^/\s]+/", "$USER_HOME/", redacted)
         return value

@@ -318,8 +318,14 @@ class AlertSignalSnapshot(StrictModel):
     slow_burn_rate_ppm: int = Field(ge=0)
     repeated_failures: int = Field(ge=0)
     queue_depth: int = Field(ge=0)
-    token_ratio_ppm: int = Field(ge=0)
-    cost_ratio_ppm: int = Field(ge=0)
+    token_ratio_ppm: int | None = Field(default=None, ge=0)
+    cost_ratio_ppm: int | None = Field(default=None, ge=0)
+    timeouts: int = Field(default=0, ge=0)
+    retries: int = Field(default=0, ge=0)
+    cancel_failures: int = Field(default=0, ge=0)
+    unknown_effects: int = Field(default=0, ge=0)
+    resource_rejections: int = Field(default=0, ge=0)
+    usage_unknown: int = Field(default=0, ge=0)
 
 
 class AlertState(StrictModel):
@@ -352,10 +358,19 @@ class AlertEngine:
             breaches["REPEATED_FAILURE"] = "warning"
         if signals.queue_depth >= int(self.config["queue_backlog_threshold"]):
             breaches["QUEUE_BACKLOG"] = "warning"
-        if signals.token_ratio_ppm >= int(self.config["token_anomaly_ratio_ppm"]):
+        if signals.token_ratio_ppm is not None and signals.token_ratio_ppm >= int(self.config["token_anomaly_ratio_ppm"]):
             breaches["TOKEN_ANOMALY"] = "critical"
-        if signals.cost_ratio_ppm >= int(self.config["cost_anomaly_ratio_ppm"]):
+        if signals.cost_ratio_ppm is not None and signals.cost_ratio_ppm >= int(self.config["cost_anomaly_ratio_ppm"]):
             breaches["COST_ANOMALY"] = "critical"
+        for count, code in (
+            (signals.timeouts, "TIMEOUT"), (signals.retries, "RETRY"),
+            (signals.cancel_failures, "CANCEL_FAILURE"),
+            (signals.unknown_effects, "UNKNOWN_EFFECT"),
+            (signals.resource_rejections, "RESOURCE_LIMIT"),
+            (signals.usage_unknown, "USAGE_UNKNOWN"),
+        ):
+            if count:
+                breaches[code] = "warning"
         active = dict(state.active)
         emitted = dict(state.last_emitted)
         notifications: list[AlertNotification] = []
@@ -384,11 +399,12 @@ class StructuredLogRecord(StrictModel):
     span_id: str | None = None
     message: str
     fields: dict[str, Any] = Field(default_factory=dict)
-    redacted: Literal[True] = True
+    redacted: bool = False
 
 
 class StructuredLogBuilder:
     def build(self, **values: Any) -> StructuredLogRecord:
+        values.pop("redacted", None)
         raw_fields = values.pop("fields", {})
         raw_message = values.pop("message")
         redacted = redact_boundary_value(raw_fields, boundary="log").value

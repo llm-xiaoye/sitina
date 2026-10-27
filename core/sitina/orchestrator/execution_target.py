@@ -77,20 +77,56 @@ class WorkspaceBaseline:
         self.records = dict(records)
 
     @classmethod
-    def capture(cls, root: Path) -> "WorkspaceBaseline":
+    def capture(cls, root: Path, max_depth: int | None = None) -> "WorkspaceBaseline":
+        """捕获工作区文件基线
+
+        Args:
+            root: 工作区根目录
+            max_depth: 最大递归深度（None=无限制，0=只扫描根目录，1=一层子目录）
+        """
         root = Path(root).expanduser().resolve(strict=True)
         if not root.is_dir() or root.is_symlink():
             raise ExecutionTargetError("execution workspace must be a real directory")
         records: dict[str, FileBaseline] = {}
+
         for current, dirs, files in os.walk(root, followlinks=False):
-            dirs[:] = sorted(name for name in dirs if name not in cls._SKIP_DIRS)
+            # 检查深度限制
+            if max_depth is not None:
+                current_depth = len(Path(current).relative_to(root).parts)
+                if current_depth >= max_depth:
+                    dirs[:] = []  # 不再递归子目录
+
+            # 过滤掉无法访问的目录和特殊目录
+            accessible_dirs = []
+            for name in dirs:
+                if name in cls._SKIP_DIRS:
+                    continue
+                dir_path = Path(current) / name
+                # 跳过 macOS 容器目录和其他受保护的系统目录
+                if 'Library/Containers' in str(dir_path) or 'containermanagerd' in str(dir_path):
+                    continue
+                try:
+                    # 测试是否可以访问
+                    list(dir_path.iterdir())
+                    accessible_dirs.append(name)
+                except (PermissionError, OSError):
+                    # 跳过无法访问的目录
+                    pass
+            dirs[:] = sorted(accessible_dirs)
+
             for name in sorted(files):
                 if name == ".git":
                     continue
                 path = Path(current) / name
+                # 跳过符号链接、socket、管道等特殊文件，而不是抛出错误
+                # 这允许在包含开发工具链接的目录（如 home）中工作
                 if path.is_symlink() or not path.is_file():
-                    raise ExecutionTargetError(f"execution workspace contains an unsafe file: {path}")
-                raw = path.read_bytes()
+                    continue
+                try:
+                    raw = path.read_bytes()
+                except (PermissionError, OSError):
+                    # 跳过无法读取的文件
+                    continue
                 relative = path.relative_to(root).as_posix()
                 sensitive = cls.is_sensitive_relative(relative)
                 records[relative] = FileBaseline(

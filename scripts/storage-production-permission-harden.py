@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os as _sitina_os
+import pwd as _sitina_pwd
+import sys as _sitina_sys
+_SITINA_ACCOUNT_HOME = _sitina_pwd.getpwuid(_sitina_os.getuid()).pw_dir
+
 import argparse
 import hashlib
 import json
@@ -18,12 +23,12 @@ from sitina.legacy.fence import authorized_production_permission_hardening
 from sitina.orchestrator.bplus_production import ProductionRuntimeContext
 
 
-PRODUCTION_HOME = Path("/Users/moss/SitinaHub")
+PRODUCTION_HOME = Path((_SITINA_ACCOUNT_HOME + '/SitinaHub'))
 EXTERNAL_ROOTS = (
-    Path("/Users/moss/Desktop/sitina/output/storage-production-closure"),
-    Path("/Users/moss/Desktop/sitina/.storage-restore-drills"),
-    Path("/Users/moss/Desktop/sitina/.storage-activation-simulations"),
-    Path("/Users/moss/Desktop/sitina/.storage-backup-staging"),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/output/storage-production-closure')),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/.storage-restore-drills')),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/.storage-activation-simulations')),
+    Path((_SITINA_ACCOUNT_HOME + '/Desktop/sitina/.storage-backup-staging')),
 )
 HOME_ROOTS = (
     "journal",
